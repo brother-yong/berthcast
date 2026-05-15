@@ -155,22 +155,88 @@ textarea { resize: vertical; min-height: 90px; }
 
 /* ── Upload slots ── */
 .upload-slot {
-  border: 1.5px dashed var(--border);
+  border: 1.5px solid var(--border);
   border-radius: var(--radius);
-  padding: 20px 24px;
-  margin-bottom: 14px;
+  padding: 18px 22px;
+  margin-bottom: 12px;
   display: flex;
   align-items: center;
   gap: 16px;
-  transition: border-color .2s, background .2s;
+  background: var(--surface);
+  transition: border-color .25s, background .25s, box-shadow .25s;
+  position: relative;
+  overflow: hidden;
 }
+.upload-slot:hover { box-shadow: 0 4px 16px rgba(37,99,235,.08); border-color: #93c5fd; }
 .upload-slot.done  { border-color: var(--success); background: #f0fdf4; }
+.upload-slot.done:hover { box-shadow: 0 4px 16px rgba(22,163,74,.1); }
 .upload-slot.error { border-color: var(--danger);  background: #fef2f2; }
-.upload-slot-icon { font-size: 26px; flex-shrink: 0; }
-.upload-slot-info { flex: 1; }
-.upload-slot-info strong { display: block; font-size: 16px; }
-.upload-slot-info span   { font-size: 14px; color: var(--muted); }
+.upload-slot.uploading { border-color: var(--primary); background: #eff6ff; }
+
+/* Progress bar that runs along the bottom of the slot */
+.upload-slot .slot-progress-bar {
+  position: absolute;
+  bottom: 0; left: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--primary), #60a5fa);
+  border-radius: 0 0 0 var(--radius);
+  width: 0%;
+  transition: width .1s ease;
+}
+
+.upload-slot-icon {
+  font-size: 24px;
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: var(--bg);
+  transition: background .2s;
+}
+.upload-slot.done  .upload-slot-icon { background: #dcfce7; }
+.upload-slot.error .upload-slot-icon { background: #fee2e2; }
+.upload-slot.uploading .upload-slot-icon { background: #dbeafe; }
+
+.upload-slot-info { flex: 1; min-width: 0; }
+.upload-slot-info strong { display: block; font-size: 15px; font-weight: 600; }
+.upload-slot-info span   { font-size: 13px; color: var(--muted); display: block; }
+.upload-slot-status {
+  font-size: 12px;
+  margin-top: 5px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.upload-slot-status .pct { color: var(--primary); }
+.upload-slot-status .fname { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px; }
+.upload-slot-status .remove-link { color: var(--danger); cursor: pointer; font-size: 11px; text-decoration: underline; flex-shrink: 0; background: none; border: none; padding: 0; }
 .upload-slot-btn  { flex-shrink: 0; }
+
+/* Animated checkmark on success */
+@keyframes checkPop {
+  0%   { transform: scale(0.5); opacity: 0; }
+  70%  { transform: scale(1.2); }
+  100% { transform: scale(1);   opacity: 1; }
+}
+.upload-slot.done .upload-slot-icon { animation: checkPop .35s ease forwards; }
+
+/* Pulsing dot for uploading state */
+@keyframes uploadPulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: .4; }
+}
+.uploading-dot {
+  display: inline-block;
+  width: 8px; height: 8px;
+  background: var(--primary);
+  border-radius: 50%;
+  animation: uploadPulse .9s ease infinite;
+}
+
 
 /* ── Status badges ── */
 .badge {
@@ -230,31 +296,33 @@ textarea { resize: vertical; min-height: 90px; }
 .rec-note { flex: 1; min-width: 180px; }
 
 /* ── Steps indicator ── */
-.steps { display: flex; gap: 0; margin-bottom: 32px; }
+.steps { display: flex; gap: 0; margin-bottom: 28px; align-items: center; }
 .step  { flex: 1; text-align: center; padding: 10px 4px; position: relative; }
 .step:not(:last-child)::after {
   content: "";
   position: absolute;
-  right: 0; top: 50%;
-  transform: translateY(-50%);
-  width: 1px; height: 60%;
+  right: 0; top: 22px;
+  width: 1px; height: 28px;
   background: var(--border);
 }
 .step-num {
   display: inline-flex;
   align-items: center; justify-content: center;
-  width: 32px; height: 32px;
+  width: 34px; height: 34px;
   border-radius: 50%;
-  background: var(--border);
+  background: var(--bg);
+  border: 2px solid var(--border);
   color: var(--muted);
   font-weight: 700;
-  font-size: 15px;
-  margin-bottom: 4px;
+  font-size: 14px;
+  margin-bottom: 5px;
+  transition: background .2s, border-color .2s, color .2s;
 }
-.step.active .step-num { background: var(--primary); color: #fff; }
-.step.done   .step-num { background: var(--success); color: #fff; }
-.step-label { font-size: 13px; color: var(--muted); display: block; }
+.step.active .step-num { background: var(--primary); border-color: var(--primary); color: #fff; box-shadow: 0 0 0 4px rgba(37,99,235,.15); }
+.step.done   .step-num { background: var(--success); border-color: var(--success); color: #fff; }
+.step-label { font-size: 12px; color: var(--muted); display: block; letter-spacing: .2px; }
 .step.active .step-label { color: var(--primary); font-weight: 600; }
+.step.done   .step-label { color: var(--success); }
 
 /* ── Table ── */
 .data-table { width: 100%; border-collapse: collapse; font-size: 15px; }
