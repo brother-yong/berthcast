@@ -1,0 +1,26 @@
+# Data files — never upload these
+Customer Listing/
+Inventory Report/
+Purchase Order Record/
+Sales Report/
+Stockout Report/
+Supplier Listing/
+uploads/
+
+# Database
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+venv/
+.venv/
+
+# OS
+.DS_Store
+Thumbs.db

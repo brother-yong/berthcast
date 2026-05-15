@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Sign In — BerthAI{% endblock %}
+
+{% block content %}
+<div class="page-narrow">
+  <div class="page-header" style="text-align:center;">
+    <div style="font-size:48px; margin-bottom:8px;">⚓</div>
+    <h1>BerthAI</h1>
+    <p>Sign in to your account</p>
+  </div>
+
+  <div class="card">
+    <form method="POST" action="{{ url_for('login') }}">
+      <div class="form-group">
+        <label for="email">Email address</label>
+        <input type="email" id="email" name="email" required autofocus
+               placeholder="you@company.com">
+      </div>
+      <div class="form-group">
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" required
+               placeholder="Enter your password">
+      </div>
+      <button type="submit" class="btn btn-primary btn-full" style="margin-top:8px;">
+        Sign in
+      </button>
+    </form>
+  </div>
+
+  <p style="text-align:center; color:var(--muted); font-size:14px; margin-top:20px;">
+    Don't have an account? Contact your BerthAI administrator.
+  </p>
+</div>
+{% endblock %}

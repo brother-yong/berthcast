@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}Admin — BerthAI{% endblock %}
+
+{% block content %}
+<div class="page-wrap">
+  <div class="page-header">
+    <h1>Admin panel</h1>
+    <p>Create and manage organisation accounts. Users can only be added by you.</p>
+  </div>
+
+  <!-- Create new account -->
+  <div class="card">
+    <div class="card-title">Create a new account</div>
+    <form method="POST" action="{{ url_for('admin_panel') }}">
+      <input type="hidden" name="action" value="create_user">
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+        <div class="form-group">
+          <label for="email">Email address</label>
+          <input type="email" id="email" name="email" required placeholder="user@company.com">
+        </div>
+        <div class="form-group">
+          <label for="org_name">Organisation name</label>
+          <input type="text" id="org_name" name="org_name" required placeholder="e.g. a regional food distributor">
+        </div>
+        <div class="form-group">
+          <label for="password">Temporary password</label>
+          <input type="text" id="password" name="password" required placeholder="They can change this later">
+        </div>
+        <div class="form-group">
+          <label for="model">AI model
+            <span class="hint">This is hidden from the user</span>
+          </label>
+          <select id="model" name="model">
+            {% for val, label in models %}
+            <option value="{{ val }}" {% if val == 'claude-sonnet-4-6' %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      <button type="submit" class="btn btn-primary">Create account</button>
+    </form>
+  </div>
+
+  <!-- Existing accounts -->
+  <div class="card">
+    <div class="card-title">Existing accounts ({{ users|length }})</div>
+    {% if users %}
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Email</th>
+          <th>Organisation</th>
+          <th>AI model</th>
+          <th>Created</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for u in users %}
+        <tr>
+          <td>{{ u.email }}</td>
+          <td>{{ u.org_name }}</td>
+          <td>
+            <form method="POST" action="{{ url_for('admin_panel') }}" style="display:flex; gap:8px; align-items:center;">
+              <input type="hidden" name="action" value="change_model">
+              <input type="hidden" name="user_id" value="{{ u.id }}">
+              <select name="model" onchange="this.form.submit()" style="width:auto; font-size:13px; padding:4px 8px;">
+                {% for val, label in models %}
+                <option value="{{ val }}" {% if u.model == val %}selected{% endif %}>{{ val.split('-')[1]|capitalize }}</option>
+                {% endfor %}
+              </select>
+            </form>
+          </td>
+          <td style="font-size:13px; color:var(--muted);">{{ u.created_at[:10] }}</td>
+          <td>
+            <form method="POST" action="{{ url_for('admin_panel') }}"
+                  onsubmit="return confirm('Remove this account? This cannot be undone.')">
+              <input type="hidden" name="action" value="delete_user">
+              <input type="hidden" name="user_id" value="{{ u.id }}">
+              <button type="submit" class="btn btn-danger btn-sm">Remove</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+      <p style="color:var(--muted);">No accounts yet. Create one above.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

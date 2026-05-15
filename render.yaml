@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: berthai
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --timeout 120 --workers 2
+    envVars:
+      - key: ANTHROPIC_API_KEY
+        sync: false        # You paste this manually in Render dashboard
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ADMIN_EMAIL
+        sync: false        # Your admin login email
+      - key: ADMIN_PASSWORD
+        sync: false        # Your admin login password
+    disk:
+      name: berthai-data
+      mountPath: /opt/render/project/src
+      sizeGB: 1
