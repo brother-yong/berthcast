@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Home — BerthAI{% endblock %}
+
+{% block content %}
+<div class="page-wrap">
+  <div class="page-header">
+    <h1>Welcome, {{ session.org_name }}</h1>
+    <p>Upload your latest inventory data to get purchase recommendations.</p>
+  </div>
+
+  <div class="card" style="text-align:center; padding:48px 28px;">
+    <div style="font-size:52px; margin-bottom:12px;">📦</div>
+    <h2 style="font-size:22px; margin-bottom:10px;">Start a new analysis</h2>
+    <p style="color:var(--muted); max-width:420px; margin:0 auto 28px;">
+      Upload your Synergix exports and we will tell you exactly what to order,
+      how much, and flag anything that needs your attention.
+    </p>
+    <a href="{{ url_for('upload') }}" class="btn btn-primary">Upload files and begin</a>
+  </div>
+
+  {% if last_session and last_session.status == 'complete' %}
+  <div class="card" style="margin-top:20px;">
+    <div class="card-title">Previous analysis</div>
+    <p style="color:var(--muted); margin-bottom:16px;">
+      Your last analysis was run on {{ last_session.created_at[:10] }}.
+    </p>
+    <a href="{{ url_for('results', upload_session_id=last_session.id) }}" class="btn btn-outline">
+      View previous results
+    </a>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

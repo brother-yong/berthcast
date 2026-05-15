@@ -1,0 +1,206 @@
+{% extends "base.html" %}
+{% block title %}Results — BerthAI{% endblock %}
+
+{% block content %}
+<div class="page-wrap">
+  <div class="page-header">
+    <h1>Analysis results — {{ org_name }}</h1>
+    <p>Review the inventory health and approve or dismiss each recommendation below.</p>
+  </div>
+
+  <!-- Summary strip -->
+  {% set critical = inventory | selectattr('status', 'equalto', 'CRITICAL') | list %}
+  {% set low      = inventory | selectattr('status', 'equalto', 'LOW') | list %}
+  {% set high_sp  = inventory | selectattr('spoilage_risk', 'equalto', 'HIGH') | list %}
+  <div style="display:flex; gap:14px; flex-wrap:wrap; margin-bottom:24px;">
+    <div class="card" style="flex:1; min-width:140px; text-align:center; padding:18px;">
+      <div style="font-size:28px; font-weight:700; color:var(--danger);">{{ critical|length }}</div>
+      <div style="font-size:14px; color:var(--muted); margin-top:4px;">Critical stock</div>
+    </div>
+    <div class="card" style="flex:1; min-width:140px; text-align:center; padding:18px;">
+      <div style="font-size:28px; font-weight:700; color:var(--warning);">{{ low|length }}</div>
+      <div style="font-size:14px; color:var(--muted); margin-top:4px;">Low stock</div>
+    </div>
+    <div class="card" style="flex:1; min-width:140px; text-align:center; padding:18px;">
+      <div style="font-size:28px; font-weight:700; color:var(--danger);">{{ high_sp|length }}</div>
+      <div style="font-size:14px; color:var(--muted); margin-top:4px;">High spoilage risk</div>
+    </div>
+    <div class="card" style="flex:1; min-width:140px; text-align:center; padding:18px;">
+      <div style="font-size:28px; font-weight:700; color:var(--primary);">{{ recommendations|length }}</div>
+      <div style="font-size:14px; color:var(--muted); margin-top:4px;">Recommendations</div>
+    </div>
+  </div>
+
+  <!-- Tab navigation -->
+  <div style="display:flex; border-bottom:2px solid var(--border); margin-bottom:24px; gap:4px;">
+    <button class="tab-btn active" onclick="showTab('tab-recs', this)">
+      Purchase recommendations
+    </button>
+    <button class="tab-btn" onclick="showTab('tab-inv', this)">
+      Inventory health
+    </button>
+  </div>
+
+  <!-- ── RECOMMENDATIONS TAB ── -->
+  <div id="tab-recs">
+    {% if recommendations %}
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; flex-wrap:wrap; gap:10px;">
+      <p style="color:var(--muted); font-size:15px;">
+        Approve what to order. Dismiss what you don't need. Add notes where needed.
+        Once done, print your order sheet.
+      </p>
+      <a href="{{ url_for('print_results', upload_session_id=upload_session_id) }}"
+         target="_blank" class="btn btn-success btn-sm no-print">
+        🖨️ Print approved orders
+      </a>
+    </div>
+
+    {% for rec in recommendations %}
+    {% if not rec.error %}
+    <div class="rec-card {% if rec.approved %}approved{% elif rec.dismissed %}dismissed{% endif %}"
+         id="rec-{{ loop.index0 }}">
+      <div class="rec-card-header">
+        <div class="rec-card-title">{{ rec.item }}</div>
+        {% if rec.confidence == 'HIGH' %}
+          <span class="badge badge-healthy">High confidence</span>
+        {% elif rec.confidence == 'MEDIUM' %}
+          <span class="badge badge-low">Medium confidence</span>
+        {% else %}
+          <span class="badge badge-dead">Low confidence</span>
+        {% endif %}
+        {% if rec.approved %}
+          <span class="badge badge-healthy">✓ Approved</span>
+        {% elif rec.dismissed %}
+          <span class="badge badge-dead">Dismissed</span>
+        {% endif %}
+      </div>
+
+      <div class="rec-card-body">
+        <p><strong>Supplier:</strong> {{ rec.supplier }} ({{ rec.supplier_type }}, {{ rec.lead_time_days }} day lead time)</p>
+        <p style="margin-top:6px;"><strong>Suggested order:</strong> {{ rec.suggested_quantity }}</p>
+        <p style="margin-top:8px;">{{ rec.reason }}</p>
+      </div>
+
+      {% if rec.flags %}
+      <div class="rec-card-flags">
+        {% for flag in rec.flags %}
+        <span class="flag-chip">⚠️ {{ flag }}</span>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      <div class="rec-card-actions">
+        <input type="text" class="rec-note"
+               id="note-{{ loop.index0 }}"
+               placeholder="Add a note (e.g. called supplier, confirmed delivery)"
+               value="{{ rec.note or '' }}">
+        <button class="btn btn-success btn-sm"
+                onclick="takeAction({{ loop.index0 }}, '{{ rec.item | replace("'", "\\'") }}', 'approve')">
+          ✓ Approve
+        </button>
+        <button class="btn btn-muted btn-sm"
+                onclick="takeAction({{ loop.index0 }}, '{{ rec.item | replace("'", "\\'") }}', 'dismiss')">
+          Dismiss
+        </button>
+      </div>
+    </div>
+    {% endif %}
+    {% endfor %}
+
+    {% else %}
+    <div class="card">
+      <p style="color:var(--muted);">No recommendations generated. Your inventory may be in good shape, or there was insufficient sales data.</p>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- ── INVENTORY HEALTH TAB ── -->
+  <div id="tab-inv" style="display:none;">
+    {% if inventory %}
+    <div class="card" style="overflow-x:auto;">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Item</th>
+            <th>Category</th>
+            <th>Stock</th>
+            <th>Status</th>
+            <th>Spoilage risk</th>
+            <th>Days of supply</th>
+            <th>Note</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in inventory %}
+          <tr>
+            <td>{{ item.item }}</td>
+            <td>{{ item.category }}</td>
+            <td>{{ item.stock }}</td>
+            <td><span class="badge badge-{{ item.status | lower }}">{{ item.status }}</span></td>
+            <td><span class="badge badge-{{ item.spoilage_risk | lower }}">{{ item.spoilage_risk }}</span></td>
+            <td>{{ item.days_of_supply or '—' }}</td>
+            <td style="color:var(--muted); font-size:14px;">{{ item.observation }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="card">
+      <p style="color:var(--muted);">No inventory data to display.</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<style>
+.tab-btn {
+  background: none;
+  border: none;
+  padding: 10px 20px;
+  font-size: 16px;
+  cursor: pointer;
+  color: var(--muted);
+  border-bottom: 3px solid transparent;
+  margin-bottom: -2px;
+  transition: color .15s, border-color .15s;
+}
+.tab-btn.active { color: var(--primary); border-bottom-color: var(--primary); font-weight: 600; }
+</style>
+
+<script>
+const sessionId = {{ upload_session_id }};
+
+function showTab(tabId, btn) {
+  document.querySelectorAll('[id^="tab-"]').forEach(t => t.style.display = 'none');
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById(tabId).style.display = 'block';
+  btn.classList.add('active');
+}
+
+async function takeAction(idx, item, action) {
+  const note = document.getElementById('note-' + idx)?.value || '';
+  const res  = await fetch('/recommend/action', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session_id: sessionId, item, action, note })
+  });
+  const data = await res.json();
+  if (data.ok) {
+    const card = document.getElementById('rec-' + idx);
+    card.classList.remove('approved', 'dismissed');
+    card.classList.add(action === 'approve' ? 'approved' : 'dismissed');
+    // Update badges
+    const badges = card.querySelectorAll('.badge-healthy, .badge-dead');
+    badges.forEach(b => {
+      if (b.textContent.includes('Approved') || b.textContent.includes('Dismissed')) b.remove();
+    });
+    const header = card.querySelector('.rec-card-header');
+    const nb = document.createElement('span');
+    nb.className = action === 'approve' ? 'badge badge-healthy' : 'badge badge-dead';
+    nb.textContent = action === 'approve' ? '✓ Approved' : 'Dismissed';
+    header.appendChild(nb);
+  }
+}
+</script>
+{% endblock %}

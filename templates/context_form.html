@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Step 2 — Add Context — BerthAI{% endblock %}
+
+{% block content %}
+<div class="page-wrap">
+  <div class="page-header">
+    <h1>Step 2 — Tell us what we need to know</h1>
+    <p>Answer these questions so the AI has the full picture before making recommendations.</p>
+  </div>
+
+  <!-- Steps indicator -->
+  <div class="steps card" style="padding:16px 24px;">
+    <div class="step done"><div class="step-num">✓</div><span class="step-label">Upload files</span></div>
+    <div class="step active"><div class="step-num">2</div><span class="step-label">Add context</span></div>
+    <div class="step"><div class="step-num">3</div><span class="step-label">Review items</span></div>
+    <div class="step"><div class="step-num">4</div><span class="step-label">Results</span></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Current situation</div>
+    <p style="color:var(--muted); margin-bottom:24px; font-size:15px;">
+      Leave any question blank if it does not apply. Plain sentences are fine — no need to be formal.
+    </p>
+
+    <form method="POST" action="{{ url_for('context_form', upload_session_id=upload_session_id) }}">
+
+      <div class="form-group">
+        <label for="delayed_suppliers">
+          Are any suppliers currently delayed or hard to reach?
+          <span class="hint">e.g. "ABD Khan has not responded for 3 weeks" or "Nhan Tu shipment is stuck in customs"</span>
+        </label>
+        <textarea id="delayed_suppliers" name="delayed_suppliers"
+                  placeholder="Type here, or leave blank if all is normal..."></textarea>
+      </div>
+
+      <div class="form-group">
+        <label for="large_orders">
+          Are any large customer orders expected in the next 2 months?
+          <span class="hint">e.g. "A new ship contract is starting in July, they will need large quantities of bread and dairy"</span>
+        </label>
+        <textarea id="large_orders" name="large_orders"
+                  placeholder="Type here, or leave blank..."></textarea>
+      </div>
+
+      <div class="form-group">
+        <label for="discontinue">
+          Are there any items you are planning to stop selling?
+          <span class="hint">e.g. "We are no longer selling canned sardines — the contract ended"</span>
+        </label>
+        <textarea id="discontinue" name="discontinue"
+                  placeholder="Type here, or leave blank..."></textarea>
+      </div>
+
+      <div class="form-group">
+        <label for="other">
+          Anything else the AI should know before making recommendations?
+          <span class="hint">Anything unusual about this month — new customers, seasonal events, price changes, etc.</span>
+        </label>
+        <textarea id="other" name="other"
+                  placeholder="Type here, or leave blank..."></textarea>
+      </div>
+
+      <div style="display:flex; gap:12px; flex-wrap:wrap; margin-top:8px;">
+        <a href="{{ url_for('upload') }}" class="btn btn-outline">← Back</a>
+        <button type="submit" class="btn btn-primary">Continue to Step 3</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

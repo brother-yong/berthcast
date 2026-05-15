@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}Step 3 — Review Items — BerthAI{% endblock %}
+
+{% block content %}
+<div class="page-wrap">
+  <div class="page-header">
+    <h1>Step 3 — Review item groupings</h1>
+    <p>The AI found items that look like the same product described differently. Check these before we run the full analysis.</p>
+  </div>
+
+  <!-- Steps indicator -->
+  <div class="steps card" style="padding:16px 24px;">
+    <div class="step done"><div class="step-num">✓</div><span class="step-label">Upload files</span></div>
+    <div class="step done"><div class="step-num">✓</div><span class="step-label">Add context</span></div>
+    <div class="step active"><div class="step-num">3</div><span class="step-label">Review items</span></div>
+    <div class="step"><div class="step-num">4</div><span class="step-label">Results</span></div>
+  </div>
+
+  <form method="POST" action="{{ url_for('dedup_review', upload_session_id=upload_session_id) }}"
+        id="dedup-form">
+    <input type="hidden" name="confirmed_groups" id="confirmed-groups-input" value="[]">
+
+    {% if message and not groups %}
+    <div class="card">
+      <div class="alert alert-info" style="margin-bottom:0;">
+        {{ message }} No duplicates were detected — you can proceed directly to the analysis.
+      </div>
+    </div>
+    {% else %}
+    <div class="card">
+      <div class="card-title">
+        Suggested groupings
+        <span style="font-weight:400; color:var(--muted); font-size:15px;">
+          — {{ groups|length }} found
+        </span>
+      </div>
+      <p style="color:var(--muted); font-size:15px; margin-bottom:20px;">
+        Each row shows items the AI believes are the same product. If a grouping looks wrong,
+        click <strong>Remove</strong> to keep them separate. Leave correct groupings as-is.
+      </p>
+
+      <div id="groups-container">
+        {% for group in groups %}
+        <div class="dedup-group" id="group-{{ loop.index0 }}"
+             data-canonical="{{ group.canonical }}"
+             data-variants="{{ group.variants | join(' | ') }}">
+          <div style="flex:1;">
+            <div class="canonical">{{ group.canonical }}</div>
+            <div class="variants">
+              Also seen as:
+              {% for v in group.variants %}
+                <span style="background:var(--bg); padding:2px 8px; border-radius:4px; margin-right:4px;">{{ v }}</span>
+              {% endfor %}
+            </div>
+          </div>
+          <button type="button" class="btn btn-muted btn-sm remove-btn"
+                  onclick="removeGroup('group-{{ loop.index0 }}')">
+            Remove
+          </button>
+        </div>
+        {% endfor %}
+      </div>
+
+      <p id="no-groups-msg" style="display:none; color:var(--muted);">
+        All groupings removed. The AI will treat each item name as unique.
+      </p>
+    </div>
+    {% endif %}
+
+    <div class="card" style="margin-top:20px;">
+      <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:center;">
+        <a href="{{ url_for('context_form', upload_session_id=upload_session_id) }}"
+           class="btn btn-outline">← Back</a>
+        <button type="submit" class="btn btn-primary" onclick="prepareSubmit()">
+          Confirm and run analysis
+        </button>
+        <span style="color:var(--muted); font-size:14px;">
+          This may take up to 60 seconds depending on your data size.
+        </span>
+      </div>
+    </div>
+
+  </form>
+
+  <!-- Loading overlay -->
+  <div class="loading-overlay" id="loading" style="display:none;">
+    <div class="spinner"></div>
+    <div class="loading-text">Running analysis — please wait…</div>
+    <div style="color:var(--muted); font-size:14px; max-width:320px; text-align:center; margin-top:4px;">
+      The AI is reading your inventory, checking supplier lead times, and building recommendations.
+    </div>
+  </div>
+</div>
+
+<script>
+const allGroups = {{ groups | tojson }};
+let activeGroups = [...allGroups];
+
+function removeGroup(id) {
+  const el = document.getElementById(id);
+  const canonical = el.dataset.canonical;
+  activeGroups = activeGroups.filter(g => g.canonical !== canonical);
+  el.remove();
+  if (activeGroups.length === 0) {
+    document.getElementById('no-groups-msg').style.display = 'block';
+  }
+}
+
+function prepareSubmit() {
+  document.getElementById('confirmed-groups-input').value = JSON.stringify(activeGroups);
+  document.getElementById('loading').style.display = 'flex';
+}
+</script>
+{% endblock %}
