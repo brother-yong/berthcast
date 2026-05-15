@@ -1,5 +1,4 @@
 import sqlite3
-import pandas as pd
 import os
 
 DB_PATH = "berthai.db"
@@ -57,22 +56,69 @@ def init_db():
 
 
 def excel_to_sqlite(filepath: str, table_name: str, session_id: int):
-    """Convert an uploaded Excel file into a SQLite table scoped to the session."""
+    """
+    Convert an uploaded Excel file into a SQLite table scoped to the session.
+    Uses openpyxl streaming (read_only=True) + batch inserts to handle large files
+    without loading everything into memory at once.
+    """
+    import openpyxl
+
     conn = get_db()
     try:
-        df = pd.read_excel(filepath, dtype=str)
-        # Sanitise column names: lowercase, replace spaces with underscores
-        df.columns = [
-            col.strip().lower().replace(" ", "_").replace("/", "_").replace("-", "_")
-            for col in df.columns
+        wb = openpyxl.load_workbook(filepath, read_only=True, data_only=True)
+        ws = wb.active
+
+        rows_iter = ws.iter_rows(values_only=True)
+
+        # First row = headers
+        raw_headers = next(rows_iter, None)
+        if raw_headers is None:
+            return {"ok": False, "error": "File appears to be empty."}
+
+        headers = [
+            str(h).strip().lower()
+              .replace(" ", "_").replace("/", "_")
+              .replace("-", "_").replace("(", "").replace(")", "")
+            if h else f"col_{i}"
+            for i, h in enumerate(raw_headers)
         ]
-        # Tag every row with the session so multiple orgs never bleed into each other
-        df["_session_id"] = session_id
 
         scoped_table = f"{table_name}_{session_id}"
-        df.to_sql(scoped_table, conn, if_exists="replace", index=False)
-        conn.commit()
-        return {"ok": True, "rows": len(df), "table": scoped_table}
+
+        # Create table fresh
+        cols_def = ", ".join(f'"{h}" TEXT' for h in headers) + ', "_session_id" TEXT'
+        conn.execute(f'DROP TABLE IF EXISTS "{scoped_table}"')
+        conn.execute(f'CREATE TABLE "{scoped_table}" ({cols_def})')
+
+        placeholders = ", ".join("?" * (len(headers) + 1))
+        insert_sql   = f'INSERT INTO "{scoped_table}" VALUES ({placeholders})'
+
+        BATCH = 2000
+        batch = []
+        total = 0
+
+        for row in rows_iter:
+            values = [str(v) if v is not None else None for v in row[:len(headers)]]
+            # Pad short rows
+            while len(values) < len(headers):
+                values.append(None)
+            values.append(str(session_id))
+            batch.append(values)
+
+            if len(batch) >= BATCH:
+                conn.executemany(insert_sql, batch)
+                conn.commit()
+                total += len(batch)
+                batch = []
+
+        if batch:
+            conn.executemany(insert_sql, batch)
+            conn.commit()
+            total += len(batch)
+
+        wb.close()
+        return {"ok": True, "rows": total, "table": scoped_table}
+
     except Exception as e:
         return {"ok": False, "error": str(e)}
     finally:
