@@ -2,7 +2,6 @@ services:
   - type: web
     name: berthai
     runtime: python
-    pythonVersion: "3.11.9"
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --timeout 120 --workers 2
     envVars:
@@ -14,6 +13,8 @@ services:
         sync: false        # Your admin login email
       - key: ADMIN_PASSWORD
         sync: false        # Your admin login password
+      - key: PYTHON_VERSION
+        value: "3.11.9"
     disk:
       name: berthai-data
       mountPath: /opt/render/project/src
