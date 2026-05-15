@@ -5,7 +5,7 @@
 <div class="page-wrap">
   <div class="page-header">
     <h1>Step 1 — Upload your data</h1>
-    <p>Export each report from Synergix and upload it here. All files must be Excel format (.xlsx).</p>
+    <p>Upload your data exports below. All files must be Excel format (.xlsx). Maximum 50MB per file.</p>
   </div>
 
   <!-- Steps indicator -->
@@ -32,15 +32,18 @@
     <div class="card-title">Files to upload</div>
 
     <!-- Inventory Report -->
-    <div class="upload-slot {% if tables.inventory %}done{% endif %}" id="slot-inventory">
+    <div class="upload-slot {% if tables.inventory %}done{% endif %}" id="slot-inventory" data-default-icon="📋">
       <div class="upload-slot-icon">{% if tables.inventory %}✅{% else %}📋{% endif %}</div>
       <div class="upload-slot-info">
         <strong>Inventory Report</strong>
-        <span>Current stock on hand — all items, quantities, and categories.<br>
-              In Synergix: Reports → Inventory → Current Stock Report → Export Excel</span>
+        <span>Current stock on hand — all items, quantities, and categories.</span>
+        <span class="file-name" id="fname-inventory" style="display:{% if tables.inventory %}inline{% else %}none{% endif %}; font-size:13px; color:var(--muted); margin-top:4px;">
+          {% if tables.inventory %}Previously uploaded{% endif %}
+          <button type="button" onclick="removeFile('inventory', 'slot-inventory')" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:12px;margin-left:4px;">✕ Remove</button>
+        </span>
       </div>
       <div class="upload-slot-btn">
-        <label class="btn btn-outline btn-sm" style="cursor:pointer;">
+        <label class="btn btn-outline btn-sm upload-label" id="label-inventory" style="cursor:pointer;">
           {% if tables.inventory %}Replace{% else %}Upload{% endif %}
           <input type="file" accept=".xlsx,.xls" style="display:none;"
                  onchange="uploadFile(this, 'inventory', 'slot-inventory')">
@@ -49,15 +52,18 @@
     </div>
 
     <!-- Purchase Orders -->
-    <div class="upload-slot {% if tables.purchase_orders %}done{% endif %}" id="slot-purchase_orders">
+    <div class="upload-slot {% if tables.purchase_orders %}done{% endif %}" id="slot-purchase_orders" data-default-icon="🛒">
       <div class="upload-slot-icon">{% if tables.purchase_orders %}✅{% else %}🛒{% endif %}</div>
       <div class="upload-slot-info">
         <strong>Purchase Order Record</strong>
-        <span>All orders placed with suppliers — dates, items, quantities, costs.<br>
-              In Synergix: Reports → Purchasing → Purchase Order Listing → Export Excel</span>
+        <span>All orders placed with suppliers — dates, items, quantities, and costs.</span>
+        <span class="file-name" id="fname-purchase_orders" style="display:{% if tables.purchase_orders %}inline{% else %}none{% endif %}; font-size:13px; color:var(--muted); margin-top:4px;">
+          {% if tables.purchase_orders %}Previously uploaded{% endif %}
+          <button type="button" onclick="removeFile('purchase_orders', 'slot-purchase_orders')" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:12px;margin-left:4px;">✕ Remove</button>
+        </span>
       </div>
       <div class="upload-slot-btn">
-        <label class="btn btn-outline btn-sm" style="cursor:pointer;">
+        <label class="btn btn-outline btn-sm upload-label" id="label-purchase_orders" style="cursor:pointer;">
           {% if tables.purchase_orders %}Replace{% else %}Upload{% endif %}
           <input type="file" accept=".xlsx,.xls" style="display:none;"
                  onchange="uploadFile(this, 'purchase_orders', 'slot-purchase_orders')">
@@ -66,15 +72,18 @@
     </div>
 
     <!-- Sales Report -->
-    <div class="upload-slot {% if tables.sales %}done{% endif %}" id="slot-sales">
+    <div class="upload-slot {% if tables.sales %}done{% endif %}" id="slot-sales" data-default-icon="📈">
       <div class="upload-slot-icon">{% if tables.sales %}✅{% else %}📈{% endif %}</div>
       <div class="upload-slot-info">
         <strong>Sales Report</strong>
-        <span>What customers have ordered — items, quantities, dates.<br>
-              In Synergix: Reports → Sales → Sales Listing → Export Excel</span>
+        <span>What customers have ordered — items, quantities, and dates.</span>
+        <span class="file-name" id="fname-sales" style="display:{% if tables.sales %}inline{% else %}none{% endif %}; font-size:13px; color:var(--muted); margin-top:4px;">
+          {% if tables.sales %}Previously uploaded{% endif %}
+          <button type="button" onclick="removeFile('sales', 'slot-sales')" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:12px;margin-left:4px;">✕ Remove</button>
+        </span>
       </div>
       <div class="upload-slot-btn">
-        <label class="btn btn-outline btn-sm" style="cursor:pointer;">
+        <label class="btn btn-outline btn-sm upload-label" id="label-sales" style="cursor:pointer;">
           {% if tables.sales %}Replace{% else %}Upload{% endif %}
           <input type="file" accept=".xlsx,.xls" style="display:none;"
                  onchange="uploadFile(this, 'sales', 'slot-sales')">
@@ -83,15 +92,18 @@
     </div>
 
     <!-- Supplier Listing -->
-    <div class="upload-slot {% if tables.suppliers %}done{% endif %}" id="slot-suppliers">
+    <div class="upload-slot {% if tables.suppliers %}done{% endif %}" id="slot-suppliers" data-default-icon="🏭">
       <div class="upload-slot-icon">{% if tables.suppliers %}✅{% else %}🏭{% endif %}</div>
       <div class="upload-slot-info">
         <strong>Supplier Listing</strong>
-        <span>All your suppliers — names, types (local or import), contact info.<br>
-              In Synergix: Master Data → Suppliers → Export Excel</span>
+        <span>All your suppliers — names, supplier type (local or import), and contact details.</span>
+        <span class="file-name" id="fname-suppliers" style="display:{% if tables.suppliers %}inline{% else %}none{% endif %}; font-size:13px; color:var(--muted); margin-top:4px;">
+          {% if tables.suppliers %}Previously uploaded{% endif %}
+          <button type="button" onclick="removeFile('suppliers', 'slot-suppliers')" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:12px;margin-left:4px;">✕ Remove</button>
+        </span>
       </div>
       <div class="upload-slot-btn">
-        <label class="btn btn-outline btn-sm" style="cursor:pointer;">
+        <label class="btn btn-outline btn-sm upload-label" id="label-suppliers" style="cursor:pointer;">
           {% if tables.suppliers %}Replace{% else %}Upload{% endif %}
           <input type="file" accept=".xlsx,.xls" style="display:none;"
                  onchange="uploadFile(this, 'suppliers', 'slot-suppliers')">
@@ -100,15 +112,18 @@
     </div>
 
     <!-- Stockouts (optional) -->
-    <div class="upload-slot {% if tables.stockouts %}done{% endif %}" id="slot-stockouts">
+    <div class="upload-slot {% if tables.stockouts %}done{% endif %}" id="slot-stockouts" data-default-icon="⚠️">
       <div class="upload-slot-icon">{% if tables.stockouts %}✅{% else %}⚠️{% endif %}</div>
       <div class="upload-slot-info">
         <strong>Stockout Report <span style="font-weight:400; color:var(--muted);">(optional but recommended)</span></strong>
-        <span>Items that ran out of stock — dates and quantities. Helps us understand past gaps.<br>
-              Ask your purchasing manager for this list.</span>
+        <span>Items that ran out of stock — dates and quantities. Helps identify past supply gaps.</span>
+        <span class="file-name" id="fname-stockouts" style="display:{% if tables.stockouts %}inline{% else %}none{% endif %}; font-size:13px; color:var(--muted); margin-top:4px;">
+          {% if tables.stockouts %}Previously uploaded{% endif %}
+          <button type="button" onclick="removeFile('stockouts', 'slot-stockouts')" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:12px;margin-left:4px;">✕ Remove</button>
+        </span>
       </div>
       <div class="upload-slot-btn">
-        <label class="btn btn-outline btn-sm" style="cursor:pointer;">
+        <label class="btn btn-outline btn-sm upload-label" id="label-stockouts" style="cursor:pointer;">
           {% if tables.stockouts %}Replace{% else %}Upload{% endif %}
           <input type="file" accept=".xlsx,.xls" style="display:none;"
                  onchange="uploadFile(this, 'stockouts', 'slot-stockouts')">
@@ -145,16 +160,60 @@ let uploadedSlots = {
   stockouts:       {{ 'true' if tables.stockouts else 'false' }},
 };
 const required = ["inventory", "purchase_orders", "sales", "suppliers"];
+const MAX_FILE_SIZE_MB = 100;
+
+function _setLabelText(slot, text) {
+  // Update only the text node in the label — do NOT use textContent (destroys the input)
+  const label = document.getElementById('label-' + slot);
+  for (const node of label.childNodes) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      node.textContent = text + ' ';
+      return;
+    }
+  }
+  label.insertBefore(document.createTextNode(text + ' '), label.firstChild);
+}
+
+function _updateContinueBtn() {
+  const allDone = required.every(r => uploadedSlots[r]);
+  const btn    = document.getElementById('continue-btn');
+  const status = document.getElementById('upload-status');
+  if (allDone) {
+    btn.removeAttribute('onclick');
+    btn.style.opacity = '';
+    btn.style.cursor  = '';
+    btn.classList.remove('btn-disabled');
+    status.textContent = 'All required files uploaded. You can continue.';
+    status.style.color = 'var(--success)';
+  } else {
+    btn.setAttribute('onclick', 'return false;');
+    btn.style.opacity = '0.4';
+    btn.style.cursor  = 'not-allowed';
+    btn.classList.add('btn-disabled');
+    status.textContent = 'Please upload the Inventory Report, Purchase Order Record, Sales Report, and Supplier Listing to continue.';
+    status.style.color = 'var(--muted)';
+  }
+}
 
 async function uploadFile(input, slot, slotId) {
   if (!input.files[0]) return;
+  const file   = input.files[0];
   const slotEl = document.getElementById(slotId);
+
+  // File size check
+  if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
+    slotEl.querySelector('.upload-slot-icon').textContent = '❌';
+    slotEl.classList.add('error');
+    alert(`File is too large (${(file.size/1024/1024).toFixed(1)} MB). Maximum is ${MAX_FILE_SIZE_MB} MB. Try reducing the file size or splitting the data.`);
+    return;
+  }
+
   slotEl.querySelector('.upload-slot-icon').textContent = '⏳';
   slotEl.classList.remove('done', 'error');
 
   const fd = new FormData();
   fd.append("slot", slot);
-  fd.append("file", input.files[0]);
+  fd.append("file", file);
 
   try {
     const res  = await fetch('/upload', { method: 'POST', body: fd });
@@ -162,8 +221,13 @@ async function uploadFile(input, slot, slotId) {
     if (data.ok) {
       slotEl.querySelector('.upload-slot-icon').textContent = '✅';
       slotEl.classList.add('done');
-      slotEl.querySelector('.upload-slot-btn label').textContent = 'Replace';
+      _setLabelText(slot, 'Replace');
       uploadedSlots[slot] = true;
+
+      // Show file name + remove option
+      const fnameEl = document.getElementById('fname-' + slot);
+      fnameEl.childNodes[0].textContent = file.name + ' ';
+      fnameEl.style.display = 'inline';
     } else {
       slotEl.querySelector('.upload-slot-icon').textContent = '❌';
       slotEl.classList.add('error');
@@ -175,16 +239,32 @@ async function uploadFile(input, slot, slotId) {
     alert("Upload failed. Please try again.");
   }
 
-  const allDone = required.every(r => uploadedSlots[r]);
-  const btn    = document.getElementById('continue-btn');
-  const status = document.getElementById('upload-status');
-  if (allDone) {
-    btn.removeAttribute('onclick');
-    btn.style.opacity = '';
-    btn.style.cursor  = '';
-    status.textContent = 'All required files uploaded. You can continue.';
-    status.style.color = 'var(--success)';
+  _updateContinueBtn();
+}
+
+async function removeFile(slot, slotId) {
+  if (!confirm('Remove this file?')) return;
+  const slotEl = document.getElementById(slotId);
+
+  try {
+    const res  = await fetch('/upload/remove', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ slot, session_id: sessionId })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      slotEl.querySelector('.upload-slot-icon').textContent = slotEl.dataset.defaultIcon || '📋';
+      slotEl.classList.remove('done', 'error');
+      _setLabelText(slot, 'Upload');
+      uploadedSlots[slot] = false;
+      document.getElementById('fname-' + slot).style.display = 'none';
+    }
+  } catch {
+    alert("Could not remove file. Please try again.");
   }
+
+  _updateContinueBtn();
 }
 </script>
 {% endblock %}

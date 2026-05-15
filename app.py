@@ -18,6 +18,7 @@ from agents import (
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "berthai-dev-secret-change-in-prod")
+app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024  # 100MB
 
 UPLOAD_FOLDER = "uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -192,6 +193,27 @@ def upload():
 
     tables = db.get_session_tables(upload_session_id)
     return render_template("upload.html", tables=tables, session_id=upload_session_id)
+
+
+# ── Remove uploaded file slot ─────────────────────────────────────────────────
+@app.route("/upload/remove", methods=["POST"])
+@login_required
+def remove_upload():
+    data       = request.get_json()
+    slot       = data.get("slot")
+    session_id = data.get("session_id")
+
+    if slot not in FILE_SLOTS:
+        return jsonify({"ok": False, "error": "Unknown slot."})
+
+    _verify_session_owner(session_id)
+    table_name = f"{FILE_SLOTS[slot]}_{session_id}"
+    try:
+        db.execute(f"DROP TABLE IF EXISTS {table_name}")
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+    return jsonify({"ok": True})
 
 
 # ── Step 2: Context form ──────────────────────────────────────────────────────
