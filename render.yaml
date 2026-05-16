@@ -6,14 +6,16 @@ services:
     startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --timeout 120 --workers 1 --worker-class gthread --threads 4
     envVars:
       - key: ANTHROPIC_API_KEY
-        sync: false        # You paste this manually in Render dashboard
+        sync: false
       - key: SECRET_KEY
         generateValue: true
       - key: ADMIN_EMAIL
-        sync: false        # Your admin login email
+        sync: false
       - key: ADMIN_PASSWORD
-        sync: false        # Your admin login password
+        sync: false
       - key: PYTHON_VERSION
         value: "3.11.9"
     disk:
-      name: berthai-dat
+      name: berthai-data
+      mountPath: /opt/render/project/src
+      sizeGB: 1
