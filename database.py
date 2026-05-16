@@ -1,4 +1,5 @@
 import sqlite3
+import json
 import os
 
 DB_PATH = "berthai.db"
@@ -55,11 +56,15 @@ def init_db():
     conn.commit()
 
     # Migrations — add columns that may not exist in older databases
-    try:
-        conn.execute("ALTER TABLE upload_sessions ADD COLUMN file_names_json TEXT")
-        conn.commit()
-    except Exception:
-        pass  # Column already exists
+    for migration in [
+        "ALTER TABLE upload_sessions ADD COLUMN file_names_json TEXT",
+        "ALTER TABLE upload_sessions ADD COLUMN conversion_status_json TEXT",
+    ]:
+        try:
+            conn.execute(migration)
+            conn.commit()
+        except Exception:
+            pass  # Column already exists
 
     conn.close()
 
@@ -175,6 +180,24 @@ def execute(sql: str, params=()):
         return c.lastrowid
     finally:
         conn.close()
+
+
+def get_conversion_status(session_id: int) -> dict:
+    rows = query("SELECT conversion_status_json FROM upload_sessions WHERE id=?", (session_id,))
+    if not rows or not rows[0]["conversion_status_json"]:
+        return {}
+    try:
+        return json.loads(rows[0]["conversion_status_json"])
+    except Exception:
+        return {}
+
+
+def set_conversion_status(session_id: int, slot: str, status: str, rows_count: int = 0, error: str = ""):
+    import json as _json
+    current = get_conversion_status(session_id)
+    current[slot] = {"status": status, "rows": rows_count, "error": error}
+    execute("UPDATE upload_sessions SET conversion_status_json=? WHERE id=?",
+            (_json.dumps(current), session_id))
 
 
 def table_exists(table_name: str) -> bool:
