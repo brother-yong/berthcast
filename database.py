@@ -78,21 +78,19 @@ def excel_to_sqlite(filepath: str, table_name: str, session_id: int):
     return _xlsx_to_sqlite(filepath, table_name, session_id)
 
 
+def _sanitize_name(name: str) -> str:
+    return (name.strip().lower()
+            .replace(" ", "_").replace("/", "_").replace("-", "_")
+            .replace(".", "").replace("(", "").replace(")", ""))
+
+
 def _csv_to_sqlite(filepath: str, table_name: str, session_id: int):
     import csv
-    import re
-
-    def _sanitize(name: str) -> str:
-        return (name.strip().lower()
-                .replace(" ", "_").replace("/", "_").replace("-", "_")
-                .replace(".", "").replace("(", "").replace(")", ""))
 
     conn = get_db()
     try:
         scoped_table = f"{table_name}_{session_id}"
-        # utf-8-sig handles Excel BOM. errors=replace so weird chars don't crash a 400k row import.
         with open(filepath, "r", encoding="utf-8-sig", errors="replace", newline="") as f:
-            # sniff delimiter — Excel SG sometimes saves with ';'
             sample = f.read(8192)
             f.seek(0)
             try:
@@ -109,7 +107,6 @@ def _csv_to_sqlite(filepath: str, table_name: str, session_id: int):
             total = 0
 
             for raw_row in reader:
-                # skip leading empties
                 if not any((c or "").strip() for c in raw_row):
                     continue
 
@@ -117,7 +114,7 @@ def _csv_to_sqlite(filepath: str, table_name: str, session_id: int):
                     seen = {}
                     headers = []
                     for i, raw in enumerate(raw_row):
-                        name = _sanitize(raw) if raw and raw.strip() else f"col_{i}"
+                        name = _sanitize_name(raw) if raw and raw.strip() else f"col_{i}"
                         if not name:
                             name = f"col_{i}"
                         if name in seen:
@@ -135,7 +132,6 @@ def _csv_to_sqlite(filepath: str, table_name: str, session_id: int):
                     insert_sql = f'INSERT INTO "{scoped_table}" VALUES ({placeholders})'
                     continue
 
-                # data row: pad or trim to header width
                 vals = [(c or "").strip() if c is not None else None for c in raw_row]
                 if len(vals) < len(headers):
                     vals = vals + [None] * (len(headers) - len(vals))
@@ -184,16 +180,11 @@ def _xlsx_to_sqlite(filepath: str, table_name: str, session_id: int):
             result = result * 26 + (ord(ch) - ord("A") + 1)
         return result - 1
 
-    def _sanitize(name: str) -> str:
-        return (name.strip().lower()
-                .replace(" ", "_").replace("/", "_").replace("-", "_")
-                .replace(".", "").replace("(", "").replace(")", ""))
-
     conn = get_db()
     try:
         with zipfile.ZipFile(filepath, "r") as zf:
 
-            shared_strings: list = []
+            shared_strings = []
             if "xl/sharedStrings.xml" in zf.namelist():
                 with zf.open("xl/sharedStrings.xml") as f:
                     for event, elem in ET.iterparse(f, events=("end",)):
@@ -218,7 +209,6 @@ def _xlsx_to_sqlite(filepath: str, table_name: str, session_id: int):
 
             with zf.open(sheet_path) as f:
                 ws_root = None
-
                 for event, elem in ET.iterparse(f, events=("start", "end")):
                     if event == "start":
                         if elem.tag == f"{{{NS}}}worksheet":
@@ -228,7 +218,7 @@ def _xlsx_to_sqlite(filepath: str, table_name: str, session_id: int):
                     if elem.tag != TAG_ROW:
                         continue
 
-                    row_vals: dict = {}
+                    row_vals = {}
                     for cell in elem:
                         if cell.tag != TAG_C:
                             continue
@@ -265,14 +255,13 @@ def _xlsx_to_sqlite(filepath: str, table_name: str, session_id: int):
                     if headers is None:
                         if len(row_vals) < 3:
                             continue
-
                         min_ci = min(row_vals.keys())
                         max_ci = max(row_vals.keys())
                         seen   = {}
                         headers = []
                         for ci in range(min_ci, max_ci + 1):
                             raw  = row_vals.get(ci, "")
-                            name = _sanitize(raw) if raw else f"col_{ci}"
+                            name = _sanitize_name(raw) if raw else f"col_{ci}"
                             if not name:
                                 name = f"col_{ci}"
                             if name in seen:
@@ -283,7 +272,7 @@ def _xlsx_to_sqlite(filepath: str, table_name: str, session_id: int):
                             headers.append(name)
                             header_col_map[ci] = len(headers) - 1
 
-                        cols_def     = ", ".join(f'"{h}" TEXT' for h in headers) + ', "_session_id" TEXT'
+                        cols_def = ", ".join(f'"{h}" TEXT' for h in headers) + ', "_session_id" TEXT'
                         conn.execute(f'DROP TABLE IF EXISTS "{scoped_table}"')
                         conn.execute(f'CREATE TABLE "{scoped_table}" ({cols_def})')
                         conn.commit()
@@ -311,8 +300,7 @@ def _xlsx_to_sqlite(filepath: str, table_name: str, session_id: int):
                 total += len(batch)
 
         if headers is None:
-            return {"ok": False, "error": "Could not find data headers — file may be empty or in an unsupported format."}
-
+            return {"ok": False, "error": "Could not find data headers in xlsx."}
         return {"ok": True, "rows": total, "table": scoped_table}
 
     except Exception as e:
