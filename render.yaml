@@ -16,6 +16,4 @@ services:
       - key: PYTHON_VERSION
         value: "3.11.9"
     disk:
-      name: berthai-data
-      mountPath: /opt/render/project/src
-      sizeGB: 1
+      name: berthai-dat
