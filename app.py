@@ -1,5 +1,6 @@
 import os
 import json
+import threading
 import tempfile
 from functools import wraps
 from flask import (
@@ -187,24 +188,50 @@ def upload():
         original_name = file.filename
         filename = secure_filename(original_name)
         filepath = os.path.join(UPLOAD_FOLDER, f"{upload_session_id}_{slot}_{filename}")
+
+        # Save file to disk immediately — this is fast regardless of file size
         file.save(filepath)
 
-        result = db.excel_to_sqlite(filepath, FILE_SLOTS[slot], upload_session_id)
+        # Mark as converting in DB so the UI can poll for status
+        db.set_conversion_status(upload_session_id, slot, "converting")
 
-        if result.get("ok"):
-            # Store the original filename so the UI can show it after refresh
-            names_row = db.query("SELECT file_names_json FROM upload_sessions WHERE id=?", (upload_session_id,))
-            names = json.loads(names_row[0]["file_names_json"] or "{}") if names_row and names_row[0]["file_names_json"] else {}
-            names[slot] = original_name
-            db.execute("UPDATE upload_sessions SET file_names_json=? WHERE id=?", (json.dumps(names), upload_session_id))
-            result["filename"] = original_name
+        # Process in a background thread — avoids HTTP timeout for large files
+        def _process(fp, table, sid, sl, orig_name):
+            result = db.excel_to_sqlite(fp, table, sid)
+            if result.get("ok"):
+                db.set_conversion_status(sid, sl, "done", rows_count=result.get("rows", 0))
+                names_row = db.query("SELECT file_names_json FROM upload_sessions WHERE id=?", (sid,))
+                names = json.loads(names_row[0]["file_names_json"] or "{}") if names_row and names_row[0]["file_names_json"] else {}
+                names[sl] = orig_name
+                db.execute("UPDATE upload_sessions SET file_names_json=? WHERE id=?", (json.dumps(names), sid))
+            else:
+                db.set_conversion_status(sid, sl, "error", error=result.get("error", "Unknown error"))
 
-        return jsonify(result)
+        t = threading.Thread(
+            target=_process,
+            args=(filepath, FILE_SLOTS[slot], upload_session_id, slot, original_name),
+            daemon=True
+        )
+        t.start()
+
+        # Return immediately — frontend will poll /upload/status for completion
+        return jsonify({"ok": True, "processing": True, "filename": original_name})
 
     tables = db.get_session_tables(upload_session_id)
     names_row = db.query("SELECT file_names_json FROM upload_sessions WHERE id=?", (upload_session_id,))
     file_names = json.loads(names_row[0]["file_names_json"] or "{}") if names_row and names_row[0]["file_names_json"] else {}
     return render_template("upload.html", tables=tables, session_id=upload_session_id, file_names=file_names)
+
+
+# ── Upload conversion status (polling) ───────────────────────────────────────
+@app.route("/upload/status/<int:upload_session_id>")
+@login_required
+def upload_status(upload_session_id):
+    _verify_session_owner(upload_session_id)
+    statuses = db.get_conversion_status(upload_session_id)
+    names_row = db.query("SELECT file_names_json FROM upload_sessions WHERE id=?", (upload_session_id,))
+    file_names = json.loads(names_row[0]["file_names_json"] or "{}") if names_row and names_row[0]["file_names_json"] else {}
+    return jsonify({"statuses": statuses, "file_names": file_names})
 
 
 # ── Remove uploaded file slot ─────────────────────────────────────────────────

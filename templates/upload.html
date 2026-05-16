@@ -58,6 +58,7 @@
         <label class="btn btn-outline btn-sm upload-label" id="label-{{ slot }}" style="cursor:pointer;">
           {{ 'Replace' if uploaded else 'Upload' }}
           <input type="file" accept=".xlsx,.xls" style="display:none;"
+                 id="input-{{ slot }}"
                  onchange="uploadFile(this, '{{ slot }}', '{{ slotId }}')">
         </label>
       </div>
@@ -173,26 +174,23 @@ function uploadFile(input, slot, slotId) {
     let data;
     try { data = JSON.parse(xhr.responseText); } catch { data = { ok: false, error: "Unexpected response." }; }
 
-    if (data.ok) {
-      slotEl.querySelector('.upload-slot-icon').textContent = '✅';
-      slotEl.classList.remove('uploading', 'error'); slotEl.classList.add('done');
-      _setLabelText(slot, 'Replace');
-      _setProgress(slotId, 100);
-      uploadedSlots[slot] = true;
+    if (data.ok && data.processing) {
+      // File saved — now processing in background. Start polling.
       const displayName = data.filename || file.name;
       _setStatus(slot,
-        `<span style="color:var(--success)">✓</span>
-         <span class="fname">${displayName}</span>
-         &nbsp;·&nbsp; ${data.rows ? data.rows.toLocaleString() + ' rows' : ''}
-         &nbsp;<button class="remove-link" onclick="removeFile('${slot}','${slotId}')">Remove</button>`
+        `<span class="uploading-dot"></span> <span class="pct" id="pct-${slot}">Processing…</span>
+         <span class="fname">${displayName}</span>`
       );
+      _pollConversionStatus(slot, slotId, displayName);
+    } else if (data.ok) {
+      _markSlotDone(slot, slotId, data.filename || file.name, data.rows);
     } else {
       slotEl.querySelector('.upload-slot-icon').textContent = '❌';
       slotEl.classList.remove('uploading', 'done'); slotEl.classList.add('error');
       _setLabelText(slot, 'Try again');
       _setProgress(slotId, 0);
       _setStatus(slot, `<span style="color:var(--danger)">Failed: ${data.error || 'Unknown error'}</span>`);
-      input.value = '';  // Reset so retry works
+      input.value = '';
     }
     _updateContinueBtn();
   });
@@ -210,6 +208,64 @@ function uploadFile(input, slot, slotId) {
   xhr.open('POST', '/upload');
   xhr.send(fd);
   input.value = '';  // Reset immediately so re-selecting same file triggers onchange
+}
+
+function _markSlotDone(slot, slotId, displayName, rows) {
+  const slotEl = document.getElementById(slotId);
+  slotEl.querySelector('.upload-slot-icon').textContent = '✅';
+  slotEl.classList.remove('uploading', 'error'); slotEl.classList.add('done');
+  _setLabelText(slot, 'Replace');
+  _setProgress(slotId, 100);
+  uploadedSlots[slot] = true;
+  _setStatus(slot,
+    `<span style="color:var(--success)">✓</span>
+     <span class="fname">${displayName}</span>
+     ${rows ? '&nbsp;·&nbsp; ' + Number(rows).toLocaleString() + ' rows' : ''}
+     &nbsp;<button class="remove-link" onclick="removeFile('${slot}','${slotId}')">Remove</button>`
+  );
+  _updateContinueBtn();
+}
+
+const _pollingSlots = new Set();
+
+async function _pollConversionStatus(slot, slotId, displayName) {
+  if (_pollingSlots.has(slot)) return;
+  _pollingSlots.add(slot);
+
+  const dots = ['Processing .', 'Processing ..', 'Processing ...'];
+  let dotIdx = 0;
+
+  const interval = setInterval(async () => {
+    // Animate the dots while waiting
+    const pctEl = document.getElementById('pct-' + slot);
+    if (pctEl) { pctEl.textContent = dots[dotIdx % 3]; dotIdx++; }
+
+    try {
+      const res  = await fetch(`/upload/status/${sessionId}`);
+      const data = await res.json();
+      const info = data.statuses && data.statuses[slot];
+
+      if (!info) return;
+
+      if (info.status === 'done') {
+        clearInterval(interval);
+        _pollingSlots.delete(slot);
+        const fname = (data.file_names && data.file_names[slot]) || displayName;
+        _markSlotDone(slot, slotId, fname, info.rows);
+      } else if (info.status === 'error') {
+        clearInterval(interval);
+        _pollingSlots.delete(slot);
+        const slotEl = document.getElementById(slotId);
+        slotEl.querySelector('.upload-slot-icon').textContent = '❌';
+        slotEl.classList.remove('uploading', 'done'); slotEl.classList.add('error');
+        _setLabelText(slot, 'Try again');
+        _setProgress(slotId, 0);
+        _setStatus(slot, `<span style="color:var(--danger)">Failed: ${info.error || 'Unknown error'}</span>`);
+        document.getElementById('input-' + slot).value = '';
+        _updateContinueBtn();
+      }
+    } catch { /* network blip — keep polling */ }
+  }, 2500);
 }
 
 async function removeFile(slot, slotId) {
