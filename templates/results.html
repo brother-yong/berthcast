@@ -49,10 +49,15 @@
         Approve what to order. Dismiss what you don't need. Add notes where needed.
         Once done, print your order sheet.
       </p>
-      <a href="{{ url_for('print_results', upload_session_id=upload_session_id) }}"
-         target="_blank" class="btn btn-success btn-sm no-print">
-        🖨️ Print approved orders
-      </a>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <button id="approve-all-btn" class="btn btn-primary btn-sm no-print" onclick="approveAll()">
+          ✓ Approve all
+        </button>
+        <a href="{{ url_for('print_results', upload_session_id=upload_session_id) }}"
+           target="_blank" class="btn btn-success btn-sm no-print">
+          🖨️ Print approved orders
+        </a>
+      </div>
     </div>
 
     {% for rec in recommendations %}
@@ -176,6 +181,38 @@ function showTab(tabId, btn) {
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   document.getElementById(tabId).style.display = 'block';
   btn.classList.add('active');
+}
+
+async function approveAll() {
+  const btn = document.getElementById('approve-all-btn');
+  const dismissedCount = document.querySelectorAll('.rec-card.dismissed').length;
+  const msg = dismissedCount > 0
+    ? `Approve all recommendations except the ${dismissedCount} you already dismissed?`
+    : 'Approve all recommendations?';
+  if (!confirm(msg)) return;
+
+  btn.disabled = true;
+  btn.textContent = 'Approving...';
+  try {
+    const res = await fetch('/recommend/approve_all', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: sessionId })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      // Reload to reflect new state cleanly
+      window.location.reload();
+    } else {
+      alert('Could not approve all: ' + (data.error || 'Unknown error'));
+      btn.disabled = false;
+      btn.textContent = '✓ Approve all';
+    }
+  } catch (e) {
+    alert('Network error. Please try again.');
+    btn.disabled = false;
+    btn.textContent = '✓ Approve all';
+  }
 }
 
 async function takeAction(idx, item, action) {
