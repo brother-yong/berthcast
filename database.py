@@ -58,8 +58,13 @@ def init_db():
 def excel_to_sqlite(filepath: str, table_name: str, session_id: int):
     """
     Convert an uploaded Excel file into a SQLite table scoped to the session.
-    Uses openpyxl streaming (read_only=True) + batch inserts to handle large files
-    without loading everything into memory at once.
+
+    ERP exports declare <dimension ref="A1"/> in their XML even for large files,
+    which causes openpyxl read_only mode to return only 1 column per row.
+    reset_dimensions() clears that bad metadata so all columns are read correctly.
+
+    Metadata rows (printed by, date, company name, etc.) at the top are skipped
+    automatically — the real header is the first row with 3+ non-empty cells.
     """
     import openpyxl
 
@@ -67,26 +72,43 @@ def excel_to_sqlite(filepath: str, table_name: str, session_id: int):
     try:
         wb = openpyxl.load_workbook(filepath, read_only=True, data_only=True)
         ws = wb.active
+        ws.reset_dimensions()  # Fix for ERP files with missing dimension declarations
 
         rows_iter = ws.iter_rows(values_only=True)
 
-        # First row = headers
-        raw_headers = next(rows_iter, None)
-        if raw_headers is None:
-            return {"ok": False, "error": "File appears to be empty."}
+        # Skip metadata rows — find first row with 3+ non-empty values (the real header)
+        raw_headers = None
+        for row in rows_iter:
+            non_empty = [v for v in row if v is not None and str(v).strip() != ""]
+            if len(non_empty) >= 3:
+                raw_headers = row
+                break
 
-        headers = [
-            str(h).strip().lower()
-              .replace(" ", "_").replace("/", "_")
-              .replace("-", "_").replace("(", "").replace(")", "")
-            if h else f"col_{i}"
-            for i, h in enumerate(raw_headers)
-        ]
+        if raw_headers is None:
+            return {"ok": False, "error": "Could not find data headers — file may be empty or unreadable."}
+
+        # Sanitise column names
+        seen = {}
+        headers = []
+        for i, h in enumerate(raw_headers):
+            if h and str(h).strip():
+                name = (str(h).strip().lower()
+                        .replace(" ", "_").replace("/", "_")
+                        .replace("-", "_").replace(".", "")
+                        .replace("(", "").replace(")", ""))
+            else:
+                name = f"col_{i}"
+            # Deduplicate
+            if name in seen:
+                seen[name] += 1
+                name = f"{name}_{seen[name]}"
+            else:
+                seen[name] = 0
+            headers.append(name)
 
         scoped_table = f"{table_name}_{session_id}"
 
-        # Create table fresh
-        cols_def = ", ".join(f'"{h}" TEXT' for h in headers) + ', "_session_id" TEXT'
+        cols_def   = ", ".join(f'"{h}" TEXT' for h in headers) + ', "_session_id" TEXT'
         conn.execute(f'DROP TABLE IF EXISTS "{scoped_table}"')
         conn.execute(f'CREATE TABLE "{scoped_table}" ({cols_def})')
 
@@ -99,7 +121,6 @@ def excel_to_sqlite(filepath: str, table_name: str, session_id: int):
 
         for row in rows_iter:
             values = [str(v) if v is not None else None for v in row[:len(headers)]]
-            # Pad short rows
             while len(values) < len(headers):
                 values.append(None)
             values.append(str(session_id))

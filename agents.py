@@ -74,9 +74,9 @@ def run_normalization_agent(session_id: int, model: str) -> dict:
             pass
         return []
 
-    item_names.update(_col_candidates(inv_table, ["description", "item_description", "item_name", "product_description"]))
-    item_names.update(_col_candidates(po_table,  ["item_description", "description", "product_name", "item_name"]))
-    item_names.update(_col_candidates(sal_table, ["item_description", "description", "product_name", "item_name"]))
+    item_names.update(_col_candidates(inv_table, ["description", "item_description", "inventory_desc", "item_name", "product_description"]))
+    item_names.update(_col_candidates(po_table,  ["inventory_desc", "item_description", "description", "product_name", "item_name"]))
+    item_names.update(_col_candidates(sal_table, ["inventory_desc", "item_description", "description", "product_name", "item_name"]))
 
     if not item_names:
         return {"groups": [], "message": "No item names found in uploaded data."}
@@ -149,15 +149,23 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
         for variant in group.get("variants", []):
             alias_map[variant.lower()] = group["canonical"]
 
-    # Pull recent sales summary (last 90 days approximate — last 3 months of data)
+    # Pull recent sales summary — try known column name variants
+    sales_by_item = {}
     try:
-        sal_rows = query(f"""
-            SELECT item_description, SUM(CAST(qty AS REAL)) as total_qty, COUNT(*) as txn_count
-            FROM {sal_table}
-            GROUP BY item_description
-            LIMIT 5000
-        """)
-        sales_by_item = {r["item_description"]: r for r in sal_rows if r["item_description"]}
+        # Detect which column names are actually in this sales table
+        sample = query(f"SELECT * FROM {sal_table} LIMIT 1")
+        if sample:
+            cols = list(sample[0].keys())
+            desc_col = next((c for c in cols if c in ("inventory_desc", "item_description", "description", "product_name")), None)
+            qty_col  = next((c for c in cols if c in ("billing_qty", "qty", "quantity", "billing_quantity")), None)
+            if desc_col and qty_col:
+                sal_rows = query(f"""
+                    SELECT "{desc_col}" as item_name, SUM(CAST("{qty_col}" AS REAL)) as total_qty, COUNT(*) as txn_count
+                    FROM {sal_table}
+                    GROUP BY "{desc_col}"
+                    LIMIT 5000
+                """)
+                sales_by_item = {r["item_name"]: r for r in sal_rows if r["item_name"]}
     except Exception:
         sales_by_item = {}
 
@@ -269,19 +277,25 @@ def run_recommendation_agent(
     # Build recent PO history per item (last supplier used)
     item_supplier_map = {}
     try:
-        po_rows = query(f"""
-            SELECT item_description, supplier_name
-            FROM {po_table}
-            WHERE item_description IS NOT NULL
-            GROUP BY item_description
-            ORDER BY rowid DESC
-            LIMIT 3000
-        """)
-        for row in po_rows:
-            item = row.get("item_description", "")
-            sup  = row.get("supplier_name", "")
-            if item and item not in item_supplier_map:
-                item_supplier_map[item] = sup
+        sample = query(f"SELECT * FROM {po_table} LIMIT 1")
+        if sample:
+            cols = list(sample[0].keys())
+            desc_col = next((c for c in cols if c in ("inventory_desc", "item_description", "description", "product_name")), None)
+            sup_col  = next((c for c in cols if "supplier" in c and "name" in c), None) or \
+                       next((c for c in cols if "supplier" in c), None)
+            if desc_col and sup_col:
+                po_rows = query(f"""
+                    SELECT "{desc_col}" as item_name, "{sup_col}" as sup_name
+                    FROM {po_table}
+                    WHERE "{desc_col}" IS NOT NULL
+                    ORDER BY rowid DESC
+                    LIMIT 3000
+                """)
+                for row in po_rows:
+                    item = row.get("item_name", "")
+                    sup  = row.get("sup_name", "")
+                    if item and item not in item_supplier_map:
+                        item_supplier_map[item] = sup
     except Exception:
         pass
 
