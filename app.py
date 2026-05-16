@@ -385,6 +385,38 @@ def print_results(upload_session_id):
     return render_template("print_order.html", recommendations=approved, org_name=session["org_name"])
 
 
+@app.route("/recommend/approve_all", methods=["POST"])
+@login_required
+def recommend_approve_all():
+    data       = request.get_json() or {}
+    session_id = data.get("session_id")
+    _verify_session_owner(session_id)
+    ar = db.query("SELECT recommendations_json FROM analysis_results WHERE session_id=?", (session_id,))
+    if not ar:
+        return jsonify({"ok": False, "error": "No recommendations found."})
+    try:
+        recs = json.loads(ar[0]["recommendations_json"] or "[]")
+    except Exception:
+        return jsonify({"ok": False, "error": "Could not read recommendations."})
+
+    approved_count = 0
+    for r in recs:
+        if r.get("error"):
+            continue
+        if r.get("dismissed"):
+            # User explicitly dismissed this — leave it alone
+            continue
+        if not r.get("approved"):
+            approved_count += 1
+        r["approved"] = True
+
+    db.execute(
+        "UPDATE analysis_results SET recommendations_json=? WHERE session_id=?",
+        (json.dumps(recs), session_id)
+    )
+    return jsonify({"ok": True, "newly_approved": approved_count, "total": len(recs)})
+
+
 @app.route("/recommend/action", methods=["POST"])
 @login_required
 def recommend_action():
@@ -412,6 +444,7 @@ def recommend_action():
 
 def _allowed(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
+
 
 def _verify_session_owner(upload_session_id):
     rows = db.query("SELECT user_id FROM upload_sessions WHERE id=?", (upload_session_id,))
