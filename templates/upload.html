@@ -8,7 +8,6 @@
     <p>Upload your data exports below. All files must be Excel format (.xlsx). Maximum 100MB per file.</p>
   </div>
 
-  <!-- Steps indicator -->
   <div class="steps card" style="padding:16px 24px;">
     <div class="step active">
       <div class="step-num">1</div>
@@ -32,11 +31,11 @@
     <div class="card-title">Files to upload</div>
 
     {% set slots = [
-      ('inventory',       'slot-inventory',       '📋', '✅', 'Inventory Report', '', 'Current stock on hand — all items, quantities, and categories.'),
-      ('purchase_orders', 'slot-purchase_orders', '🛒', '✅', 'Purchase Order Record', '', 'All orders placed with suppliers — dates, items, quantities, and costs.'),
-      ('sales',           'slot-sales',           '📈', '✅', 'Sales Report', '', 'What customers have ordered — items, quantities, and dates.'),
-      ('suppliers',       'slot-suppliers',       '🏭', '✅', 'Supplier Listing', '', 'All your suppliers — names, supplier type (local or import), and contact details.'),
-      ('stockouts',       'slot-stockouts',       '⚠️', '✅', 'Stockout Report', '(optional but recommended)', 'Items that ran out of stock — dates and quantities. Helps identify past supply gaps.'),
+      ('inventory',       'slot-inventory',       '\U0001F4CB', '\u2705', 'Inventory Report', '', 'Current stock on hand — all items, quantities, and categories.'),
+      ('purchase_orders', 'slot-purchase_orders', '\U0001F6D2', '\u2705', 'Purchase Order Record', '', 'All orders placed with suppliers — dates, items, quantities, and costs.'),
+      ('sales',           'slot-sales',           '\U0001F4C8', '\u2705', 'Sales Report', '', 'What customers have ordered — items, quantities, and dates.'),
+      ('suppliers',       'slot-suppliers',       '\U0001F3ED', '\u2705', 'Supplier Listing', '', 'All your suppliers — names, supplier type (local or import), and contact details.'),
+      ('stockouts',       'slot-stockouts',       '\u26A0\uFE0F', '\u2705', 'Stockout Report', '(optional but recommended)', 'Items that ran out of stock — dates and quantities. Helps identify past supply gaps.'),
     ] %}
 
     {% for slot, slotId, icon, doneIcon, title, badge, desc in slots %}
@@ -48,7 +47,7 @@
         <span>{{ desc }}</span>
         <div class="upload-slot-status" id="status-{{ slot }}">
           {% if uploaded %}
-            <span style="color:var(--success)">✓</span>
+            <span style="color:var(--success)">\u2713</span>
             <span class="fname">{{ file_names.get(slot, 'File uploaded') }}</span>
             &nbsp;<button class="remove-link" onclick="removeFile('{{ slot }}','{{ slotId }}')">Remove</button>
           {% endif %}
@@ -113,7 +112,7 @@ function _updateContinueBtn() {
     btn.removeAttribute('onclick');
     btn.style.opacity = ''; btn.style.cursor = '';
     btn.classList.remove('btn-disabled');
-    status.innerHTML = '<span style="color:var(--success)">✓ All required files uploaded. You can continue.</span>';
+    status.innerHTML = '<span style="color:var(--success)">\u2713 All required files uploaded. You can continue.</span>';
   } else {
     btn.setAttribute('onclick', 'return false;');
     btn.style.opacity = '0.4'; btn.style.cursor = 'not-allowed';
@@ -129,7 +128,7 @@ function _setStatus(slot, html) {
 }
 
 function _setProgress(slotId, pct) {
-  const bar = document.querySelector(`#${slotId} .slot-progress-bar`);
+  const bar = document.querySelector('#' + slotId + ' .slot-progress-bar');
   if (bar) bar.style.width = pct + '%';
 }
 
@@ -139,17 +138,16 @@ function uploadFile(input, slot, slotId) {
   const slotEl = document.getElementById(slotId);
 
   if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
-    slotEl.querySelector('.upload-slot-icon').textContent = '❌';
+    slotEl.querySelector('.upload-slot-icon').textContent = '\u274C';
     slotEl.classList.remove('done', 'uploading'); slotEl.classList.add('error');
-    _setStatus(slot, `<span style="color:var(--danger)">File too large (${(file.size/1024/1024).toFixed(1)} MB). Max is ${MAX_FILE_SIZE_MB} MB.</span>`);
+    _setStatus(slot, '<span style="color:var(--danger)">File too large (' + (file.size/1024/1024).toFixed(1) + ' MB). Max is ' + MAX_FILE_SIZE_MB + ' MB.</span>');
     return;
   }
 
-  // Start uploading state
-  slotEl.querySelector('.upload-slot-icon').textContent = '📤';
+  slotEl.querySelector('.upload-slot-icon').textContent = '\U0001F4E4';
   slotEl.classList.remove('done', 'error'); slotEl.classList.add('uploading');
-  _setLabelText(slot, 'Uploading…');
-  _setStatus(slot, `<span class="uploading-dot"></span> <span class="pct" id="pct-${slot}">0%</span> &nbsp;uploading ${file.name}`);
+  _setLabelText(slot, 'Uploading\u2026');
+  _setStatus(slot, '<span class="uploading-dot"></span> <span class="pct" id="pct-' + slot + '">0%</span> &nbsp;uploading ' + file.name);
   _setProgress(slotId, 0);
 
   const fd = new FormData();
@@ -165,24 +163,125 @@ function uploadFile(input, slot, slotId) {
       const pctEl = document.getElementById('pct-' + slot);
       if (pctEl) pctEl.textContent = pct + '%';
       if (pct === 100) {
-        _setStatus(slot, `<span class="uploading-dot"></span> <span class="pct">Processing…</span>`);
+        _setStatus(slot, '<span class="uploading-dot"></span> <span class="pct">Processing\u2026</span>');
       }
     }
   });
 
   xhr.addEventListener('load', () => {
     let data;
-    try { data = JSON.parse(xhr.responseText); } catch { data = { ok: false, error: "Unexpected response." }; }
+    try { data = JSON.parse(xhr.responseText); } catch(e) { data = { ok: false, error: "Unexpected response." }; }
 
     if (data.ok && data.processing) {
-      // File saved — now processing in background. Start polling.
       const displayName = data.filename || file.name;
       _setStatus(slot,
-        `<span class="uploading-dot"></span> <span class="pct" id="pct-${slot}">Processing…</span>
-         <span class="fname">${displayName}</span>`
+        '<span class="uploading-dot"></span> <span class="pct" id="pct-' + slot + '">Processing\u2026</span> <span class="fname">' + displayName + '</span>'
       );
       _pollConversionStatus(slot, slotId, displayName);
     } else if (data.ok) {
       _markSlotDone(slot, slotId, data.filename || file.name, data.rows);
     } else {
-      slotEl.querySelecto
+      slotEl.querySelector('.upload-slot-icon').textContent = '\u274C';
+      slotEl.classList.remove('uploading', 'done'); slotEl.classList.add('error');
+      _setLabelText(slot, 'Try again');
+      _setProgress(slotId, 0);
+      _setStatus(slot, '<span style="color:var(--danger)">Failed: ' + (data.error || 'Unknown error') + '</span>');
+      input.value = '';
+    }
+    _updateContinueBtn();
+  });
+
+  xhr.addEventListener('error', () => {
+    slotEl.querySelector('.upload-slot-icon').textContent = '\u274C';
+    slotEl.classList.remove('uploading', 'done'); slotEl.classList.add('error');
+    _setLabelText(slot, 'Try again');
+    _setProgress(slotId, 0);
+    _setStatus(slot, '<span style="color:var(--danger)">Connection error — please try again.</span>');
+    input.value = '';
+    _updateContinueBtn();
+  });
+
+  xhr.open('POST', '/upload');
+  xhr.send(fd);
+  input.value = '';
+}
+
+function _markSlotDone(slot, slotId, displayName, rows) {
+  const slotEl = document.getElementById(slotId);
+  slotEl.querySelector('.upload-slot-icon').textContent = '\u2705';
+  slotEl.classList.remove('uploading', 'error'); slotEl.classList.add('done');
+  _setLabelText(slot, 'Replace');
+  _setProgress(slotId, 100);
+  uploadedSlots[slot] = true;
+  _setStatus(slot,
+    '<span style="color:var(--success)">\u2713</span> <span class="fname">' + displayName + '</span>' +
+    (rows ? ' &nbsp;\u00B7&nbsp; ' + Number(rows).toLocaleString() + ' rows' : '') +
+    ' &nbsp;<button class="remove-link" onclick="removeFile(\'' + slot + '\',\'' + slotId + '\')">Remove</button>'
+  );
+  _updateContinueBtn();
+}
+
+const _pollingSlots = new Set();
+
+async function _pollConversionStatus(slot, slotId, displayName) {
+  if (_pollingSlots.has(slot)) return;
+  _pollingSlots.add(slot);
+
+  const dots = ['Processing .', 'Processing ..', 'Processing ...'];
+  let dotIdx = 0;
+
+  const interval = setInterval(async () => {
+    const pctEl = document.getElementById('pct-' + slot);
+    if (pctEl) { pctEl.textContent = dots[dotIdx % 3]; dotIdx++; }
+
+    try {
+      const res  = await fetch('/upload/status/' + sessionId);
+      const data = await res.json();
+      const info = data.statuses && data.statuses[slot];
+
+      if (!info) return;
+
+      if (info.status === 'done') {
+        clearInterval(interval);
+        _pollingSlots.delete(slot);
+        const fname = (data.file_names && data.file_names[slot]) || displayName;
+        _markSlotDone(slot, slotId, fname, info.rows);
+      } else if (info.status === 'error') {
+        clearInterval(interval);
+        _pollingSlots.delete(slot);
+        const slotEl = document.getElementById(slotId);
+        slotEl.querySelector('.upload-slot-icon').textContent = '\u274C';
+        slotEl.classList.remove('uploading', 'done'); slotEl.classList.add('error');
+        _setLabelText(slot, 'Try again');
+        _setProgress(slotId, 0);
+        _setStatus(slot, '<span style="color:var(--danger)">Failed: ' + (info.error || 'Unknown error') + '</span>');
+        document.getElementById('input-' + slot).value = '';
+        _updateContinueBtn();
+      }
+    } catch(e) { /* network blip, keep polling */ }
+  }, 2500);
+}
+
+async function removeFile(slot, slotId) {
+  if (!confirm('Remove this file?')) return;
+  const slotEl = document.getElementById(slotId);
+  try {
+    const res  = await fetch('/upload/remove', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ slot: slot, session_id: sessionId })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      slotEl.querySelector('.upload-slot-icon').textContent = slotEl.dataset.defaultIcon || '\U0001F4CB';
+      slotEl.classList.remove('done', 'error', 'uploading');
+      _setLabelText(slot, 'Upload');
+      _setProgress(slotId, 0);
+      uploadedSlots[slot] = false;
+      _setStatus(slot, '');
+    }
+  } catch(e) { alert("Could not remove file."); }
+  _updateContinueBtn();
+}
+</script>
+{% endblock %}
