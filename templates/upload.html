@@ -5,7 +5,7 @@
 <div class="page-wrap">
   <div class="page-header">
     <h1>Step 1 — Upload your data</h1>
-    <p>Upload your data exports below. All files must be Excel format (.xlsx). Maximum 50MB per file.</p>
+    <p>Upload your data exports below. All files must be Excel format (.xlsx). Maximum 100MB per file.</p>
   </div>
 
   <!-- Steps indicator -->
@@ -49,7 +49,7 @@
         <div class="upload-slot-status" id="status-{{ slot }}">
           {% if uploaded %}
             <span style="color:var(--success)">✓</span>
-            <span class="fname">Previously uploaded</span>
+            <span class="fname">{{ file_names.get(slot, 'File uploaded') }}</span>
             &nbsp;<button class="remove-link" onclick="removeFile('{{ slot }}','{{ slotId }}')">Remove</button>
           {% endif %}
         </div>
@@ -179,9 +179,10 @@ function uploadFile(input, slot, slotId) {
       _setLabelText(slot, 'Replace');
       _setProgress(slotId, 100);
       uploadedSlots[slot] = true;
+      const displayName = data.filename || file.name;
       _setStatus(slot,
         `<span style="color:var(--success)">✓</span>
-         <span class="fname">${file.name}</span>
+         <span class="fname">${displayName}</span>
          &nbsp;·&nbsp; ${data.rows ? data.rows.toLocaleString() + ' rows' : ''}
          &nbsp;<button class="remove-link" onclick="removeFile('${slot}','${slotId}')">Remove</button>`
       );
@@ -191,6 +192,7 @@ function uploadFile(input, slot, slotId) {
       _setLabelText(slot, 'Try again');
       _setProgress(slotId, 0);
       _setStatus(slot, `<span style="color:var(--danger)">Failed: ${data.error || 'Unknown error'}</span>`);
+      input.value = '';  // Reset so retry works
     }
     _updateContinueBtn();
   });
@@ -201,11 +203,13 @@ function uploadFile(input, slot, slotId) {
     _setLabelText(slot, 'Try again');
     _setProgress(slotId, 0);
     _setStatus(slot, `<span style="color:var(--danger)">Connection error — please try again.</span>`);
+    input.value = '';  // Reset so onchange fires even if same file is selected
     _updateContinueBtn();
   });
 
   xhr.open('POST', '/upload');
   xhr.send(fd);
+  input.value = '';  // Reset immediately so re-selecting same file triggers onchange
 }
 
 async function removeFile(slot, slotId) {

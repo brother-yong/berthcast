@@ -37,6 +37,7 @@ def init_db():
             org_name TEXT NOT NULL,
             status TEXT DEFAULT 'uploading',
             context_json TEXT,
+            file_names_json TEXT,
             dedup_confirmed INTEGER DEFAULT 0,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (user_id) REFERENCES users(id)
@@ -52,6 +53,14 @@ def init_db():
         );
     """)
     conn.commit()
+
+    # Migrations — add columns that may not exist in older databases
+    try:
+        conn.execute("ALTER TABLE upload_sessions ADD COLUMN file_names_json TEXT")
+        conn.commit()
+    except Exception:
+        pass  # Column already exists
+
     conn.close()
 
 

@@ -169,12 +169,22 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
     except Exception:
         sales_by_item = {}
 
+    # Detect inventory column names once (not per row)
+    _sample = inventory[0] if inventory else {}
+    _cols   = list(_sample.keys())
+    _desc_col = next((k for k in _cols if k in ("description", "item_description", "inventory_desc", "product_description")), None)
+    # Prefer qty_on_hand over qty_on_hand_allocated — allocated = reserved, not available
+    _qty_col  = next((k for k in _cols if k == "qty_on_hand"), None) or \
+                next((k for k in _cols if k not in ("qty_on_hand_allocated",) and ("qty" in k or "quantity" in k or "stock" in k)), None)
+    _cat_col  = next((k for k in _cols if "category" in k), None) or \
+                next((k for k in _cols if "cat" in k or "class" in k), None)
+
     # Summarise inventory for the agent
     inv_summary_lines = []
     for row in inventory[:500]:  # Cap to avoid token overflow
-        desc_col = next((k for k in row if k in ["description", "item_description", "product_description"]), None)
-        qty_col  = next((k for k in row if "qty" in k or "quantity" in k or "stock" in k), None)
-        cat_col  = next((k for k in row if "cat" in k or "category" in k or "type" in k), None)
+        desc_col = _desc_col
+        qty_col  = _qty_col
+        cat_col  = _cat_col
 
         desc = row.get(desc_col, "Unknown") if desc_col else "Unknown"
         qty  = row.get(qty_col, "0") if qty_col else "0"
@@ -222,14 +232,19 @@ Additional context from the purchasing team:
 
 Analyse and return the health report JSON."""
 
+    if not inv_summary_lines:
+        return {"error": f"No inventory data found. Check that your Inventory Report uploaded correctly. (desc_col={_desc_col}, qty_col={_qty_col}, cat_col={_cat_col}, rows={len(inventory)})"}
+
     try:
         raw = _call_claude(model, system_prompt, user_prompt, max_tokens=8000)
         start = raw.find("[")
         end   = raw.rfind("]") + 1
         if start == -1 or end == 0:
-            return {"error": "Inventory agent returned no data."}
+            return {"error": f"Inventory agent returned no JSON. Model response: {raw[:300]}"}
         report = json.loads(raw[start:end])
         return {"report": report, "items_analysed": len(report)}
+    except json.JSONDecodeError as e:
+        return {"error": f"Inventory agent returned malformed JSON: {str(e)}"}
     except Exception as e:
         return {"error": f"Inventory agent error: {str(e)}"}
 
