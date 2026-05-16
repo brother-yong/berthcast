@@ -184,15 +184,27 @@ def upload():
         if not file or not _allowed(file.filename):
             return jsonify({"ok": False, "error": "Please upload an Excel file (.xlsx or .xls)."})
 
-        filename = secure_filename(file.filename)
+        original_name = file.filename
+        filename = secure_filename(original_name)
         filepath = os.path.join(UPLOAD_FOLDER, f"{upload_session_id}_{slot}_{filename}")
         file.save(filepath)
 
         result = db.excel_to_sqlite(filepath, FILE_SLOTS[slot], upload_session_id)
+
+        if result.get("ok"):
+            # Store the original filename so the UI can show it after refresh
+            names_row = db.query("SELECT file_names_json FROM upload_sessions WHERE id=?", (upload_session_id,))
+            names = json.loads(names_row[0]["file_names_json"] or "{}") if names_row and names_row[0]["file_names_json"] else {}
+            names[slot] = original_name
+            db.execute("UPDATE upload_sessions SET file_names_json=? WHERE id=?", (json.dumps(names), upload_session_id))
+            result["filename"] = original_name
+
         return jsonify(result)
 
     tables = db.get_session_tables(upload_session_id)
-    return render_template("upload.html", tables=tables, session_id=upload_session_id)
+    names_row = db.query("SELECT file_names_json FROM upload_sessions WHERE id=?", (upload_session_id,))
+    file_names = json.loads(names_row[0]["file_names_json"] or "{}") if names_row and names_row[0]["file_names_json"] else {}
+    return render_template("upload.html", tables=tables, session_id=upload_session_id, file_names=file_names)
 
 
 # ── Remove uploaded file slot ─────────────────────────────────────────────────
@@ -301,7 +313,7 @@ def run_analysis(upload_session_id):
     # Run inventory agent
     inv_result = run_inventory_agent(upload_session_id, model, confirmed_groups, context)
     if "error" in inv_result:
-        flash(f"Inventory analysis failed: {inv_result['error']}", "error")
+        flash(f"Analysis failed: {inv_result['error']}", "error")
         return redirect(url_for("upload"))
 
     inventory_report = inv_result["report"]
