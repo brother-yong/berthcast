@@ -27,12 +27,12 @@
     ] %}
 
     {% set icons = {
-      'ICON_INV':   '&#128203;',
-      'ICON_PO':    '&#128704;',
-      'ICON_SALES': '&#128200;',
-      'ICON_SUP':   '&#127981;',
-      'ICON_STOCK': '&#9888;&#65039;',
-      'ICON_DONE':  '&#9989;',
+      'ICON_INV':   '📋',
+      'ICON_PO':    '🧾',
+      'ICON_SALES': '📈',
+      'ICON_SUP':   '🏭',
+      'ICON_STOCK': '⚠️',
+      'ICON_DONE':  '✅',
     } %}
 
     {% for slot, slotId, iconKey, doneKey, title, badge, desc in slots %}
@@ -44,7 +44,7 @@
         <span>{{ desc }}</span>
         <div class="upload-slot-status" id="status-{{ slot }}">
           {% if uploaded %}
-            <span style="color:var(--success)">&#10003;</span>
+            <span style="color:var(--success)">✓</span>
             <span class="fname">{{ file_names.get(slot, 'File uploaded') }}</span>
             &nbsp;<button class="remove-link" onclick="removeFile('{{ slot }}','{{ slotId }}')">Remove</button>
           {% endif %}
@@ -131,7 +131,7 @@ function _updateContinueBtn() {
     btn.removeAttribute('onclick');
     btn.style.opacity = ''; btn.style.cursor = '';
     btn.classList.remove('btn-disabled');
-    status.innerHTML = '<span style="color:var(--success)">&#10003; All required files uploaded. You can continue.</span>';
+    status.innerHTML = '<span style="color:var(--success)">✓ All required files uploaded. You can continue.</span>';
   } else {
     btn.setAttribute('onclick','return false;');
     btn.style.opacity = '0.4'; btn.style.cursor = 'not-allowed';
@@ -266,7 +266,7 @@ function _markSlotDone(slot, slotId, displayName, rows) {
   _setProgress(slotId, 100);
   uploadedSlots[slot] = true;
   _setStatus(slot,
-    '<span style="color:var(--success)">&#10003;</span> ' +
+    '<span style="color:var(--success)">✓</span> ' +
     '<span class="fname">' + displayName + '</span>' +
     (rows ? ' &nbsp;&middot;&nbsp; ' + Number(rows).toLocaleString() + ' rows' : '') +
     ' &nbsp;<button class="remove-link" onclick="removeFile(\'' + slot + '\',\'' + slotId + '\')">Remove</button>'
