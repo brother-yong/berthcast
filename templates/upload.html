@@ -5,7 +5,8 @@
 <div class="page-wrap">
   <div class="page-header">
     <h1>Step 1 — Upload your data</h1>
-    <p>Upload your data exports below. All files must be Excel format (.xlsx). Maximum 100MB per file.</p>
+    <p>Upload your data exports below. Accepted formats: <strong>.xlsx</strong> or <strong>.csv</strong>. Max 100MB per file.</p>
+    <p style="color:var(--muted);font-size:14px;margin-top:6px;">For large files (Sales Report, etc.), CSV is faster and more reliable. In Excel: <em>File → Save As → CSV UTF-8 (Comma delimited)</em>.</p>
   </div>
 
   <div class="steps card" style="padding:16px 24px;">
@@ -53,7 +54,7 @@
       <div class="upload-slot-btn">
         <label class="btn btn-outline btn-sm" id="label-{{ slot }}" style="cursor:pointer;">
           {{ 'Replace' if uploaded else 'Upload' }}
-          <input type="file" accept=".xlsx,.xls" style="display:none;"
+          <input type="file" accept=".xlsx,.csv" style="display:none;"
                  id="input-{{ slot }}"
                  onchange="uploadFile(this,'{{ slot }}','{{ slotId }}')">
         </label>
