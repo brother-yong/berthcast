@@ -23,7 +23,7 @@ app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024  # 100MB
 UPLOAD_FOLDER = "uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-ALLOWED_EXTENSIONS = {"xlsx", "xls"}
+ALLOWED_EXTENSIONS = {"xlsx", "csv"}
 
 FILE_SLOTS = {
     "inventory":       "inventory",
@@ -211,7 +211,7 @@ def upload():
         # ── Single-file upload path (fallback for small files) ─────────────────
         file = request.files.get("file")
         if not file or not _allowed(file.filename):
-            return jsonify({"ok": False, "error": "Please upload an Excel file (.xlsx or .xls)."})
+            return jsonify({"ok": False, "error": "Please upload a .xlsx or .csv file."})
 
         original_name = file.filename
         filepath = os.path.join(UPLOAD_FOLDER, f"{upload_session_id}_{slot}_{secure_filename(original_name)}")

@@ -71,6 +71,101 @@ def init_db():
 
 
 def excel_to_sqlite(filepath: str, table_name: str, session_id: int):
+    """Dispatch by extension. CSV stream-parses (low RAM). XLSX uses iterparse."""
+    ext = os.path.splitext(filepath)[1].lower()
+    if ext == ".csv":
+        return _csv_to_sqlite(filepath, table_name, session_id)
+    return _xlsx_to_sqlite(filepath, table_name, session_id)
+
+
+def _csv_to_sqlite(filepath: str, table_name: str, session_id: int):
+    import csv
+    import re
+
+    def _sanitize(name: str) -> str:
+        return (name.strip().lower()
+                .replace(" ", "_").replace("/", "_").replace("-", "_")
+                .replace(".", "").replace("(", "").replace(")", ""))
+
+    conn = get_db()
+    try:
+        scoped_table = f"{table_name}_{session_id}"
+        # utf-8-sig handles Excel BOM. errors=replace so weird chars don't crash a 400k row import.
+        with open(filepath, "r", encoding="utf-8-sig", errors="replace", newline="") as f:
+            # sniff delimiter — Excel SG sometimes saves with ';'
+            sample = f.read(8192)
+            f.seek(0)
+            try:
+                dialect = csv.Sniffer().sniff(sample, delimiters=",;\t|")
+            except csv.Error:
+                dialect = csv.excel
+
+            reader = csv.reader(f, dialect)
+
+            headers = None
+            insert_sql = None
+            BATCH = 2000
+            batch = []
+            total = 0
+
+            for raw_row in reader:
+                # skip leading empties
+                if not any((c or "").strip() for c in raw_row):
+                    continue
+
+                if headers is None:
+                    seen = {}
+                    headers = []
+                    for i, raw in enumerate(raw_row):
+                        name = _sanitize(raw) if raw and raw.strip() else f"col_{i}"
+                        if not name:
+                            name = f"col_{i}"
+                        if name in seen:
+                            seen[name] += 1
+                            name = f"{name}_{seen[name]}"
+                        else:
+                            seen[name] = 0
+                        headers.append(name)
+
+                    cols_def = ", ".join(f'"{h}" TEXT' for h in headers) + ', "_session_id" TEXT'
+                    conn.execute(f'DROP TABLE IF EXISTS "{scoped_table}"')
+                    conn.execute(f'CREATE TABLE "{scoped_table}" ({cols_def})')
+                    conn.commit()
+                    placeholders = ", ".join("?" * (len(headers) + 1))
+                    insert_sql = f'INSERT INTO "{scoped_table}" VALUES ({placeholders})'
+                    continue
+
+                # data row: pad or trim to header width
+                vals = [(c or "").strip() if c is not None else None for c in raw_row]
+                if len(vals) < len(headers):
+                    vals = vals + [None] * (len(headers) - len(vals))
+                elif len(vals) > len(headers):
+                    vals = vals[:len(headers)]
+                vals.append(str(session_id))
+                batch.append(vals)
+
+                if len(batch) >= BATCH:
+                    conn.executemany(insert_sql, batch)
+                    conn.commit()
+                    total += len(batch)
+                    batch = []
+
+            if batch and insert_sql:
+                conn.executemany(insert_sql, batch)
+                conn.commit()
+                total += len(batch)
+
+        if headers is None:
+            return {"ok": False, "error": "CSV looks empty or has no header row."}
+        return {"ok": True, "rows": total, "table": scoped_table}
+
+    except Exception as e:
+        return {"ok": False, "error": f"CSV parse failed: {e}"}
+    finally:
+        conn.close()
+
+
+def _xlsx_to_sqlite(filepath: str, table_name: str, session_id: int):
     import zipfile
     import xml.etree.ElementTree as ET
     import re
