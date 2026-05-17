@@ -1,6 +1,7 @@
 import os
 import json
 import threading
+import time
 from functools import wraps
 from flask import (
     Flask, render_template, request, redirect,
@@ -39,6 +40,12 @@ AVAILABLE_MODELS = [
     ("claude-sonnet-4-6",         "Sonnet — balanced (recommended)"),
     ("claude-opus-4-6",           "Opus — most thorough (production reports)"),
 ]
+
+# In-memory progress store for analysis runs. Keyed by upload_session_id.
+# Render uses a single gunicorn worker with threads → shared across requests.
+# Schema: { session_id: { started_at, log: [{t, msg}], status, error } }
+analysis_progress = {}
+analysis_progress_lock = threading.Lock()
 
 db.init_db()
 
@@ -345,29 +352,109 @@ def dedup_review(upload_session_id):
 @login_required
 def run_analysis(upload_session_id):
     _verify_session_owner(upload_session_id)
+
+    # If analysis already completed for this session, skip straight to results.
+    s = db.query("SELECT status FROM upload_sessions WHERE id=?", (upload_session_id,))
+    if s and s[0]["status"] == "complete":
+        return redirect(url_for("results", upload_session_id=upload_session_id))
+
+    # If a run is in progress already (user refreshed the progress page), show it.
+    with analysis_progress_lock:
+        existing = analysis_progress.get(upload_session_id)
+    if existing and existing["status"] == "running":
+        return render_template("analysis_progress.html", upload_session_id=upload_session_id)
+
+    # Otherwise kick off a new run in the background.
     model = session["model"]
-    rows    = db.query("SELECT context_json FROM upload_sessions WHERE id=?", (upload_session_id,))
-    context = json.loads(rows[0]["context_json"] or "{}") if rows else {}
-    ar_rows = db.query("SELECT inventory_report FROM analysis_results WHERE session_id=?", (upload_session_id,))
-    confirmed_groups = []
-    if ar_rows and ar_rows[0]["inventory_report"]:
+    with analysis_progress_lock:
+        analysis_progress[upload_session_id] = {
+            "started_at": time.time(),
+            "log":        [],
+            "status":     "running",
+            "error":      None,
+        }
+
+    def _emit(msg: str):
+        with analysis_progress_lock:
+            entry = analysis_progress.get(upload_session_id)
+            if not entry:
+                return
+            entry["log"].append({
+                "t":   round(time.time() - entry["started_at"], 1),
+                "msg": msg,
+            })
+
+    def _run():
         try:
-            data = json.loads(ar_rows[0]["inventory_report"])
-            confirmed_groups = data.get("confirmed_groups", [])
-        except Exception:
-            pass
-    inv_result = run_inventory_agent(upload_session_id, model, confirmed_groups, context)
-    if "error" in inv_result:
-        flash(f"Analysis failed: {inv_result['error']}", "error")
-        return redirect(url_for("upload"))
-    inventory_report  = inv_result["report"]
-    recommendations   = run_recommendation_agent(upload_session_id, model, inventory_report, context)
-    db.execute(
-        "UPDATE analysis_results SET inventory_report=?, recommendations_json=? WHERE session_id=?",
-        (json.dumps(inventory_report), json.dumps(recommendations), upload_session_id)
-    )
-    db.execute("UPDATE upload_sessions SET status='complete' WHERE id=?", (upload_session_id,))
-    return redirect(url_for("results", upload_session_id=upload_session_id))
+            rows    = db.query("SELECT context_json FROM upload_sessions WHERE id=?", (upload_session_id,))
+            context = json.loads(rows[0]["context_json"] or "{}") if rows else {}
+            ar_rows = db.query("SELECT inventory_report FROM analysis_results WHERE session_id=?", (upload_session_id,))
+            confirmed_groups = []
+            if ar_rows and ar_rows[0]["inventory_report"]:
+                try:
+                    data = json.loads(ar_rows[0]["inventory_report"])
+                    confirmed_groups = data.get("confirmed_groups", [])
+                except Exception:
+                    pass
+
+            _emit("Starting inventory health agent")
+            inv_result = run_inventory_agent(upload_session_id, model, confirmed_groups, context, progress_emit=_emit)
+            if "error" in inv_result:
+                with analysis_progress_lock:
+                    analysis_progress[upload_session_id]["status"] = "error"
+                    analysis_progress[upload_session_id]["error"]  = inv_result["error"]
+                return
+
+            inventory_report = inv_result["report"]
+
+            _emit("Starting purchase recommendation agent")
+            recommendations = run_recommendation_agent(upload_session_id, model, inventory_report, context, progress_emit=_emit)
+
+            db.execute(
+                "UPDATE analysis_results SET inventory_report=?, recommendations_json=? WHERE session_id=?",
+                (json.dumps(inventory_report), json.dumps(recommendations), upload_session_id)
+            )
+            db.execute("UPDATE upload_sessions SET status='complete' WHERE id=?", (upload_session_id,))
+
+            _emit("Saving results and redirecting...")
+            with analysis_progress_lock:
+                analysis_progress[upload_session_id]["status"] = "done"
+        except Exception as e:
+            with analysis_progress_lock:
+                analysis_progress[upload_session_id]["status"] = "error"
+                analysis_progress[upload_session_id]["error"]  = str(e)
+
+    threading.Thread(target=_run, daemon=True).start()
+    return render_template("analysis_progress.html", upload_session_id=upload_session_id)
+
+
+@app.route("/analysis_status/<int:upload_session_id>")
+@login_required
+def analysis_status(upload_session_id):
+    _verify_session_owner(upload_session_id)
+
+    with analysis_progress_lock:
+        entry = analysis_progress.get(upload_session_id)
+        if entry is not None:
+            # Snapshot what we need so we don't hold the lock during jsonify
+            payload = {
+                "status":  entry["status"],
+                "log":     list(entry["log"]),
+                "elapsed": round(time.time() - entry["started_at"], 1),
+                "error":   entry.get("error"),
+            }
+        else:
+            payload = None
+
+    if payload is not None:
+        return jsonify(payload)
+
+    # No in-memory entry — check DB. Worker may have restarted, or analysis
+    # completed before this session started polling.
+    rows = db.query("SELECT status FROM upload_sessions WHERE id=?", (upload_session_id,))
+    if rows and rows[0]["status"] == "complete":
+        return jsonify({"status": "done", "log": [], "elapsed": 0})
+    return jsonify({"status": "not_found", "log": [], "elapsed": 0})
 
 
 @app.route("/results/<int:upload_session_id>")
