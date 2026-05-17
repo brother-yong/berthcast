@@ -5,7 +5,7 @@
    All original class names and CSS variables preserved. JS hooks intact.
    ════════════════════════════════════════════════════════════════════════════ */
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Inter+Tight:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Inter+Tight:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Instrument+Serif:ital@0;1&display=swap');
 
 :root {
   /* Brand */
@@ -31,6 +31,9 @@
   --success:   #2D6A4F;
   --warning:   #B85C00;
   --danger:    #8B2C2C;
+
+  /* Editorial display font */
+  --font-display: 'Instrument Serif', Georgia, 'Times New Roman', serif;
 
   /* Geometry */
   --radius:    14px;
@@ -61,10 +64,12 @@ body {
 .page-wrap   { max-width: 960px; margin: 0 auto; padding: 0 24px 80px; }
 .page-narrow { max-width: 480px; margin: 0 auto; padding: 0 24px 80px; }
 
-/* ─────────────────── Nav (light) ─────────────────── */
+/* ─────────────────── Nav (glass) ─────────────────── */
 nav {
-  background: #fff;
-  border-bottom: 1px solid var(--border);
+  background: rgba(255,255,255,0.78);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border-bottom: 1px solid rgba(229,223,207,0.7);
   padding: 10px 32px;
   display: flex;
   align-items: center;
@@ -753,6 +758,84 @@ tbody tr:hover td { background: var(--paper); }
   .dash-last-btn { margin-left: 0; width: 100%; }
 }
 
+/* ─────────────────── Upload start choice page ─────────────────── */
+.choice-card {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+  padding: 28px !important;
+}
+.choice-card + .choice-card { margin-top: 18px; }
+.choice-primary {
+  border-color: var(--brass);
+  box-shadow: 0 6px 28px rgba(200,155,92,0.12);
+}
+.choice-icon {
+  flex-shrink: 0;
+  width: 56px; height: 56px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--paper-2);
+  color: var(--brass-3);
+}
+.choice-primary .choice-icon {
+  background: rgba(200,155,92,0.14);
+  color: var(--brass-3);
+}
+.choice-body { flex: 1; min-width: 0; }
+.choice-title {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--navy-800);
+  margin-bottom: 4px;
+}
+.choice-meta {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--brass-3);
+  margin-bottom: 16px;
+}
+.choice-files {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 22px;
+  background: var(--paper);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 14px 18px;
+  margin-bottom: 16px;
+}
+.choice-file {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 14px;
+}
+.choice-file-label { color: var(--navy-800); font-weight: 500; }
+.choice-file-rows {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: var(--muted);
+}
+.choice-hint {
+  color: var(--muted);
+  font-size: 14px;
+  margin-bottom: 16px;
+  line-height: 1.6;
+}
+
+@media (max-width: 640px) {
+  .choice-card     { flex-direction: column; }
+  .choice-files    { grid-template-columns: 1fr; }
+}
+
 /* ─────────────────── Analysis streaming panel ─────────────────── */
 .stream-card {
   padding: 0 !important;
@@ -872,6 +955,136 @@ tbody tr:hover td { background: var(--paper); }
   animation: streamBlink 1s steps(2) infinite;
 }
 @keyframes streamBlink { 50% { opacity: 0; } }
+
+/* ─────────────────── Editorial hero (dashboard) ─────────────────── */
+.sunrise-gradient {
+  position: absolute;
+  top: 68px; left: 0; right: 0;
+  height: 360px;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 70% 90% at 20% 0%, rgba(226,185,122,0.18), transparent 60%),
+    radial-gradient(ellipse 60% 80% at 80% 10%, rgba(200,155,92,0.12), transparent 65%),
+    linear-gradient(180deg, rgba(243,239,227,0.6) 0%, transparent 100%);
+  z-index: 0;
+  animation: sunriseDrift 18s ease-in-out infinite alternate;
+}
+@keyframes sunriseDrift {
+  0%   { transform: translateX(0) scale(1);    opacity: 1; }
+  100% { transform: translateX(-3%) scale(1.04); opacity: 0.85; }
+}
+
+.hero {
+  padding: 64px 0 32px;
+  position: relative;
+  z-index: 1;
+}
+.hero-eyebrow {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--brass-3);
+  margin-bottom: 14px;
+  font-weight: 600;
+}
+.hero h1 {
+  font-family: var(--font-display);
+  font-size: clamp(52px, 7.5vw, 96px);
+  font-weight: 400;
+  line-height: 1.0;
+  letter-spacing: -0.02em;
+  color: var(--navy-800);
+  margin-bottom: 0;
+}
+.hero h1 em {
+  font-style: italic;
+  color: var(--brass-3);
+  font-weight: 400;
+}
+.hero-byline {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  color: var(--muted);
+  font-size: 14px;
+  margin-top: 26px;
+  flex-wrap: wrap;
+}
+.hero-byline-sep {
+  color: var(--brass-3);
+  opacity: 0.5;
+}
+
+/* ─────────────────── AI attribution badge ─────────────────── */
+.ai-byline {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--brass-3);
+  background: rgba(255,255,255,0.7);
+  border: 1px solid var(--border);
+  padding: 5px 11px 5px 9px;
+  border-radius: 999px;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.ai-byline::before {
+  content: '✦';
+  font-size: 13px;
+  color: var(--brass);
+  line-height: 1;
+}
+
+/* Bigger serif numerals for stat values */
+.dash-stat-value {
+  font-family: var(--font-display);
+  font-size: clamp(48px, 5vw, 64px);
+  font-weight: 400;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  color: var(--navy-800);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ─────────────────── Footer ─────────────────── */
+.site-footer {
+  text-align: center;
+  padding: 48px 24px 56px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.site-footer .powered {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--brass-3);
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: rgba(255,255,255,0.5);
+  backdrop-filter: blur(6px);
+}
+.site-footer .powered::before {
+  content: '◆';
+  color: var(--brass);
+  font-size: 11px;
+  line-height: 1;
+}
+.site-footer .copyright {
+  margin-top: 14px;
+  font-size: 12px;
+  color: var(--muted-2, var(--muted));
+  opacity: 0.7;
+}
 
 /* ─────────────────── Accessibility ─────────────────── */
 @media (prefers-reduced-motion: reduce) {

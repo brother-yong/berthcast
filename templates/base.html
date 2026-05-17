@@ -16,7 +16,7 @@
   </a>
   <div class="nav-links">
     <a href="{{ url_for('dashboard') }}">Home</a>
-    <a href="{{ url_for('upload') }}">New Analysis</a>
+    <a href="{{ url_for('upload_start') }}">New Analysis</a>
     {% if session.is_admin %}
     <a href="{{ url_for('admin_panel') }}">Admin</a>
     {% endif %}
@@ -36,6 +36,13 @@
 {% endwith %}
 
 {% block content %}{% endblock %}
+
+{% if session.user_id %}
+<footer class="site-footer">
+  <div class="powered">Powered by Claude</div>
+  <div class="copyright">BerthAI · Inventory operations for marine supply</div>
+</footer>
+{% endif %}
 
 </body>
 </html>
