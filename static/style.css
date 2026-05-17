@@ -582,6 +582,177 @@ tbody tr:hover td { background: var(--paper); }
   display: block;
 }
 
+/* ─────────────────── Dashboard cover page ─────────────────── */
+.dash-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+  margin-bottom: 24px;
+}
+.dash-stat {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px 22px 18px;
+  position: relative;
+  box-shadow: var(--shadow);
+  opacity: 0;
+  transform: translateY(6px);
+  animation: cardEnter 360ms var(--ease-out) forwards;
+}
+.dash-stat:nth-child(1) { animation-delay: 80ms; }
+.dash-stat:nth-child(2) { animation-delay: 140ms; }
+.dash-stat:nth-child(3) { animation-delay: 200ms; }
+.dash-stat::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 22px;
+  width: 32px; height: 3px;
+  background: var(--brass);
+  border-radius: 0 0 2px 2px;
+}
+.dash-stat-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+  margin-bottom: 10px;
+  margin-top: 6px;
+}
+.dash-stat-value {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 32px;
+  font-weight: 700;
+  color: var(--navy-800);
+  letter-spacing: -0.025em;
+  line-height: 1;
+}
+.dash-stat-meta {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 6px;
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.dash-cta {
+  text-align: center;
+  padding: 48px 32px !important;
+  max-width: 580px;
+  margin: 0 auto;
+  animation-delay: 280ms;
+}
+.dash-cta-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 76px; height: 76px;
+  background: var(--paper-2);
+  color: var(--brass-3);
+  border-radius: 18px;
+  margin-bottom: 18px;
+  animation: gentleFloat 4.5s var(--ease-in-out) infinite;
+}
+@keyframes gentleFloat {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-4px); }
+}
+.dash-cta-title {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--navy-800);
+  margin-bottom: 10px;
+}
+.dash-cta-body {
+  color: var(--muted);
+  max-width: 420px;
+  margin: 0 auto 24px;
+  font-size: 15px;
+  line-height: 1.6;
+}
+.dash-cta-btn {
+  position: relative;
+}
+.dash-cta-btn::after {
+  content: '';
+  position: absolute;
+  inset: -5px;
+  border-radius: 14px;
+  border: 1.5px solid var(--brass);
+  opacity: 0;
+  pointer-events: none;
+  animation: idlePulse 5s var(--ease-out) infinite;
+  animation-delay: 6s;
+}
+@keyframes idlePulse {
+  0%       { opacity: 0; transform: scale(0.96); }
+  15%, 25% { opacity: 0.55; transform: scale(1); }
+  50%, 100%{ opacity: 0; transform: scale(1.08); }
+}
+
+.dash-last {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  flex-wrap: wrap;
+  padding: 22px 28px !important;
+  margin-top: 20px;
+  animation-delay: 340ms;
+}
+.dash-last-meta {
+  flex-shrink: 0;
+}
+.dash-last-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--brass-3);
+}
+.dash-last-date {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--navy-800);
+  margin-top: 2px;
+  letter-spacing: -0.01em;
+}
+.dash-last-summary {
+  display: flex;
+  gap: 22px;
+  flex: 1;
+  flex-wrap: wrap;
+  font-size: 14px;
+  color: var(--muted);
+  border-left: 1px solid var(--border);
+  padding-left: 24px;
+  align-items: center;
+}
+.dash-last-summary strong {
+  color: var(--navy-800);
+  font-family: 'Inter Tight', sans-serif;
+  font-weight: 700;
+  font-size: 18px;
+  margin-right: 4px;
+  display: inline-block;
+  vertical-align: -2px;
+}
+.dash-last-btn {
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+/* Mobile stacking for dashboard */
+@media (max-width: 640px) {
+  .dash-stats { grid-template-columns: 1fr; }
+  .dash-last-summary { border-left: none; padding-left: 0; width: 100%; }
+  .dash-last-btn { margin-left: 0; width: 100%; }
+}
+
 /* ─────────────────── Accessibility ─────────────────── */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
