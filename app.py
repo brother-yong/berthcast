@@ -178,6 +178,126 @@ def dashboard():
     return render_template("dashboard.html", last_session=last_session, stats=stats)
 
 
+@app.route("/upload/start")
+@login_required
+def upload_start():
+    """Entry point for new analysis. Offer choice: reuse last data, or upload fresh."""
+    rows = db.query(
+        "SELECT * FROM upload_sessions WHERE user_id=? AND status='complete' "
+        "ORDER BY created_at DESC LIMIT 1",
+        (session["user_id"],)
+    )
+    last_complete = rows[0] if rows else None
+
+    # No previous data → skip the choice, go straight to fresh upload.
+    if not last_complete:
+        return redirect(url_for("upload"))
+
+    file_names = {}
+    if last_complete["file_names_json"]:
+        try:
+            file_names = json.loads(last_complete["file_names_json"])
+        except Exception:
+            pass
+
+    conv_status = db.get_conversion_status(last_complete["id"])
+
+    slot_labels = {
+        "inventory":       "Inventory Report",
+        "purchase_orders": "Purchase Order Record",
+        "sales":           "Sales Report",
+        "suppliers":       "Supplier Listing",
+        "customers":       "Customer Listing",
+        "stockouts":       "Stockout Report",
+    }
+    preserved = []
+    for slot, label in slot_labels.items():
+        if db.table_exists(f"{FILE_SLOTS[slot]}_{last_complete['id']}"):
+            rows_count = conv_status.get(slot, {}).get("rows", 0)
+            preserved.append({
+                "slot":  slot,
+                "label": label,
+                "rows":  rows_count,
+                "name":  file_names.get(slot, ""),
+            })
+
+    # If somehow no tables were preserved (data wiped), fall through to fresh upload.
+    if not preserved:
+        return redirect(url_for("upload"))
+
+    return render_template(
+        "upload_choice.html",
+        last_complete=last_complete,
+        preserved=preserved,
+    )
+
+
+@app.route("/upload/use_previous/<int:source_id>", methods=["POST"])
+@login_required
+def upload_use_previous(source_id):
+    """Clone tables from a previous complete session into a fresh uploading session."""
+    _verify_session_owner(source_id)
+
+    src = db.query("SELECT * FROM upload_sessions WHERE id=?", (source_id,))
+    if not src or src[0]["status"] != "complete":
+        flash("Cannot use that previous session.", "error")
+        return redirect(url_for("upload"))
+
+    # Discard any in-progress upload session this user already has — clean slate.
+    existing = db.query(
+        "SELECT id FROM upload_sessions WHERE user_id=? AND status='uploading'",
+        (session["user_id"],)
+    )
+    for row in existing:
+        _purge_uploading_session(row["id"])
+
+    # New uploading session, inherit file_names_json so the upload page shows the right names.
+    new_id = db.execute(
+        "INSERT INTO upload_sessions (user_id, org_name, status, file_names_json) VALUES (?,?,?,?)",
+        (session["user_id"], session["org_name"], "uploading", src[0]["file_names_json"] or "{}")
+    )
+
+    cloned = 0
+    failed = []
+    for slot, table in FILE_SLOTS.items():
+        old_table = f"{table}_{source_id}"
+        new_table = f"{table}_{new_id}"
+        if not db.table_exists(old_table):
+            continue
+        try:
+            db.execute(f'DROP TABLE IF EXISTS "{new_table}"')
+            db.execute(f'CREATE TABLE "{new_table}" AS SELECT * FROM "{old_table}"')
+            cnt = db.query(f'SELECT COUNT(*) as n FROM "{new_table}"')
+            rows_count = cnt[0]["n"] if cnt else 0
+            db.set_conversion_status(new_id, slot, "done", rows_count=rows_count)
+            cloned += 1
+        except Exception as e:
+            failed.append(f"{slot}: {e}")
+
+    if failed:
+        flash(f"Some files could not be copied: {'; '.join(failed)}", "error")
+    if cloned:
+        flash(
+            f"Loaded {cloned} file{'s' if cloned != 1 else ''} from your previous analysis. "
+            "Replace any one of them on the next page if needed.",
+            "success"
+        )
+    return redirect(url_for("upload"))
+
+
+def _purge_uploading_session(session_id):
+    """Drop all tables for an uploading session and remove its row. Used before reuse."""
+    for slot, table in FILE_SLOTS.items():
+        try:
+            db.execute(f'DROP TABLE IF EXISTS "{table}_{session_id}"')
+        except Exception:
+            pass
+    try:
+        db.execute("DELETE FROM upload_sessions WHERE id=?", (session_id,))
+    except Exception:
+        pass
+
+
 @app.route("/upload", methods=["GET", "POST"])
 @login_required
 def upload():
