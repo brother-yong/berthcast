@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+{% block title %}Running analysis — BerthAI{% endblock %}
+
+{% block content %}
+<div class="page-wrap">
+  <div class="page-header">
+    <h1>Step 4 — Running analysis</h1>
+    <p>The AI is reading your data and writing recommendations. Usually takes 30 seconds to 2 minutes depending on file size and model.</p>
+  </div>
+
+  <!-- Steps indicator -->
+  <div class="steps card" style="padding:16px 24px;">
+    <div class="step done"><div class="step-num">✓</div><span class="step-label">Upload files</span></div>
+    <div class="step done"><div class="step-num">✓</div><span class="step-label">Add context</span></div>
+    <div class="step done"><div class="step-num">✓</div><span class="step-label">Review items</span></div>
+    <div class="step active"><div class="step-num">4</div><span class="step-label">Results</span></div>
+  </div>
+
+  <div class="card stream-card">
+    <div class="stream-header">
+      <div class="stream-status">
+        <span class="stream-live" id="stream-live"></span>
+        <span class="stream-label" id="stream-label">Analysis running</span>
+      </div>
+      <div class="stream-timer" id="stream-timer">00:00</div>
+    </div>
+
+    <div class="stream-log" id="stream-log">
+      <div class="stream-line">
+        <span class="stream-time">00:00</span>
+        <span class="stream-arrow">→</span>
+        Waking up the AI<span class="stream-cursor"></span>
+      </div>
+    </div>
+  </div>
+
+  <p style="text-align:center; color:var(--muted); font-size:13px; margin-top:18px;">
+    You can leave this page open. Don't close the tab while it's running.
+  </p>
+</div>
+
+<script>
+const sessionId    = {{ upload_session_id }};
+const logEl        = document.getElementById('stream-log');
+const timerEl      = document.getElementById('stream-timer');
+const labelEl      = document.getElementById('stream-label');
+const liveEl       = document.getElementById('stream-live');
+let seenLines      = 0;
+let polling        = true;
+const startTimeMs  = Date.now();
+
+function fmtTime(seconds) {
+  const m = Math.floor(seconds / 60).toString().padStart(2, '0');
+  const s = Math.floor(seconds % 60).toString().padStart(2, '0');
+  return m + ':' + s;
+}
+
+// Local timer ticks every 250ms for smoothness.
+setInterval(() => {
+  if (!polling) return;
+  const elapsed = (Date.now() - startTimeMs) / 1000;
+  timerEl.textContent = fmtTime(elapsed);
+}, 250);
+
+function removeCursor() {
+  document.querySelectorAll('.stream-cursor').forEach(c => c.remove());
+}
+
+function appendCursorTo(lineEl) {
+  if (!lineEl) return;
+  if (lineEl.querySelector('.stream-cursor')) return;
+  const c = document.createElement('span');
+  c.className = 'stream-cursor';
+  lineEl.appendChild(c);
+}
+
+async function poll() {
+  if (!polling) return;
+  try {
+    const res  = await fetch('/analysis_status/' + sessionId, { cache: 'no-store' });
+    const data = await res.json();
+
+    if (data.status === 'not_found') {
+      // Worker restarted or progress lost. Retry a few times before giving up.
+      setTimeout(poll, 1500);
+      return;
+    }
+
+    // Append new log lines.
+    if (data.log && data.log.length > seenLines) {
+      // Clear the placeholder "Waking up" line when first real line arrives.
+      if (seenLines === 0) {
+        logEl.innerHTML = '';
+      }
+      removeCursor();
+      for (let i = seenLines; i < data.log.length; i++) {
+        const line = data.log[i];
+        const div  = document.createElement('div');
+        div.className = 'stream-line';
+        div.innerHTML =
+          '<span class="stream-time">' + fmtTime(line.t) + '</span> ' +
+          '<span class="stream-arrow">→</span> ' +
+          escapeHtml(line.msg);
+        logEl.appendChild(div);
+      }
+      seenLines = data.log.length;
+      appendCursorTo(logEl.lastElementChild);
+      logEl.scrollTop = logEl.scrollHeight;
+    } else if (seenLines > 0) {
+      appendCursorTo(logEl.lastElementChild);
+    }
+
+    if (data.status === 'done') {
+      polling = false;
+      removeCursor();
+      labelEl.textContent = 'Analysis complete';
+      liveEl.classList.add('done');
+      // Final flash, then redirect.
+      setTimeout(() => {
+        window.location.href = '/results/' + sessionId;
+      }, 700);
+      return;
+    }
+
+    if (data.status === 'error') {
+      polling = false;
+      removeCursor();
+      const err = document.createElement('div');
+      err.className = 'stream-line stream-error';
+      err.innerHTML =
+        '<span class="stream-time">' + fmtTime((Date.now() - startTimeMs) / 1000) + '</span> ' +
+        '<span class="stream-arrow">✗</span> ' +
+        'Error: ' + escapeHtml(data.error || 'Unknown error');
+      logEl.appendChild(err);
+      labelEl.textContent = 'Analysis failed';
+      liveEl.classList.add('error');
+      return;
+    }
+
+    setTimeout(poll, 1200);
+  } catch (e) {
+    setTimeout(poll, 2000);
+  }
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+
+// Start polling shortly after page load (give the thread a moment to emit first line).
+setTimeout(poll, 400);
+</script>
+{% endblock %}

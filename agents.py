@@ -33,6 +33,16 @@ def _call_claude(model: str, system: str, user: str, max_tokens: int = 4096) -> 
     return response.content[0].text
 
 
+def _emit(progress_emit, msg: str) -> None:
+    """Safely call optional progress callback. Never raise into agent flow."""
+    if progress_emit is None:
+        return
+    try:
+        progress_emit(msg)
+    except Exception:
+        pass
+
+
 def _extract_json_array(raw: str):
     if not raw:
         return None, False
@@ -80,7 +90,8 @@ def _format_context(context: dict) -> str:
     return "\n".join(lines) if lines else "No additional context provided."
 
 
-def run_normalization_agent(session_id: int, model: str) -> dict:
+def run_normalization_agent(session_id: int, model: str, progress_emit=None) -> dict:
+    _emit(progress_emit, "Reading item names from your inventory, purchase orders, and sales files")
     item_names = set()
     inv_table = f"inventory_{session_id}"
     po_table  = f"purchase_orders_{session_id}"
@@ -106,9 +117,12 @@ def run_normalization_agent(session_id: int, model: str) -> dict:
     item_names.update(_col_candidates(sal_table, cand))
 
     if not item_names:
+        _emit(progress_emit, "No item names found — nothing to deduplicate")
         return {"groups": [], "message": "No item names found in uploaded data."}
 
     items_list = sorted(list(item_names))[:1500]
+    _emit(progress_emit, f"Found {len(item_names)} unique item names, scanning {len(items_list)} for duplicates")
+    _emit(progress_emit, "Asking Claude to spot duplicates (same product, different wording)")
 
     system_prompt = (
         "You are a data normalisation specialist for a food distribution company.\n"
@@ -131,20 +145,26 @@ def run_normalization_agent(session_id: int, model: str) -> dict:
         raw = _call_claude(model, system_prompt, user_prompt, max_tokens=8000)
         groups, repaired = _extract_json_array(raw)
         if groups is None:
+            _emit(progress_emit, "No duplicate groups found")
             return {"groups": [], "message": "No duplicates found."}
+        _emit(progress_emit, f"Found {len(groups)} duplicate groups — review them on the next page")
         msg = "Groupings repaired from truncated output." if repaired else ""
         return {"groups": groups, "total_items_scanned": len(items_list), "message": msg}
     except Exception as e:
+        _emit(progress_emit, f"Normalisation error: {str(e)}")
         return {"groups": [], "message": f"Normalisation agent error: {str(e)}"}
 
 
-def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, context: dict) -> dict:
+def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, context: dict, progress_emit=None) -> dict:
+    _emit(progress_emit, "Reading inventory snapshot from your data")
     inv_table = f"inventory_{session_id}"
     sal_table = f"sales_{session_id}"
 
     try:
         inventory = query(f"SELECT * FROM {inv_table} LIMIT 3000")
+        _emit(progress_emit, f"Loaded {len(inventory)} inventory rows")
     except Exception as e:
+        _emit(progress_emit, f"Could not read inventory table: {e}")
         return {"error": f"Could not read inventory table: {e}"}
 
     alias_map = {}
@@ -152,6 +172,7 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
         for variant in group.get("variants", []):
             alias_map[variant.lower()] = group["canonical"]
 
+    _emit(progress_emit, "Computing sales velocity for each item")
     sales_by_item = {}
     try:
         sample = query(f"SELECT * FROM {sal_table} LIMIT 1")
@@ -165,6 +186,7 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
                     'COUNT(*) as txn_count FROM ' + sal_table + ' GROUP BY "' + desc_col + '" LIMIT 5000'
                 )
                 sales_by_item = {r["item_name"]: r for r in sal_rows if r["item_name"]}
+                _emit(progress_emit, f"Sales velocity computed for {len(sales_by_item)} items")
     except Exception:
         sales_by_item = {}
 
@@ -208,6 +230,9 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
     if not inv_summary_lines:
         return {"error": f"No inventory rows. desc_col={_desc_col}, qty_col={_qty_col}, rows={len(inventory)}"}
 
+    _emit(progress_emit, f"Prepared {len(inv_summary_lines)} items for analysis")
+    _emit(progress_emit, "Asking Claude to assess inventory health (this is the slow part — up to a minute)")
+
     context_text = _format_context(context)
 
     system_prompt = (
@@ -236,13 +261,19 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
         raw = _call_claude(model, system_prompt, user_prompt, max_tokens=16000)
         report, repaired = _extract_json_array(raw)
         if report is None:
+            _emit(progress_emit, "Inventory agent returned no usable response")
             return {"error": f"Inventory agent returned no usable JSON. First 400 chars: {raw[:400]}"}
+        crit = sum(1 for r in report if r.get("status") == "CRITICAL")
+        low  = sum(1 for r in report if r.get("status") == "LOW")
+        _emit(progress_emit, f"Inventory health complete — {len(report)} items reviewed, {crit} critical, {low} low")
         return {"report": report, "items_analysed": len(report), "partial": repaired}
     except Exception as e:
+        _emit(progress_emit, f"Inventory agent error: {str(e)}")
         return {"error": f"Inventory agent error: {str(e)}"}
 
 
-def run_recommendation_agent(session_id: int, model: str, inventory_report: list, context: dict) -> list:
+def run_recommendation_agent(session_id: int, model: str, inventory_report: list, context: dict, progress_emit=None) -> list:
+    _emit(progress_emit, "Reading supplier list (local vs import) to set lead times")
     sup_table = f"suppliers_{session_id}"
     po_table  = f"purchase_orders_{session_id}"
 
@@ -287,6 +318,7 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
         pass
 
     unreliable_suppliers = {"el sabah", "abd khan", "nhan tu"}
+    _emit(progress_emit, f"Mapped {len(supplier_type_map)} suppliers, found {len(item_supplier_map)} item-supplier links")
     context_text = _format_context(context)
 
     actionable = [
@@ -295,7 +327,11 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
     ][:150]
 
     if not actionable:
+        _emit(progress_emit, "No items need attention right now — inventory looks healthy")
         return []
+
+    _emit(progress_emit, f"Filtered to {len(actionable)} items needing attention")
+    _emit(progress_emit, "Asking Claude to write purchase recommendations with reasoning")
 
     enriched_lines = []
     for item in actionable:
@@ -340,7 +376,11 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
         raw = _call_claude(model, system_prompt, user_prompt, max_tokens=12000)
         recs, _repaired = _extract_json_array(raw)
         if recs is None:
+            _emit(progress_emit, "Recommendation agent returned no usable response")
             return [{"error": f"Recommendation agent returned no usable JSON. First 400 chars: {raw[:400]}"}]
+        flagged = sum(1 for r in recs if r.get("flags"))
+        _emit(progress_emit, f"Generated {len(recs)} recommendations, {flagged} flagged for review")
         return recs
     except Exception as e:
+        _emit(progress_emit, f"Recommendation agent error: {str(e)}")
         return [{"error": str(e)}]
