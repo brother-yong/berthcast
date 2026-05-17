@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Start new analysis — BerthAI{% endblock %}
+
+{% block content %}
+<div class="page-wrap">
+  <div class="page-header">
+    <h1>Start a new analysis</h1>
+    <p>You have data from a previous analysis. Use it as a starting point, or upload fresh files.</p>
+  </div>
+
+  <!-- Option 1: Use previous data (recommended) -->
+  <div class="card choice-card choice-primary">
+    <div class="choice-icon">
+      <!-- lucide: history -->
+      <svg width="32" height="32" viewBox="0 0 24 24" fill="none"
+           stroke="currentColor" stroke-width="1.75"
+           stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+        <path d="M3 3v5h5"/>
+        <path d="M12 7v5l4 2"/>
+      </svg>
+    </div>
+    <div class="choice-body">
+      <div class="choice-title">Use data from your last analysis</div>
+      <div class="choice-meta">
+        Run on {{ last_complete.created_at[:10] }} ·
+        {{ preserved|length }} file{{ 's' if preserved|length != 1 else '' }} preserved
+      </div>
+
+      <div class="choice-files">
+        {% for p in preserved %}
+        <div class="choice-file">
+          <span class="choice-file-label">{{ p.label }}</span>
+          <span class="choice-file-rows">{{ "{:,}".format(p.rows) }} rows</span>
+        </div>
+        {% endfor %}
+      </div>
+
+      <p class="choice-hint">You can still replace any individual file on the next page if it's outdated.</p>
+
+      <form method="POST" action="{{ url_for('upload_use_previous', source_id=last_complete.id) }}"
+            onsubmit="this.querySelector('button').disabled = true; this.querySelector('button').textContent = 'Loading data...';">
+        <button type="submit" class="btn btn-primary">Use this data →</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Option 2: Fresh upload -->
+  <div class="card choice-card choice-secondary">
+    <div class="choice-icon">
+      <!-- lucide: upload-cloud -->
+      <svg width="32" height="32" viewBox="0 0 24 24" fill="none"
+           stroke="currentColor" stroke-width="1.75"
+           stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"/>
+        <path d="M12 12v9"/>
+        <path d="m16 16-4-4-4 4"/>
+      </svg>
+    </div>
+    <div class="choice-body">
+      <div class="choice-title">Upload fresh data</div>
+      <div class="choice-meta">New files from your Synergix exports</div>
+      <p class="choice-hint">
+        Choose this if your inventory has changed a lot since last run, or you want a clean slate.
+      </p>
+      <a href="{{ url_for('upload') }}" class="btn btn-outline">Upload new files</a>
+    </div>
+  </div>
+</div>
+{% endblock %}
