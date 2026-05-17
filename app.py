@@ -143,7 +143,32 @@ def dashboard():
         (session["user_id"],)
     )
     last_session = sessions[0] if sessions else None
-    return render_template("dashboard.html", last_session=last_session)
+
+    # Pull summary stats from last completed analysis (if any).
+    # Fails silently — dashboard still renders if anything goes wrong.
+    stats = None
+    if last_session and last_session["status"] == "complete":
+        try:
+            ar = db.query(
+                "SELECT inventory_report, recommendations_json FROM analysis_results WHERE session_id=?",
+                (last_session["id"],)
+            )
+            if ar:
+                inv  = json.loads(ar[0]["inventory_report"] or "[]")
+                recs = json.loads(ar[0]["recommendations_json"] or "[]")
+                if isinstance(inv, dict):
+                    inv = []
+                stats = {
+                    "tracked_skus":   len(inv),
+                    "critical_count": sum(1 for i in inv if i.get("status") == "CRITICAL"),
+                    "low_count":      sum(1 for i in inv if i.get("status") == "LOW"),
+                    "rec_count":      len(recs),
+                    "approved_count": sum(1 for r in recs if r.get("approved")),
+                }
+        except Exception:
+            stats = None
+
+    return render_template("dashboard.html", last_session=last_session, stats=stats)
 
 
 @app.route("/upload", methods=["GET", "POST"])
