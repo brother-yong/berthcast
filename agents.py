@@ -7,6 +7,7 @@ import os
 from database import (
     query, get_db,
     get_company_config, get_supplier_profile,
+    get_supplier_profiles,
     save_recommendation_outcome,
     get_supplier_accuracy,
 )
@@ -31,77 +32,6 @@ SPOILAGE_THRESHOLD_DAYS = {
 # ---------------------------------------------------------------------------
 # Consequence engine — pure Python, no LLM involvement
 # ---------------------------------------------------------------------------
-
-def _consequence_calc(item: dict, config: dict, supplier_profile: dict) -> dict:
-    """
-    Returns two cost scenarios per item:
-      act_sgd      — cost of placing a reorder now
-      no_act_sgd   — expected financial loss from NOT reordering
-      net_benefit  — positive means reordering saves money
-      p_stockout   — probability of stockout before resupply arrives
-      confidence   — HIGH / MED / LOW / INSUFFICIENT_DATA
-    """
-    stock        = float(item.get("stock") or 0)
-    daily_demand = float(item.get("daily_demand") or 0)
-    unit_cost    = float(item.get("unit_cost") or 0)
-    reorder_qty  = float(item.get("suggested_quantity") or 0)
-
-    lead_time    = float(supplier_profile.get("avg_lead_time_days") or config.get("default_lead_time_days") or 56)
-    variance     = float(config.get("lead_time_variance_days") or 14)
-    delay_prob   = float(supplier_profile.get("delay_probability") or 0.2)
-    quality      = float(supplier_profile.get("data_quality_score") or 0.3)
-
-    holding_cpd  = float(config.get("holding_cost_per_unit_per_day") or 0.5)
-    stockout_cpu = float(config.get("stockout_cost_per_unit") or 50.0)
-
-    # Days until stockout (avoid div/0)
-    days_cover = stock / max(daily_demand, 0.01) if daily_demand > 0 else 999
-
-    # Effective lead time accounting for delay probability
-    effective_lead = lead_time + (variance * delay_prob)
-
-    # Probability stock runs out before order arrives
-    shortfall_days = effective_lead - days_cover
-    if shortfall_days <= 0:
-        p_stockout = 0.05  # Tiny residual risk even with ample cover
-    else:
-        p_stockout = min(0.98, shortfall_days / max(effective_lead, 1))
-
-    # Expected units short if stockout occurs
-    units_short = max(0, (effective_lead - days_cover) * daily_demand) if daily_demand > 0 else 0
-
-    # Scenario A — Act (reorder now)
-    expected_demand_during_lead = daily_demand * lead_time
-    overstock_units = max(0, reorder_qty - expected_demand_during_lead)
-    act_cost = (reorder_qty * unit_cost) + (overstock_units * holding_cpd * lead_time)
-
-    # Scenario B — Don't act
-    no_act_cost = p_stockout * units_short * stockout_cpu
-
-    net_benefit = no_act_cost - act_cost
-
-    # Confidence based on data quality + how certain the stockout calc is
-    if quality < 0.4:
-        confidence = "INSUFFICIENT_DATA"
-    elif quality >= 0.7 and p_stockout >= 0.6:
-        confidence = "HIGH"
-    elif quality >= 0.5 and p_stockout >= 0.3:
-        confidence = "MED"
-    else:
-        confidence = "LOW"
-
-    return {
-        "act_sgd":     round(act_cost, 2),
-        "no_act_sgd":  round(no_act_cost, 2),
-        "net_benefit": round(net_benefit, 2),
-        "p_stockout":  round(p_stockout, 2),
-        "days_cover":  round(days_cover, 1),
-        "units_short": round(units_short, 1),
-        "confidence":  confidence,
-        "delay_prob":  round(delay_prob, 2),
-        "data_quality": round(quality, 2),
-    }
-
 
 def _call_claude(model: str, system: str, user: str, max_tokens: int = 4096) -> str:
     response = client.messages.create(
@@ -493,94 +423,63 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
         return []
 
     _emit(progress_emit, f"Filtered to {len(actionable)} items needing attention")
-    _emit(progress_emit, "Running consequence engine — calculating financial scenarios for each item")
+    _emit(progress_emit, "Building supplier context for consequence reasoning")
 
-    # Build enriched items with pre-computed consequence figures
-    enriched_items = []
+    # Build enriched item lines for Claude
+    enriched_lines = []
     for inv_item in actionable:
         iname    = inv_item.get("item", "Unknown")
         supplier = item_supplier_map.get(iname, "Unknown") or "Unknown"
         stype    = supplier_type_map.get(supplier, "other")
-        lt_days  = LEAD_TIME_DAYS[stype]
-
-        # Build a mini item dict for the consequence engine
-        item_for_calc = {
-            "stock":            inv_item.get("stock", 0),
-            "daily_demand":     inv_item.get("daily_demand", 0),
-            "unit_cost":        inv_item.get("unit_cost", 0),
-            "suggested_quantity": inv_item.get("suggested_quantity") or inv_item.get("stock", 0),
-        }
 
         sup_profile = get_supplier_profile(org_name, supplier)
-        # Prefer profile lead time; fall back to type-based constant, then company default
-        profile_lt = sup_profile.get("avg_lead_time_days")
-        if not profile_lt or profile_lt == 56:
-            profile_lt = LEAD_TIME_DAYS.get(stype, config.get("default_lead_time_days", 56))
-        sup_profile["avg_lead_time_days"] = profile_lt
-        lt_days = profile_lt
+        lt_days     = sup_profile.get("avg_lead_time_days") or LEAD_TIME_DAYS.get(stype, config.get("default_lead_time_days", 56))
+        delay_prob  = sup_profile.get("delay_probability", 0.2)
+        quality     = sup_profile.get("data_quality_score", 0.3)
+        sup_notes   = sup_profile.get("notes", "")
+        high_risk   = delay_prob > 0.30 or quality < 0.50
+        known_sup   = quality >= 0.5
 
-        conseq = _consequence_calc(item_for_calc, config, sup_profile)
-
-        # Historical accuracy for this supplier
-        accuracy = get_supplier_accuracy(org_name, supplier)
-
-        enriched_items.append({
-            "inv": inv_item,
-            "supplier": supplier,
-            "stype": stype,
-            "lt_days": lt_days,
-            "profile": sup_profile,
-            "conseq": conseq,
-            "accuracy": accuracy,
-        })
-
-    _emit(progress_emit, "Consequence calculations done — building prompts for Claude")
-
-    # Format each item as a structured block for Claude
-    enriched_lines = []
-    for e in enriched_items:
-        inv     = e["inv"]
-        conseq  = e["conseq"]
-        profile = e["profile"]
-        acc     = e["accuracy"]
-        sup     = e["supplier"]
-
-        high_risk = (profile.get("delay_probability", 0) > 0.30 or
-                     profile.get("data_quality_score", 1) < 0.50)
-
+        acc      = get_supplier_accuracy(org_name, supplier)
         acc_note = ""
         if acc.get("total_recs", 0) > 0:
-            acc_note = (f" | Historical: {acc['total_recs']} past recs, "
+            acc_note = (f" | Past recs: {acc['total_recs']} — "
                         f"{acc['approved']} approved, {acc['dismissed']} dismissed")
 
         enriched_lines.append(
             f"---\n"
-            f"Item: {inv.get('item', 'Unknown')}\n"
-            f"Status: {inv.get('status')} | Spoilage risk: {inv.get('spoilage_risk')}\n"
-            f"Stock: {inv.get('stock')} units | Days of cover: {conseq['days_cover']}\n"
-            f"Daily demand: {inv.get('daily_demand', 'unknown')} units/day\n"
-            f"Supplier: {sup} ({e['stype']}, lead time: {e['lt_days']} days)\n"
-            f"Supplier delay probability: {int(profile.get('delay_probability', 0)*100)}% | "
-            f"Data quality: {int(profile.get('data_quality_score', 0)*100)}%{acc_note}\n"
+            f"Item: {iname}\n"
+            f"Status: {inv_item.get('status')} | Spoilage risk: {inv_item.get('spoilage_risk')}\n"
+            f"Stock: {inv_item.get('stock')} units | Days of supply: {inv_item.get('days_of_supply', 'unknown')}\n"
+            f"Supplier: {supplier} ({stype}, lead time: {lt_days} days)\n"
+            f"Supplier delay rate: {int(delay_prob*100)}% | "
+            f"Supplier known to system: {'Yes' if known_sup else 'No'}"
+            + (f" | Notes: {sup_notes}" if sup_notes else "")
+            + (f"{acc_note}" if acc_note else "") + "\n"
             f"High-risk supplier: {'YES' if high_risk else 'No'}\n"
-            f"--- Financial scenarios (pre-calculated) ---\n"
-            f"IF YOU ACT (reorder now): SGD {conseq['act_sgd']:,.2f} cost\n"
-            f"IF YOU DON'T ACT: SGD {conseq['no_act_sgd']:,.2f} expected loss "
-            f"(stockout probability: {int(conseq['p_stockout']*100)}%, "
-            f"~{conseq['units_short']:.0f} units short)\n"
-            f"Net benefit of acting: SGD {conseq['net_benefit']:,.2f}\n"
-            f"Pre-calculated confidence: {conseq['confidence']}\n"
-            f"Observation: {inv.get('observation', '')}\n"
+            f"Observation: {inv_item.get('observation', '')}\n"
         )
 
     context_text = _format_context(context)
-
     company_desc_rec = config.get("company_description") or org_name
 
     system_prompt = (
-        f"You are a consequence-aware purchasing advisor for: {company_desc_rec}\n\n"
-        "Every recommendation MUST follow this exact structure. No exceptions.\n\n"
-        "MANDATORY OUTPUT FORMAT per item:\n"
+        f"You are a purchasing advisor for: {company_desc_rec}\n\n"
+        "Your job is to recommend purchasing actions and explain the real-world consequences "
+        "of each decision in plain business language — no formulas, no jargon.\n\n"
+        "For every item you must reason through TWO scenarios before writing your output:\n"
+        "1. What happens to this company if we ACT (place the order)?\n"
+        "   Think: cash tied up, storage pressure, wastage if demand drops, overstock risk.\n"
+        "2. What happens if we DON'T ACT (skip the order)?\n"
+        "   Think: stockouts, lost revenue, customer impact, emergency sourcing cost, "
+        "   reputational damage with key accounts.\n\n"
+        "Write these as plain statements naming the company and the specific item. "
+        "Example style (do not copy these, write fresh ones):\n"
+        '  "consequence_if_acting": "Ordering now locks up cash in 3 months of frozen salmon stock — '
+        'if sales slow, a regional food distributor risks wastage in cold storage."\n'
+        '  "consequence_if_not_acting": "Without a reorder, a regional food distributor will run out of frozen salmon '
+        'within 4 days, leaving active customer orders unfulfilled."\n\n'
+        "MANDATORY OUTPUT FORMAT — JSON array, one object per item:\n"
         "{\n"
         '  "item": "<name>",\n'
         '  "supplier": "<name>",\n'
@@ -589,21 +488,21 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
         '  "recommended_action": "<REORDER|HOLD|ESCALATE|MONITOR>",\n'
         '  "suggested_quantity": <number or "Verify with team">,\n'
         '  "confidence": "<HIGH|MED|LOW|INSUFFICIENT_DATA>",\n'
-        '  "consequence_if_acting": "<1 sentence, financial terms, SGD amounts>",\n'
-        '  "consequence_if_not_acting": "<1 sentence, financial terms, stockout risk>",\n'
+        '  "consequence_if_acting": "<1 plain sentence>",\n'
+        '  "consequence_if_not_acting": "<1 plain sentence>",\n'
         '  "supplier_risk": "<None|LOW|HIGH>",\n'
-        '  "mitigation": "<Required if supplier_risk=HIGH. Concrete action. Empty string if not HIGH.>",\n'
+        '  "mitigation": "<Concrete action if HIGH risk, else empty string>",\n'
         '  "flags": ["<string>"],\n'
-        '  "reason": "<2 sentences max. Plain English. No jargon.>"\n'
+        '  "reason": "<2 sentences max. Plain English.>"\n'
         "}\n\n"
-        "RULES — enforce strictly:\n"
-        "1. Use the pre-calculated SGD figures in consequence_if_acting and consequence_if_not_acting. Do not invent new numbers.\n"
-        "2. If pre-calculated confidence = INSUFFICIENT_DATA, output INSUFFICIENT_DATA. Do not upgrade it.\n"
-        "3. If supplier delay_probability > 30% OR data_quality < 50%, supplier_risk = HIGH and mitigation is REQUIRED. "
-        "   Mitigation must be a concrete action (e.g. 'Contact supplier to confirm stock before placing PO', "
-        "   'Split order across two suppliers to reduce dependency', 'Raise safety stock to 45 days cover').\n"
-        "4. Never output a recommendation without a confidence level.\n"
-        "5. Do NOT recommend ordering dead SKUs (zero sales for 6+ months).\n"
+        "RULES:\n"
+        "1. consequence_if_acting and consequence_if_not_acting must be plain business statements. "
+        "   No SGD amounts unless you have reliable sales data. Name the company and item.\n"
+        "2. confidence = INSUFFICIENT_DATA if supplier is not known to the system. Do not guess.\n"
+        "3. supplier_risk = HIGH and mitigation REQUIRED if delay rate > 30% or supplier unknown. "
+        "   Mitigation must be actionable (e.g. 'Confirm stock availability before raising PO').\n"
+        "4. Every recommendation must have a confidence level. No exceptions.\n"
+        "5. Do NOT recommend ordering dead SKUs.\n"
         "6. Return ONLY a valid JSON array. No text outside the array."
     )
 
@@ -611,7 +510,7 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
         f"Items requiring attention ({len(enriched_lines)} items):\n\n"
         + "\n".join(enriched_lines)
         + f"\n\nContext from purchasing team:\n{context_text}\n\n"
-        "Generate consequence-aware purchase recommendations. Use the pre-calculated SGD figures."
+        "Generate consequence-aware purchase recommendations."
     )
 
     try:
@@ -621,30 +520,20 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
             _emit(progress_emit, "Recommendation agent returned no usable response")
             return [{"error": f"Recommendation agent returned no usable JSON. First 400 chars: {raw[:400]}"}]
 
-        # Attach pre-calculated consequence data and save outcomes to DB
-        item_conseq_map = {
-            e["inv"].get("item", ""): e["conseq"] for e in enriched_items
-        }
+        # Save outcome stubs for future learning
         for rec in recs:
-            iname = rec.get("item", "")
-            c = item_conseq_map.get(iname)
-            if c:
-                rec["_act_sgd"]     = c["act_sgd"]
-                rec["_no_act_sgd"]  = c["no_act_sgd"]
-                rec["_net_benefit"] = c["net_benefit"]
-                rec["_p_stockout"]  = c["p_stockout"]
-                try:
-                    save_recommendation_outcome(
-                        session_id=session_id,
-                        item=iname,
-                        action_recommended=rec.get("recommended_action", ""),
-                        predicted_loss_no_act=c["no_act_sgd"],
-                        predicted_cost_act=c["act_sgd"],
-                        net_benefit=c["net_benefit"],
-                        confidence=rec.get("confidence", ""),
-                    )
-                except Exception:
-                    pass
+            try:
+                save_recommendation_outcome(
+                    session_id=session_id,
+                    item=rec.get("item", ""),
+                    action_recommended=rec.get("recommended_action", ""),
+                    predicted_loss_no_act=0,
+                    predicted_cost_act=0,
+                    net_benefit=0,
+                    confidence=rec.get("confidence", ""),
+                )
+            except Exception:
+                pass
 
         flagged = sum(1 for r in recs if r.get("flags"))
         high_risk_count = sum(1 for r in recs if r.get("supplier_risk") == "HIGH")

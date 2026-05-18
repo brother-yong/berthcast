@@ -128,6 +128,7 @@ def init_db():
         "ALTER TABLE upload_sessions ADD COLUMN scope TEXT DEFAULT 'all'",
         "ALTER TABLE company_config ADD COLUMN industry TEXT DEFAULT 'general'",
         "ALTER TABLE company_config ADD COLUMN company_description TEXT",
+        "ALTER TABLE supplier_profiles ADD COLUMN supplier_type TEXT DEFAULT 'other'",
     ]:
         try:
             conn.execute(migration)
@@ -503,7 +504,7 @@ def upsert_supplier_profile(org_name: str, supplier_name: str, **kwargs):
         "SELECT id FROM supplier_profiles WHERE org_name=? AND supplier_name=?",
         (org_name, supplier_name)
     )
-    allowed = {"delay_probability", "avg_lead_time_days", "data_quality_score", "notes"}
+    allowed = {"delay_probability", "avg_lead_time_days", "data_quality_score", "notes", "supplier_type"}
     fields = {k: v for k, v in kwargs.items() if k in allowed}
     if existing:
         sets = ", ".join(f"{k}=?" for k in fields) + ", updated_at=CURRENT_TIMESTAMP"
