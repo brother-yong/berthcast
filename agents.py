@@ -215,8 +215,19 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
             "Open the Inventory Report and confirm one column has the item name and one has the stock quantity."
         )}
 
+    # Sort by quantity ascending so zero-stock and low-stock items are analysed first.
+    # Without this, alphabetical DB order means critical items outside the first N rows
+    # get skipped entirely, producing 0 actionable items and 0 recommendations.
+    def _qty_key(row):
+        try:
+            return float(str(row.get(_qty_col) or "0").replace(",", "").strip() or 0)
+        except (ValueError, TypeError):
+            return 0
+
+    inventory_sorted = sorted(inventory, key=_qty_key)
+
     inv_summary_lines = []
-    for row in inventory[:500]:
+    for row in inventory_sorted[:800]:
         desc = row.get(_desc_col) or "Unknown"
         qty  = row.get(_qty_col)  or "0"
         cat  = (row.get(_cat_col) if _cat_col else None) or "DRY"
@@ -230,7 +241,7 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
     if not inv_summary_lines:
         return {"error": f"No inventory rows. desc_col={_desc_col}, qty_col={_qty_col}, rows={len(inventory)}"}
 
-    _emit(progress_emit, f"Prepared {len(inv_summary_lines)} items for analysis")
+    _emit(progress_emit, f"Prepared {len(inv_summary_lines)} items for analysis (zero-stock items prioritised)")
     _emit(progress_emit, "Asking Claude to assess inventory health (this is the slow part — up to a minute)")
 
     context_text = _format_context(context)
