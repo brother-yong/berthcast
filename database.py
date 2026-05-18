@@ -390,6 +390,3 @@ def get_session_tables(session_id: int) -> dict:
         name: table_exists(f"{name}_{session_id}")
         for name in expected
     }
-e: table_exists(f"{name}_{session_id}")
-        for name in expected
-    }
