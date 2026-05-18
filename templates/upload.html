@@ -23,8 +23,8 @@
       ('inventory',       'slot-inventory',       'ICON_INV',  'ICON_DONE', 'Inventory Report',       '',                        'Current stock on hand — all items, quantities, and categories.'),
       ('purchase_orders', 'slot-purchase_orders', 'ICON_PO',   'ICON_DONE', 'Purchase Order Record',  '',                        'All orders placed with suppliers — dates, items, quantities, and costs.'),
       ('sales',           'slot-sales',           'ICON_SALES','ICON_DONE', 'Sales Report',           '',                        'What customers have ordered — items, quantities, and dates.'),
-      ('suppliers',       'slot-suppliers',       'ICON_SUP',  'ICON_DONE', 'Supplier Listing',       '',                        'All your suppliers — names, supplier type (local or import), and contact details.'),
-      ('stockouts',       'slot-stockouts',       'ICON_STOCK','ICON_DONE', 'Stockout Report',        '(optional but recommended)', 'Items that ran out of stock — dates and quantities.'),
+      ('suppliers',       'slot-suppliers',       'ICON_SUP',  'ICON_DONE', 'Supplier Listing',       '(optional)',              'Your suppliers and whether they are local or import. Affects lead time calculations.'),
+      ('stockouts',       'slot-stockouts',       'ICON_STOCK','ICON_DONE', 'Stockout Report',        '(optional)',              'Items that ran out of stock — dates and quantities.'),
     ] %}
 
     {% set icons = {
@@ -63,19 +63,59 @@
     </div>
     {% endfor %}
 
-    <div style="margin-top:24px;padding-top:20px;border-top:1px solid var(--border);">
-      <p id="upload-status" style="color:var(--muted);font-size:15px;margin-bottom:16px;">
-        {% set required_done = tables.inventory and tables.purchase_orders and tables.sales and tables.suppliers %}
-        {% if required_done %}All required files uploaded. You can continue.
-        {% else %}Please upload the Inventory Report, Purchase Order Record, Sales Report, and Supplier Listing to continue.{% endif %}
-      </p>
-      <a id="continue-btn"
-         href="{{ url_for('context_form', upload_session_id=session_id) }}"
-         class="btn btn-primary {% if not required_done %}btn-disabled{% endif %}"
-         {% if not required_done %}onclick="return false;" style="opacity:.4;cursor:not-allowed;"{% endif %}>
-        Continue to Step 2
-      </a>
+    <!-- ── Scope selector ── -->
+    <div style="margin-top:28px;padding-top:24px;border-top:1px solid var(--border);">
+      <p style="font-size:14px;font-weight:600;color:var(--text);margin-bottom:6px;">Analysis scope</p>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:14px;">How many products should be analysed? Items are ranked by revenue from your Sales Report.</p>
+      <div id="scope-pills" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px;">
+        <button type="button" class="scope-pill" data-scope="100"  onclick="selectScope(this)">Top 100</button>
+        <button type="button" class="scope-pill" data-scope="200"  onclick="selectScope(this)">Top 200</button>
+        <button type="button" class="scope-pill" data-scope="300"  onclick="selectScope(this)">Top 300</button>
+        <button type="button" class="scope-pill active" data-scope="all" onclick="selectScope(this)">All items</button>
+        <button type="button" class="scope-pill" data-scope="custom" onclick="selectScope(this)">Custom</button>
+      </div>
+      <div id="custom-scope-wrap" style="display:none;margin-bottom:16px;">
+        <input type="number" id="custom-scope-input" min="1" max="9999" placeholder="e.g. 450"
+               style="width:140px;padding:8px 12px;border:1.5px solid var(--border);border-radius:10px;
+                      font-size:14px;font-family:inherit;color:var(--text);background:var(--paper);outline:none;"
+               oninput="onCustomInput(this)"
+               onfocus="this.style.borderColor='var(--navy-700)'"
+               onblur="this.style.borderColor='var(--border)'">
+        <span style="font-size:13px;color:var(--muted);margin-left:10px;">products by revenue</span>
+      </div>
     </div>
+
+    <!-- ── Continue ── -->
+    <div style="margin-top:4px;padding-top:20px;border-top:1px solid var(--border);">
+      <p id="upload-status" style="color:var(--muted);font-size:15px;margin-bottom:16px;">
+        {% set required_done = tables.inventory and tables.purchase_orders and tables.sales %}
+        {% if required_done %}All required files uploaded. You can continue.
+        {% else %}Upload the Inventory Report, Purchase Order Record, and Sales Report to continue.{% endif %}
+      </p>
+      <button id="continue-btn"
+              onclick="continueToStep2()"
+              class="btn btn-primary {% if not required_done %}btn-disabled{% endif %}"
+              {% if not required_done %}disabled style="opacity:.4;cursor:not-allowed;"{% endif %}>
+        Continue to Step 2
+      </button>
+    </div>
+
+    <style>
+      .scope-pill {
+        padding: 8px 18px;
+        border-radius: 100px;
+        border: 1.5px solid var(--border);
+        background: var(--paper);
+        color: var(--muted);
+        font-size: 13px;
+        font-weight: 500;
+        font-family: inherit;
+        cursor: pointer;
+        transition: border-color 140ms, background 140ms, color 140ms;
+      }
+      .scope-pill:hover { border-color: var(--brass); color: var(--text); background: var(--paper-2); }
+      .scope-pill.active { border-color: var(--navy-800); background: var(--navy-800); color: #fff; }
+    </style>
   </div>
 </div>
 
@@ -83,7 +123,8 @@
 const sessionId      = {{ session_id }};
 const CHUNK_SIZE     = 5 * 1024 * 1024;  // 5 MB per chunk
 const MAX_SIZE_MB    = 100;
-const required       = ["inventory","purchase_orders","sales","suppliers"];
+const required       = ["inventory","purchase_orders","sales"];
+const contextUrl     = "{{ url_for('context_form', upload_session_id=session_id) }}";
 
 let uploadedSlots = {
   inventory:       {{ 'true' if tables.inventory else 'false' }},
@@ -92,6 +133,66 @@ let uploadedSlots = {
   suppliers:       {{ 'true' if tables.suppliers else 'false' }},
   stockouts:       {{ 'true' if tables.stockouts else 'false' }},
 };
+
+// ── Scope selector ────────────────────────────────────────────────────────────
+
+let selectedScope = 'all';
+
+function selectScope(btn) {
+  document.querySelectorAll('.scope-pill').forEach(p => p.classList.remove('active'));
+  btn.classList.add('active');
+  selectedScope = btn.dataset.scope;
+  const wrap = document.getElementById('custom-scope-wrap');
+  wrap.style.display = selectedScope === 'custom' ? 'flex' : 'none';
+  if (selectedScope === 'custom') {
+    document.getElementById('custom-scope-input').focus();
+  }
+}
+
+function onCustomInput(input) {
+  // keep selectedScope in sync for custom
+  selectedScope = input.value.trim() ? input.value.trim() : 'custom';
+}
+
+function getScopeValue() {
+  if (selectedScope === 'custom' || (selectedScope !== 'all' && isNaN(parseInt(selectedScope)))) {
+    const v = document.getElementById('custom-scope-input').value.trim();
+    return v ? v : null;  // null = not yet entered
+  }
+  return selectedScope;
+}
+
+// ── Continue ──────────────────────────────────────────────────────────────────
+
+async function continueToStep2() {
+  const btn = document.getElementById('continue-btn');
+  if (btn.disabled) return;
+
+  const scope = getScopeValue();
+  if (scope === null) {
+    alert('Please enter a number for your custom scope, or choose one of the preset options.');
+    document.getElementById('custom-scope-input').focus();
+    return;
+  }
+
+  btn.textContent = 'Saving…';
+  btn.disabled = true;
+
+  try {
+    const res  = await fetch('/upload/scope/' + sessionId, {
+      method:  'POST',
+      headers: {'Content-Type': 'application/json'},
+      body:    JSON.stringify({ scope }),
+    });
+    const data = await res.json();
+    if (!data.ok) { alert('Could not save scope: ' + (data.error || 'Unknown error')); return; }
+    window.location.href = contextUrl;
+  } catch(e) {
+    alert('Network error saving scope. Please try again.');
+    btn.textContent = 'Continue to Step 2';
+    btn.disabled = false;
+  }
+}
 
 // ── helpers ─────────────────────────────────────────────────────────────────
 
@@ -129,15 +230,16 @@ function _updateContinueBtn() {
   const btn    = document.getElementById('continue-btn');
   const status = document.getElementById('upload-status');
   if (allDone) {
-    btn.removeAttribute('onclick');
     btn.style.opacity = ''; btn.style.cursor = '';
     btn.classList.remove('btn-disabled');
+    btn.disabled = false;
     status.innerHTML = '<span style="color:var(--success)">✓ All required files uploaded. You can continue.</span>';
   } else {
     btn.setAttribute('onclick','return false;');
     btn.style.opacity = '0.4'; btn.style.cursor = 'not-allowed';
     btn.classList.add('btn-disabled');
-    status.textContent = 'Upload the four required files to continue.';
+    btn.disabled = true;
+    status.textContent = 'Upload the three required files to continue.';
     status.style.color = 'var(--muted)';
   }
 }

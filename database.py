@@ -87,6 +87,7 @@ def init_db():
     for migration in [
         "ALTER TABLE upload_sessions ADD COLUMN file_names_json TEXT",
         "ALTER TABLE upload_sessions ADD COLUMN conversion_status_json TEXT",
+        "ALTER TABLE upload_sessions ADD COLUMN scope TEXT DEFAULT 'all'",
     ]:
         try:
             conn.execute(migration)
@@ -387,5 +388,8 @@ def get_session_tables(session_id: int) -> dict:
     expected = ["inventory", "purchase_orders", "sales", "suppliers", "customers", "stockouts"]
     return {
         name: table_exists(f"{name}_{session_id}")
+        for name in expected
+    }
+e: table_exists(f"{name}_{session_id}")
         for name in expected
     }

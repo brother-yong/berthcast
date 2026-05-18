@@ -215,9 +215,47 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
             "Open the Inventory Report and confirm one column has the item name and one has the stock quantity."
         )}
 
-    # Sort by quantity ascending so zero-stock and low-stock items are analysed first.
-    # Without this, alphabetical DB order means critical items outside the first N rows
-    # get skipped entirely, producing 0 actionable items and 0 recommendations.
+    # ── Read analysis scope (set by user on upload page) ──────────────────────
+    scope_rows = query("SELECT scope FROM upload_sessions WHERE id=?", (session_id,))
+    scope = (scope_rows[0]["scope"] if scope_rows and scope_rows[0]["scope"] else "all")
+    _emit(progress_emit, f"Analysis scope: {scope}")
+
+    # ── If scoped, rank items by revenue and keep only top N ──────────────────
+    top_item_names = None  # None = no filter
+    if scope != "all":
+        try:
+            n = int(scope)
+            # Find revenue or quantity column in sales table
+            sal_sample = query(f"SELECT * FROM {sal_table} LIMIT 1")
+            if sal_sample:
+                sal_cols  = list(sal_sample[0].keys())
+                desc_col_s = next((c for c in sal_cols if c in (
+                    "inventory_desc", "item_description", "description", "product_name")), None)
+                val_col_s  = next((c for c in sal_cols if c in (
+                    "net_amount", "total_amount", "amount", "value", "billing_amount",
+                    "sales_value", "net_value", "total_value", "revenue", "ext_price")), None)
+                qty_col_s  = next((c for c in sal_cols if c in (
+                    "billing_qty", "qty", "quantity", "billing_quantity")), None)
+
+                if desc_col_s and (val_col_s or qty_col_s):
+                    rank_col = val_col_s if val_col_s else qty_col_s
+                    metric   = "revenue" if val_col_s else "quantity sold"
+                    top_rows = query(
+                        f'SELECT "{desc_col_s}" as item, '
+                        f'SUM(CAST("{rank_col}" AS REAL)) as metric '
+                        f'FROM {sal_table} '
+                        f'WHERE "{desc_col_s}" IS NOT NULL '
+                        f'GROUP BY "{desc_col_s}" '
+                        f'ORDER BY metric DESC '
+                        f'LIMIT {n}'
+                    )
+                    top_item_names = {r["item"].strip().lower() for r in top_rows if r["item"]}
+                    _emit(progress_emit,
+                        f"Top {n} items by {metric} identified ({len(top_item_names)} matched) — filtering inventory")
+        except Exception as e:
+            _emit(progress_emit, f"Scope filter skipped (will use all items): {e}")
+
+    # ── Sort by quantity ascending (zero-stock first) ─────────────────────────
     def _qty_key(row):
         try:
             return float(str(row.get(_qty_col) or "0").replace(",", "").strip() or 0)
@@ -225,6 +263,13 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
             return 0
 
     inventory_sorted = sorted(inventory, key=_qty_key)
+
+    # Apply scope filter if active
+    if top_item_names is not None:
+        inventory_sorted = [
+            row for row in inventory_sorted
+            if str(row.get(_desc_col) or "").strip().lower() in top_item_names
+        ]
 
     inv_summary_lines = []
     for row in inventory_sorted[:800]:
