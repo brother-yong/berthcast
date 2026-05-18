@@ -63,6 +63,54 @@ def _ensure_admin():
 _ensure_admin()
 
 
+@app.context_processor
+def inject_live_stats():
+    """Provide live ticker stats to every template. Fails silently if anything's wrong."""
+    if "user_id" not in session:
+        return {"live_stats": None}
+    try:
+        sessions = db.query(
+            "SELECT id, created_at FROM upload_sessions WHERE user_id=? AND status='complete' "
+            "ORDER BY created_at DESC LIMIT 1",
+            (session["user_id"],)
+        )
+        if not sessions:
+            return {"live_stats": None}
+        s = sessions[0]
+        ar = db.query(
+            "SELECT inventory_report, recommendations_json FROM analysis_results WHERE session_id=?",
+            (s["id"],)
+        )
+        if not ar:
+            return {"live_stats": None}
+
+        inv  = json.loads(ar[0]["inventory_report"] or "[]")
+        recs = json.loads(ar[0]["recommendations_json"] or "[]")
+        if isinstance(inv, dict):
+            inv = []
+
+        from datetime import datetime
+        try:
+            ts = datetime.fromisoformat(str(s["created_at"]).replace("Z", "").split(".")[0])
+            mins = max(0, int((datetime.utcnow() - ts).total_seconds() / 60))
+            if   mins < 1:        age = "just now"
+            elif mins < 60:       age = f"{mins}m ago"
+            elif mins < 60 * 24:  age = f"{mins // 60}h ago"
+            else:                 age = f"{mins // (60 * 24)}d ago"
+        except Exception:
+            age = str(s["created_at"])[:10]
+
+        return {"live_stats": {
+            "skus":     len(inv),
+            "critical": sum(1 for i in inv if isinstance(i, dict) and i.get("status") == "CRITICAL"),
+            "recs":     sum(1 for r in recs if isinstance(r, dict) and not r.get("error")),
+            "approved": sum(1 for r in recs if isinstance(r, dict) and r.get("approved")),
+            "last_age": age,
+        }}
+    except Exception:
+        return {"live_stats": None}
+
+
 def login_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
@@ -645,12 +693,25 @@ def results(upload_session_id):
         recommendations  = []
     if isinstance(inventory_report, dict) and "confirmed_groups" in inventory_report:
         inventory_report = []
+
+    # Build item → status lookup so recommendation cards can show/filter by inventory status
+    status_by_item = {}
+    for item in inventory_report:
+        if isinstance(item, dict) and item.get("item"):
+            status_by_item[item["item"]] = item.get("status") or ""
+
+    # Pull session created_at so we can show "Generated 2 hours ago" byline on results
+    sess_row = db.query("SELECT created_at FROM upload_sessions WHERE id=?", (upload_session_id,))
+    generated_at = sess_row[0]["created_at"] if sess_row else None
+
     return render_template(
         "results.html",
         inventory=inventory_report,
         recommendations=recommendations,
         upload_session_id=upload_session_id,
-        org_name=session["org_name"]
+        org_name=session["org_name"],
+        status_by_item=status_by_item,
+        generated_at=generated_at,
     )
 
 
