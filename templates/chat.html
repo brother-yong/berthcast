@@ -386,16 +386,6 @@
     padding: 40px 32px;
     text-align: center;
   }
-  .welcome-logo {
-    width: 56px; height: 56px;
-    background: var(--navy-800);
-    border-radius: 16px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 24px;
-    margin-bottom: 20px;
-  }
   .welcome-title {
     font-family: var(--font-display);
     font-size: 26px;
@@ -634,12 +624,6 @@
     <!-- Messages / welcome -->
     <div class="chat-messages" id="chatMessages">
       <div class="chat-welcome" id="chatWelcome">
-        <div class="welcome-logo">
-          <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <rect width="28" height="28" rx="7" fill="none"/>
-            <path d="M8 7h7.5c2.485 0 4 1.343 4 3.5 0 1.4-.7 2.45-1.85 3.05C19.1 14.1 20 15.3 20 17c0 2.35-1.65 4-4.5 4H8V7zm2.1 5.7h5.2c1.3 0 2.1-.7 2.1-1.9 0-1.2-.8-1.85-2.1-1.85h-5.2v3.75zm0 5.55h5.5c1.45 0 2.3-.75 2.3-2.05 0-1.3-.85-2.05-2.3-2.05h-5.5v4.1z" fill="var(--brass-2)"/>
-          </svg>
-        </div>
         <h2 class="welcome-title" id="welcomeTitle">What are we solving today?</h2>
         <p class="welcome-sub">Ask anything about your inventory, suppliers, or procurement. Or start a new analysis to upload your data files.</p>
         <div class="welcome-starters">
@@ -967,12 +951,6 @@ function clearMessages() {
   const messages = document.getElementById('chatMessages');
   messages.innerHTML = `
     <div class="chat-welcome" id="chatWelcome">
-      <div class="welcome-logo">
-        <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <rect width="28" height="28" rx="7" fill="none"/>
-          <path d="M8 7h7.5c2.485 0 4 1.343 4 3.5 0 1.4-.7 2.45-1.85 3.05C19.1 14.1 20 15.3 20 17c0 2.35-1.65 4-4.5 4H8V7zm2.1 5.7h5.2c1.3 0 2.1-.7 2.1-1.9 0-1.2-.8-1.85-2.1-1.85h-5.2v3.75zm0 5.55h5.5c1.45 0 2.3-.75 2.3-2.05 0-1.3-.85-2.05-2.3-2.05h-5.5v4.1z" fill="var(--brass-2)"/>
-        </svg>
-      </div>
       <h2 class="welcome-title">${getWelcomeTitle()}</h2>
       <p class="welcome-sub">Ask anything about your inventory, suppliers, or procurement. Or start a new analysis to upload your data files.</p>
       <div class="welcome-starters">

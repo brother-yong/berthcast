@@ -411,6 +411,41 @@ def admin_panel():
     )
 
 
+@app.route("/settings", methods=["GET", "POST"])
+@login_required
+def user_settings():
+    org = session.get("org_name", "")
+    if request.method == "POST":
+        action = request.form.get("action")
+        if action == "save_supplier":
+            sup_name = request.form.get("supplier_name", "").strip()
+            if sup_name:
+                try:
+                    db.upsert_supplier_profile(
+                        org, sup_name,
+                        supplier_type      = request.form.get("supplier_type", "other"),
+                        avg_lead_time_days = int(request.form.get("avg_lead_time_days", 56)),
+                        delay_probability  = float(request.form.get("delay_probability", 0.2)),
+                        data_quality_score = 0.8,   # user-entered = high confidence
+                        notes              = request.form.get("notes", ""),
+                    )
+                    flash(f"Supplier '{sup_name}' saved.", "success")
+                except Exception as e:
+                    flash(f"Could not save supplier: {e}", "error")
+        elif action == "delete_supplier":
+            sup_name = request.form.get("supplier_name", "").strip()
+            if sup_name:
+                db.execute(
+                    "DELETE FROM supplier_profiles WHERE org_name=? AND supplier_name=?",
+                    (org, sup_name)
+                )
+                flash(f"Supplier '{sup_name}' deleted.", "success")
+        return redirect(url_for("user_settings"))
+
+    profiles = db.get_supplier_profiles(org)
+    return render_template("settings.html", profiles=profiles)
+
+
 @app.route("/dashboard")
 @login_required
 def dashboard():

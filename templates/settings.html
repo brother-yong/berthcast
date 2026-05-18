@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+{% block title %}Settings — BerthAI{% endblock %}
+
+{% block content %}
+<div class="page-wrap">
+  <div class="page-header">
+    <h1>Settings</h1>
+    <p>Manage supplier profiles for {{ session.org_name }}. These inform how the AI assesses risk and lead times in every analysis.</p>
+  </div>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}
+    <div class="flash flash-{{ category }}">{{ message }}</div>
+    {% endfor %}
+  {% endwith %}
+
+  <!-- Supplier profiles -->
+  <div class="card">
+    <div class="card-title">Supplier profiles</div>
+    <p style="color:var(--muted); font-size:14px; margin-bottom:20px;">
+      Add your suppliers here. The AI uses delay rate and lead time to reason about risk and set reorder urgency.
+      Suppliers not listed are treated as unknown — confidence will show as <strong>Insufficient data</strong>.
+    </p>
+
+    {% if profiles %}
+    <table class="data-table" style="margin-bottom:24px;">
+      <thead>
+        <tr>
+          <th>Supplier</th>
+          <th>Type</th>
+          <th>Lead time (days)</th>
+          <th>Delay rate</th>
+          <th>Notes</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in profiles %}
+        <tr>
+          <td><strong>{{ p.supplier_name }}</strong></td>
+          <td style="font-size:13px; color:var(--muted);">{{ p.supplier_type or '—' }}</td>
+          <td>{{ p.avg_lead_time_days }} days</td>
+          <td>
+            <span style="
+              font-weight:600;
+              color: {% if p.delay_probability > 0.3 %}var(--status-critical){% else %}inherit{% endif %};">
+              {{ (p.delay_probability * 100) | round | int }}%
+            </span>
+          </td>
+          <td style="color:var(--muted); font-size:13px;">{{ p.notes or '—' }}</td>
+          <td style="display:flex; gap:8px;">
+            <button type="button" class="btn btn-muted btn-sm"
+                    onclick="prefillEdit('{{ p.supplier_name }}',
+                      '{{ p.supplier_type or '' }}',
+                      {{ p.avg_lead_time_days }},
+                      {{ p.delay_probability }},
+                      '{{ (p.notes or '')|replace("'", "\\'")|replace('"','&quot;') }}')">
+              Edit
+            </button>
+            <form method="POST" action="{{ url_for('user_settings') }}"
+                  onsubmit="return confirm('Delete {{ p.supplier_name }}?')">
+              <input type="hidden" name="action" value="delete_supplier">
+              <input type="hidden" name="supplier_name" value="{{ p.supplier_name }}">
+              <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p style="color:var(--muted); font-size:14px; margin-bottom:20px;">
+      No suppliers added yet. Add your first one below.
+    </p>
+    {% endif %}
+
+    <!-- Add / edit form -->
+    <form method="POST" action="{{ url_for('user_settings') }}" id="supplierForm">
+      <input type="hidden" name="action" value="save_supplier">
+      <div style="font-size:12px; font-weight:600; color:var(--muted); text-transform:uppercase;
+                  letter-spacing:0.07em; margin-bottom:14px;" id="formLabel">Add supplier</div>
+      <div style="display:grid; grid-template-columns:2fr 1fr 1fr 1fr 3fr auto; gap:12px; align-items:end;">
+        <div class="form-group" style="margin:0;">
+          <label style="font-size:13px;">Supplier name</label>
+          <input type="text" name="supplier_name" id="inp-name" required placeholder="e.g. El Sabah Trading">
+        </div>
+        <div class="form-group" style="margin:0;">
+          <label style="font-size:13px;">Type</label>
+          <select name="supplier_type" id="inp-type">
+            <option value="import">Import</option>
+            <option value="local">Local</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div class="form-group" style="margin:0;">
+          <label style="font-size:13px;">Lead time (days)</label>
+          <input type="number" name="avg_lead_time_days" id="inp-lead" step="1" min="1" value="56" required>
+        </div>
+        <div class="form-group" style="margin:0;">
+          <label style="font-size:13px;">Delay rate (0–1)
+            <span class="hint">0.3 = delays 30% of the time</span>
+          </label>
+          <input type="number" name="delay_probability" id="inp-delay" step="0.01" min="0" max="1" value="0.20" required>
+        </div>
+        <div class="form-group" style="margin:0;">
+          <label style="font-size:13px;">Notes (optional)</label>
+          <input type="text" name="notes" id="inp-notes" placeholder="e.g. Reliable but slow in Chinese New Year">
+        </div>
+        <div>
+          <button type="submit" class="btn btn-primary">Save</button>
+        </div>
+      </div>
+      <button type="button" class="btn btn-muted btn-sm" id="cancelEdit"
+              style="margin-top:10px; display:none;" onclick="resetForm()">Cancel edit</button>
+    </form>
+  </div>
+
+  <!-- Quick guide -->
+  <div class="card" style="background:var(--paper-2); border-color:var(--border);">
+    <div class="card-title" style="font-size:14px;">How the AI uses these profiles</div>
+    <p style="font-size:13.5px; color:var(--muted); line-height:1.7; margin:0;">
+      When the AI analyses your inventory, it looks up each item's supplier here.
+      A high delay rate (above 30%) triggers a <strong>high-risk</strong> flag — the AI will require a mitigation plan before recommending an order.
+      If a supplier isn't listed, confidence is automatically <strong>Insufficient data</strong> and the AI says so rather than guessing.
+      Lead time determines how far ahead the AI looks when deciding if stock is running low.
+    </p>
+  </div>
+</div>
+
+<script>
+function prefillEdit(name, type, lead, delay, notes) {
+  document.getElementById('inp-name').value  = name;
+  document.getElementById('inp-type').value  = type || 'other';
+  document.getElementById('inp-lead').value  = lead;
+  document.getElementById('inp-delay').value = delay;
+  document.getElementById('inp-notes').value = notes;
+  document.getElementById('formLabel').textContent = 'Edit supplier — ' + name;
+  document.getElementById('cancelEdit').style.display = 'inline-flex';
+  document.getElementById('supplierForm').scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function resetForm() {
+  document.getElementById('supplierForm').reset();
+  document.getElementById('inp-lead').value  = '56';
+  document.getElementById('inp-delay').value = '0.20';
+  document.getElementById('formLabel').textContent = 'Add supplier';
+  document.getElementById('cancelEdit').style.display = 'none';
+}
+</script>
+{% endblock %}
