@@ -8,6 +8,48 @@
     <p>Create and manage organisation accounts. Users can only be added by you.</p>
   </div>
 
+  <!-- Contact requests -->
+  {% if contact_requests %}
+  {% set new_count = contact_requests | selectattr('status', 'equalto', 'new') | list | length %}
+  <div class="card">
+    <div class="card-title">
+      Contact requests
+      {% if new_count %}
+      <span style="font-weight:600; color:var(--brass-3); font-size:13px; background:var(--paper-2); padding:3px 10px; border-radius:999px; margin-left:8px; font-family:'JetBrains Mono', monospace; text-transform:uppercase; letter-spacing:0.08em;">
+        {{ new_count }} new
+      </span>
+      {% endif %}
+    </div>
+
+    {% for c in contact_requests %}
+    <div class="contact-request {% if c.status == 'new' %}is-new{% endif %}">
+      <div class="contact-meta">
+        <strong class="contact-name">{{ c.name }}</strong>
+        <a href="mailto:{{ c.email }}" class="contact-email">{{ c.email }}</a>
+        {% if c.company %}<span class="contact-company">{{ c.company }}</span>{% endif %}
+        <span class="contact-date">{{ c.created_at[:10] }}</span>
+      </div>
+      <div class="contact-message">{{ c.message }}</div>
+      <div class="contact-actions">
+        {% if c.status == 'new' %}
+        <form method="POST" action="{{ url_for('admin_panel') }}" style="display:inline;">
+          <input type="hidden" name="action" value="mark_contact_read">
+          <input type="hidden" name="contact_id" value="{{ c.id }}">
+          <button type="submit" class="btn btn-muted btn-sm">Mark as read</button>
+        </form>
+        {% endif %}
+        <form method="POST" action="{{ url_for('admin_panel') }}" style="display:inline;"
+              onsubmit="return confirm('Delete this contact request?');">
+          <input type="hidden" name="action" value="delete_contact">
+          <input type="hidden" name="contact_id" value="{{ c.id }}">
+          <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+        </form>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
   <!-- Create new account -->
   <div class="card">
     <div class="card-title">Create a new account</div>
@@ -39,6 +81,182 @@
       </div>
       <button type="submit" class="btn btn-primary">Create account</button>
     </form>
+  </div>
+
+  <!-- Company consequence config -->
+  <div class="card">
+    <div class="card-title">Consequence engine — company config</div>
+    <p style="color:var(--muted); font-size:14px; margin-bottom:20px;">
+      These numbers drive the financial scenarios in every recommendation. Set them per organisation.
+    </p>
+
+    {% if orgs %}
+    <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:20px;">
+      {% for org in orgs %}
+      <button type="button" class="scope-pill {% if loop.first %}active{% endif %}"
+              onclick="showOrgConfig('{{ org }}', this)">{{ org }}</button>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% for org in orgs %}
+    {% set cfg = org_configs[org] %}
+    <div class="org-config-panel" id="cfg-{{ loop.index }}" style="{% if not loop.first %}display:none;{% endif %}">
+      <form method="POST" action="{{ url_for('admin_panel') }}">
+        <input type="hidden" name="action" value="save_company_config">
+        <input type="hidden" name="org_name" value="{{ org }}">
+        <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:16px; margin-bottom:16px;">
+          <div class="form-group">
+            <label>Stockout cost per unit (SGD)
+              <span class="hint">Revenue + emergency sourcing cost when an item runs out</span>
+            </label>
+            <input type="number" name="stockout_cost_per_unit" step="0.01" min="0"
+                   value="{{ cfg.stockout_cost_per_unit | round(2) }}" required>
+          </div>
+          <div class="form-group">
+            <label>Holding cost per unit per day (SGD)
+              <span class="hint">Cost of capital tied up in excess stock</span>
+            </label>
+            <input type="number" name="holding_cost_per_unit_per_day" step="0.01" min="0"
+                   value="{{ cfg.holding_cost_per_unit_per_day | round(2) }}" required>
+          </div>
+          <div class="form-group">
+            <label>Service level target
+              <span class="hint">0.95 = acceptable to stockout 5% of the time</span>
+            </label>
+            <input type="number" name="service_level_target" step="0.01" min="0" max="1"
+                   value="{{ cfg.service_level_target | round(2) }}" required>
+          </div>
+          <div class="form-group">
+            <label>Default lead time (days)
+              <span class="hint">Fallback if no supplier profile exists</span>
+            </label>
+            <input type="number" name="default_lead_time_days" step="1" min="1"
+                   value="{{ cfg.default_lead_time_days }}" required>
+          </div>
+          <div class="form-group">
+            <label>Lead time variance (days)
+              <span class="hint">How unreliable is supply chain timing, on average</span>
+            </label>
+            <input type="number" name="lead_time_variance_days" step="1" min="0"
+                   value="{{ cfg.lead_time_variance_days }}" required>
+          </div>
+          <div class="form-group">
+            <label>Industry
+              <span class="hint">Drives spoilage rules — use: food_distribution, marine_supply, pharma, general</span>
+            </label>
+            <input type="text" name="industry" placeholder="e.g. food_distribution"
+                   value="{{ cfg.industry or 'general' }}">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Company description
+            <span class="hint">Used by the AI to frame analysis — 1–2 sentences about what this company does</span>
+          </label>
+          <input type="text" name="company_description"
+                 placeholder="e.g. Food distributor in Singapore importing chilled and frozen goods."
+                 value="{{ cfg.company_description or '' }}" style="width:100%;">
+        </div>
+        <button type="submit" class="btn btn-primary btn-sm">Save config for {{ org }}</button>
+      </form>
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- Supplier profiles -->
+  <div class="card">
+    <div class="card-title">Supplier risk profiles</div>
+    <p style="color:var(--muted); font-size:14px; margin-bottom:20px;">
+      Delay probability and data quality drive the confidence level and mitigation logic.
+    </p>
+
+    {% for org in orgs %}
+    {% set profiles = supplier_profiles[org] %}
+    <div style="margin-bottom:28px;">
+      <div style="font-size:13px; font-weight:600; text-transform:uppercase; letter-spacing:0.08em;
+                  color:var(--navy-1); margin-bottom:12px;">{{ org }}</div>
+
+      {% if profiles %}
+      <table class="data-table" style="font-size:13px; margin-bottom:12px;">
+        <thead>
+          <tr>
+            <th>Supplier</th>
+            <th>Delay probability</th>
+            <th>Avg lead time (days)</th>
+            <th>Data quality (0–1)</th>
+            <th>Notes</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in profiles %}
+          <tr>
+            <td><strong>{{ p.supplier_name }}</strong></td>
+            <td>
+              <span style="color: {% if p.delay_probability > 0.3 %}var(--status-critical){% else %}inherit{% endif %};">
+                {{ (p.delay_probability * 100) | round | int }}%
+              </span>
+            </td>
+            <td>{{ p.avg_lead_time_days }}</td>
+            <td>
+              <span style="color: {% if p.data_quality_score < 0.5 %}var(--brass-3){% else %}inherit{% endif %};">
+                {{ p.data_quality_score | round(1) }}
+              </span>
+            </td>
+            <td style="color:var(--muted); font-size:12px;">{{ p.notes or '' }}</td>
+            <td>
+              <button type="button" class="btn btn-muted btn-sm"
+                      onclick="editSupplier('{{ org }}', '{{ p.supplier_name }}',
+                               {{ p.delay_probability }}, {{ p.avg_lead_time_days }},
+                               {{ p.data_quality_score }}, '{{ (p.notes or '')|replace("'","\\'")|replace('"', '&quot;') }}')">
+                Edit
+              </button>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+
+      <!-- Add / edit supplier form -->
+      <form method="POST" action="{{ url_for('admin_panel') }}" id="sup-form-{{ loop.index }}"
+            style="background:var(--paper-2); border-radius:8px; padding:16px;">
+        <input type="hidden" name="action" value="save_supplier_profile">
+        <input type="hidden" name="org_name" value="{{ org }}">
+        <div style="font-size:12px; font-weight:600; color:var(--muted); margin-bottom:12px; text-transform:uppercase; letter-spacing:0.06em;">
+          Add / update supplier
+        </div>
+        <div style="display:grid; grid-template-columns:2fr 1fr 1fr 1fr 3fr auto; gap:10px; align-items:end;">
+          <div class="form-group" style="margin:0;">
+            <label style="font-size:12px;">Supplier name</label>
+            <input type="text" name="supplier_name" id="sup-name-{{ loop.index }}" required placeholder="e.g. El Sabah">
+          </div>
+          <div class="form-group" style="margin:0;">
+            <label style="font-size:12px;">Delay prob. (0–1)</label>
+            <input type="number" name="delay_probability" id="sup-delay-{{ loop.index }}"
+                   step="0.01" min="0" max="1" value="0.20" required>
+          </div>
+          <div class="form-group" style="margin:0;">
+            <label style="font-size:12px;">Lead time (days)</label>
+            <input type="number" name="avg_lead_time_days" id="sup-lead-{{ loop.index }}"
+                   step="1" min="1" value="56" required>
+          </div>
+          <div class="form-group" style="margin:0;">
+            <label style="font-size:12px;">Data quality (0–1)</label>
+            <input type="number" name="data_quality_score" id="sup-quality-{{ loop.index }}"
+                   step="0.1" min="0" max="1" value="0.5" required>
+          </div>
+          <div class="form-group" style="margin:0;">
+            <label style="font-size:12px;">Notes</label>
+            <input type="text" name="notes" id="sup-notes-{{ loop.index }}" placeholder="Optional context">
+          </div>
+          <div style="margin-bottom:1px;">
+            <button type="submit" class="btn btn-primary btn-sm">Save</button>
+          </div>
+        </div>
+      </form>
+    </div>
+    {% endfor %}
   </div>
 
   <!-- Existing accounts -->
@@ -89,4 +307,33 @@
     {% endif %}
   </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function showOrgConfig(org, btn) {
+  document.querySelectorAll('.org-config-panel').forEach(p => p.style.display = 'none');
+  document.querySelectorAll('[onclick^="showOrgConfig"]').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.org-config-panel').forEach(panel => {
+    const input = panel.querySelector('input[name="org_name"]');
+    if (input && input.value === org) panel.style.display = '';
+  });
+  btn.classList.add('active');
+}
+
+function editSupplier(org, name, delay, lead, quality, notes) {
+  document.querySelectorAll('form[id^="sup-form-"]').forEach(form => {
+    const orgInput = form.querySelector('input[name="org_name"]');
+    if (orgInput && orgInput.value === org) {
+      const idx = form.id.replace('sup-form-', '');
+      document.getElementById('sup-name-'    + idx).value = name;
+      document.getElementById('sup-delay-'   + idx).value = delay;
+      document.getElementById('sup-lead-'    + idx).value = lead;
+      document.getElementById('sup-quality-' + idx).value = quality;
+      document.getElementById('sup-notes-'   + idx).value = notes;
+      form.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  });
+}
+</script>
 {% endblock %}
