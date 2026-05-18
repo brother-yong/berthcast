@@ -633,6 +633,24 @@ def upload_status(upload_session_id):
     return jsonify({"statuses": statuses, "file_names": file_names})
 
 
+@app.route("/upload/scope/<int:upload_session_id>", methods=["POST"])
+@login_required
+def upload_set_scope(upload_session_id):
+    _verify_session_owner(upload_session_id)
+    data  = request.get_json() or {}
+    scope = str(data.get("scope", "all")).strip()
+    if scope != "all":
+        try:
+            n = int(scope)
+            if n < 1:
+                return jsonify({"ok": False, "error": "Scope must be a positive number."})
+            scope = str(n)
+        except ValueError:
+            return jsonify({"ok": False, "error": "Invalid scope value."})
+    db.execute("UPDATE upload_sessions SET scope=? WHERE id=?", (scope, upload_session_id))
+    return jsonify({"ok": True})
+
+
 @app.route("/upload/remove", methods=["POST"])
 @login_required
 def remove_upload():
@@ -910,6 +928,28 @@ def recommend_action():
             r["approved"]  = (action == "approve")
             r["dismissed"] = (action == "dismiss")
             r["note"]      = note
+    db.execute(
+        "UPDATE analysis_results SET recommendations_json=? WHERE session_id=?",
+        (json.dumps(recs), session_id)
+    )
+    return jsonify({"ok": True})
+
+
+def _allowed(filename):
+    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
+
+
+def _verify_session_owner(upload_session_id):
+    rows = db.query("SELECT user_id FROM upload_sessions WHERE id=?", (upload_session_id,))
+    if not rows or rows[0]["user_id"] != session.get("user_id"):
+        from flask import abort
+        abort(403)
+
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=False)
+"note"]      = note
     db.execute(
         "UPDATE analysis_results SET recommendations_json=? WHERE session_id=?",
         (json.dumps(recs), session_id)
