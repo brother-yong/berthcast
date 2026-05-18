@@ -23,6 +23,19 @@
     <a href="{{ url_for('logout') }}">Sign out</a>
   </div>
 </nav>
+
+{% if live_stats %}
+<div class="ticker-strip" aria-label="Live operations summary">
+  <div class="ticker-item"><span class="ticker-label">SKUs tracked</span><span class="ticker-value">{{ "{:,}".format(live_stats.skus) }}</span></div>
+  <div class="ticker-sep">/</div>
+  <div class="ticker-item"><span class="ticker-label">Critical</span><span class="ticker-value {% if live_stats.critical %}is-error{% endif %}">{{ live_stats.critical }}</span></div>
+  <div class="ticker-sep">/</div>
+  <div class="ticker-item"><span class="ticker-label">Recommendations</span><span class="ticker-value">{{ live_stats.recs }}</span> <span class="ticker-label">·</span> <span class="ticker-value">{{ live_stats.approved }} approved</span></div>
+  <div class="ticker-sep">/</div>
+  <div class="ticker-item"><span class="ticker-label">Last analysis</span><span class="ticker-value">{{ live_stats.last_age }}</span></div>
+  <div class="ticker-pulse">Live</div>
+</div>
+{% endif %}
 {% endif %}
 
 {% with messages = get_flashed_messages(with_categories=true) %}

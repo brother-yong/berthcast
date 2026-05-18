@@ -3,36 +3,22 @@
 
 {% block content %}
 <div class="page-wrap">
-  <div class="page-header">
-    <h1>Analysis results — {{ org_name }}</h1>
-    <p>Review the inventory health and approve or dismiss each recommendation below.</p>
-  </div>
+  <section class="hero" style="padding: 40px 0 16px;">
+    <div class="hero-eyebrow">Analysis results · {{ org_name }}</div>
+    <h1 style="font-size: clamp(40px, 5.5vw, 60px);">Recommendations <em>&amp;</em> inventory health</h1>
+    <div class="hero-byline">
+      <span class="ai-byline">Authored by Claude</span>
+      {% if generated_at %}
+      <span class="hero-byline-sep">/</span>
+      <span>Generated · {{ generated_at[:10] }}</span>
+      {% endif %}
+      <span class="hero-byline-sep">/</span>
+      <span>{{ recommendations | rejectattr('error') | list | length }} recommendations &middot; {{ inventory | length }} items reviewed</span>
+    </div>
+  </section>
 
-  <!-- Summary strip -->
-  {% set critical = inventory | selectattr('status', 'equalto', 'CRITICAL') | list %}
-  {% set low      = inventory | selectattr('status', 'equalto', 'LOW') | list %}
-  {% set high_sp  = inventory | selectattr('spoilage_risk', 'equalto', 'HIGH') | list %}
-  <div style="display:flex; gap:14px; flex-wrap:wrap; margin-bottom:24px;">
-    <div class="card" style="flex:1; min-width:140px; text-align:center; padding:18px;">
-      <div style="font-size:28px; font-weight:700; color:var(--danger);">{{ critical|length }}</div>
-      <div style="font-size:14px; color:var(--muted); margin-top:4px;">Critical stock</div>
-    </div>
-    <div class="card" style="flex:1; min-width:140px; text-align:center; padding:18px;">
-      <div style="font-size:28px; font-weight:700; color:var(--warning);">{{ low|length }}</div>
-      <div style="font-size:14px; color:var(--muted); margin-top:4px;">Low stock</div>
-    </div>
-    <div class="card" style="flex:1; min-width:140px; text-align:center; padding:18px;">
-      <div style="font-size:28px; font-weight:700; color:var(--danger);">{{ high_sp|length }}</div>
-      <div style="font-size:14px; color:var(--muted); margin-top:4px;">High spoilage risk</div>
-    </div>
-    <div class="card" style="flex:1; min-width:140px; text-align:center; padding:18px;">
-      <div style="font-size:28px; font-weight:700; color:var(--primary);">{{ recommendations|length }}</div>
-      <div style="font-size:14px; color:var(--muted); margin-top:4px;">Recommendations</div>
-    </div>
-  </div>
-
-  <!-- Tab navigation -->
-  <div style="display:flex; border-bottom:2px solid var(--border); margin-bottom:24px; gap:4px;">
+  <!-- Tab toggle -->
+  <div style="display:flex; border-bottom:2px solid var(--border); margin: 24px 0 0; gap:4px;">
     <button class="tab-btn active" onclick="showTab('tab-recs', this)">
       Purchase recommendations
     </button>
@@ -41,86 +27,179 @@
     </button>
   </div>
 
-  <!-- ── RECOMMENDATIONS TAB ── -->
+  <!-- ── RECOMMENDATIONS TAB (mission control split layout) ── -->
   <div id="tab-recs">
-    {% if recommendations %}
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; flex-wrap:wrap; gap:10px;">
-      <p style="color:var(--muted); font-size:15px;">
-        Approve what to order. Dismiss what you don't need. Add notes where needed.
-        Once done, print your order sheet.
-      </p>
-      <div style="display:flex; gap:8px; flex-wrap:wrap;">
-        <button id="approve-all-btn" class="btn btn-primary btn-sm no-print" onclick="approveAll()">
-          ✓ Approve all
-        </button>
-        <a href="{{ url_for('print_results', upload_session_id=upload_session_id) }}"
-           target="_blank" class="btn btn-success btn-sm no-print">
-          🖨️ Print approved orders
-        </a>
-      </div>
-    </div>
+    {% set valid_recs = recommendations | rejectattr('error') | list %}
+    {% if valid_recs %}
 
-    {% for rec in recommendations %}
-    {% if not rec.error %}
-    <div class="rec-card {% if rec.approved %}approved{% elif rec.dismissed %}dismissed{% endif %}"
-         id="rec-{{ loop.index0 }}">
-      <div class="rec-card-header">
-        <div class="rec-card-title">{{ rec.item }}</div>
-        {% if rec.confidence == 'HIGH' %}
-          <span class="badge badge-healthy">High confidence</span>
-        {% elif rec.confidence == 'MEDIUM' %}
-          <span class="badge badge-low">Medium confidence</span>
-        {% else %}
-          <span class="badge badge-dead">Low confidence</span>
+    {% set crit_count = inventory | selectattr('status', 'equalto', 'CRITICAL') | list | length %}
+    {% set low_count  = inventory | selectattr('status', 'equalto', 'LOW') | list | length %}
+    {% set high_sp    = inventory | selectattr('spoilage_risk', 'equalto', 'HIGH') | list | length %}
+    {% set approved_init = valid_recs | selectattr('approved') | list | length %}
+
+    <div class="mc-layout">
+
+      <!-- Sticky sidebar: filters + summary -->
+      <aside class="mc-sidebar">
+        <div class="mc-side-title">Overview</div>
+        <div class="mc-side-stats">
+          <div class="mc-side-stat {% if crit_count %}is-warn{% endif %}">
+            <div class="v">{{ crit_count }}</div>
+            <div class="l">Critical</div>
+          </div>
+          <div class="mc-side-stat">
+            <div class="v">{{ low_count }}</div>
+            <div class="l">Low stock</div>
+          </div>
+          <div class="mc-side-stat">
+            <div class="v">{{ high_sp }}</div>
+            <div class="l">Spoilage</div>
+          </div>
+          <div class="mc-side-stat">
+            <div class="v" id="approved-counter">{{ approved_init }}</div>
+            <div class="l">Approved</div>
+          </div>
+        </div>
+
+        <div class="mc-filter-group">
+          <div class="mc-filter-heading">Status</div>
+          <div class="mc-chips" data-filter="status">
+            <span class="mc-chip" data-val="CRITICAL">Critical</span>
+            <span class="mc-chip" data-val="LOW">Low</span>
+          </div>
+        </div>
+
+        <div class="mc-filter-group">
+          <div class="mc-filter-heading">Supplier type</div>
+          <div class="mc-chips" data-filter="suptype">
+            <span class="mc-chip" data-val="import">Import</span>
+            <span class="mc-chip" data-val="local">Local</span>
+            <span class="mc-chip" data-val="other">Other</span>
+          </div>
+        </div>
+
+        <div class="mc-filter-group">
+          <div class="mc-filter-heading">Confidence</div>
+          <div class="mc-chips" data-filter="confidence">
+            <span class="mc-chip" data-val="HIGH">High</span>
+            <span class="mc-chip" data-val="MEDIUM">Medium</span>
+            <span class="mc-chip" data-val="LOW">Low</span>
+          </div>
+        </div>
+
+        <div class="mc-filter-group">
+          <div class="mc-filter-heading">Action state</div>
+          <div class="mc-chips" data-filter="action">
+            <span class="mc-chip is-active" data-val="all">All</span>
+            <span class="mc-chip" data-val="pending">Pending</span>
+            <span class="mc-chip" data-val="approved">Approved</span>
+            <span class="mc-chip" data-val="dismissed">Dismissed</span>
+          </div>
+        </div>
+      </aside>
+
+      <!-- Main canvas: search/sort + cards -->
+      <div class="mc-canvas">
+        <div class="mc-canvas-top">
+          <input type="text" id="mc-search" class="mc-search"
+                 placeholder="Search items or suppliers..."
+                 autocomplete="off">
+          <span class="mc-result-count" id="recs-count">{{ valid_recs | length }} of {{ valid_recs | length }}</span>
+          <button id="approve-all-btn" class="btn btn-primary btn-sm no-print" onclick="approveAll()">
+            ✓ Approve all
+          </button>
+          <a href="{{ url_for('print_results', upload_session_id=upload_session_id) }}"
+             target="_blank" class="btn btn-success btn-sm no-print">
+            Print approved
+          </a>
+        </div>
+
+        <div id="recs-container">
+        {% for rec in recommendations %}
+        {% if not rec.error %}
+          {% set conf_pct = 92 if rec.confidence == 'HIGH' else (62 if rec.confidence == 'MEDIUM' else 32) %}
+          {% set conf_class = 'high' if rec.confidence == 'HIGH' else ('medium' if rec.confidence == 'MEDIUM' else 'low') %}
+          {% set offset = (97.4 * (1 - conf_pct / 100)) | round(2) %}
+          {% set item_status = status_by_item.get(rec.item, '') %}
+          <div class="rec-card {% if rec.approved %}approved{% elif rec.dismissed %}dismissed{% endif %}"
+               id="rec-{{ loop.index0 }}"
+               data-status="{{ item_status }}"
+               data-suptype="{{ rec.supplier_type or 'other' }}"
+               data-confidence="{{ rec.confidence }}"
+               data-supplier="{{ rec.supplier or '' }}"
+               data-item="{{ rec.item }}">
+
+            <div class="rec-card-header">
+              <div class="confidence-ring confidence-{{ conf_class }}"
+                   title="{{ rec.confidence }} confidence">
+                <svg viewBox="0 0 36 36">
+                  <circle cx="18" cy="18" r="15.5" class="ring-bg"/>
+                  <circle cx="18" cy="18" r="15.5" class="ring-fill"
+                          style="stroke-dashoffset: {{ offset }};"/>
+                </svg>
+                <div class="confidence-label">
+                  <span class="pct">{{ conf_pct }}</span>
+                  <span class="lbl">{{ rec.confidence | lower }}</span>
+                </div>
+              </div>
+              <div class="rec-card-title">{{ rec.item }}</div>
+              {% if rec.approved %}
+                <span class="badge badge-healthy">✓ Approved</span>
+              {% elif rec.dismissed %}
+                <span class="badge badge-dead">Dismissed</span>
+              {% endif %}
+            </div>
+
+            <div class="rec-card-body">
+              <p><strong>Supplier:</strong> {{ rec.supplier }} ({{ rec.supplier_type }}, {{ rec.lead_time_days }} day lead time)</p>
+              <p style="margin-top:6px;"><strong>Suggested order:</strong> {{ rec.suggested_quantity }}</p>
+              <p style="margin-top:8px;">{{ rec.reason }}</p>
+            </div>
+
+            {% if rec.flags %}
+            <div class="rec-card-flags">
+              {% for flag in rec.flags %}
+              <span class="flag-chip">⚠ {{ flag }}</span>
+              {% endfor %}
+            </div>
+            {% endif %}
+
+            <div class="rec-card-actions">
+              <input type="text" class="rec-note"
+                     id="note-{{ loop.index0 }}"
+                     placeholder="Add a note (e.g. called supplier, confirmed delivery)"
+                     value="{{ rec.note or '' }}">
+              <button class="btn btn-success btn-sm"
+                      onclick="takeAction({{ loop.index0 }}, '{{ rec.item | replace("'", "\\'") }}', 'approve')">
+                ✓ Approve
+              </button>
+              <button class="btn btn-muted btn-sm"
+                      onclick="takeAction({{ loop.index0 }}, '{{ rec.item | replace("'", "\\'") }}', 'dismiss')">
+                Dismiss
+              </button>
+            </div>
+          </div>
         {% endif %}
-        {% if rec.approved %}
-          <span class="badge badge-healthy">✓ Approved</span>
-        {% elif rec.dismissed %}
-          <span class="badge badge-dead">Dismissed</span>
-        {% endif %}
-      </div>
-
-      <div class="rec-card-body">
-        <p><strong>Supplier:</strong> {{ rec.supplier }} ({{ rec.supplier_type }}, {{ rec.lead_time_days }} day lead time)</p>
-        <p style="margin-top:6px;"><strong>Suggested order:</strong> {{ rec.suggested_quantity }}</p>
-        <p style="margin-top:8px;">{{ rec.reason }}</p>
-      </div>
-
-      {% if rec.flags %}
-      <div class="rec-card-flags">
-        {% for flag in rec.flags %}
-        <span class="flag-chip">⚠️ {{ flag }}</span>
         {% endfor %}
-      </div>
-      {% endif %}
+        </div>
 
-      <div class="rec-card-actions">
-        <input type="text" class="rec-note"
-               id="note-{{ loop.index0 }}"
-               placeholder="Add a note (e.g. called supplier, confirmed delivery)"
-               value="{{ rec.note or '' }}">
-        <button class="btn btn-success btn-sm"
-                onclick="takeAction({{ loop.index0 }}, '{{ rec.item | replace("'", "\\'") }}', 'approve')">
-          ✓ Approve
-        </button>
-        <button class="btn btn-muted btn-sm"
-                onclick="takeAction({{ loop.index0 }}, '{{ rec.item | replace("'", "\\'") }}', 'dismiss')">
-          Dismiss
-        </button>
+        <div class="mc-empty" id="mc-empty" style="display:none;">
+          <div class="em-title">No recommendations match these filters</div>
+          <p>Clear filters or adjust the search to see more results.</p>
+        </div>
+
       </div>
     </div>
-    {% endif %}
-    {% endfor %}
 
     {% else %}
-    <div class="card">
+    <div class="card" style="margin-top: 24px;">
       <p style="color:var(--muted);">No recommendations generated. Your inventory may be in good shape, or there was insufficient sales data.</p>
     </div>
     {% endif %}
   </div>
 
   <!-- ── INVENTORY HEALTH TAB ── -->
-  <div id="tab-inv" style="display:none;">
+  <div id="tab-inv" style="display:none; margin-top: 24px;">
     {% if inventory %}
     <div class="card" style="overflow-x:auto;">
       <table class="data-table">
@@ -151,31 +230,17 @@
       </table>
     </div>
     {% else %}
-    <div class="card">
+    <div class="card" style="margin-top: 24px;">
       <p style="color:var(--muted);">No inventory data to display.</p>
     </div>
     {% endif %}
   </div>
 </div>
 
-<style>
-.tab-btn {
-  background: none;
-  border: none;
-  padding: 10px 20px;
-  font-size: 16px;
-  cursor: pointer;
-  color: var(--muted);
-  border-bottom: 3px solid transparent;
-  margin-bottom: -2px;
-  transition: color .15s, border-color .15s;
-}
-.tab-btn.active { color: var(--primary); border-bottom-color: var(--primary); font-weight: 600; }
-</style>
-
 <script>
 const sessionId = {{ upload_session_id }};
 
+// ── Tabs ──
 function showTab(tabId, btn) {
   document.querySelectorAll('[id^="tab-"]').forEach(t => t.style.display = 'none');
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -183,6 +248,87 @@ function showTab(tabId, btn) {
   btn.classList.add('active');
 }
 
+// ── Filter + search state ──
+const filters = {
+  status:     new Set(),
+  suptype:    new Set(),
+  confidence: new Set(),
+  action:     'all',
+};
+let searchQuery = '';
+
+// Chip click handler
+document.querySelectorAll('.mc-chips').forEach(group => {
+  const dimension = group.dataset.filter;
+  group.querySelectorAll('.mc-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const val = chip.dataset.val;
+      if (dimension === 'action') {
+        // Radio behaviour for action
+        group.querySelectorAll('.mc-chip').forEach(c => c.classList.remove('is-active'));
+        chip.classList.add('is-active');
+        filters.action = val;
+      } else {
+        // Multi-select toggle
+        chip.classList.toggle('is-active');
+        if (filters[dimension].has(val)) {
+          filters[dimension].delete(val);
+        } else {
+          filters[dimension].add(val);
+        }
+      }
+      applyFilters();
+    });
+  });
+});
+
+// Search input
+const searchInput = document.getElementById('mc-search');
+if (searchInput) {
+  searchInput.addEventListener('input', e => {
+    searchQuery = e.target.value.trim().toLowerCase();
+    applyFilters();
+  });
+}
+
+function applyFilters() {
+  const cards = document.querySelectorAll('.rec-card');
+  let visible = 0;
+  cards.forEach(card => {
+    const status = card.dataset.status || '';
+    const suptype = (card.dataset.suptype || '').toLowerCase();
+    const confidence = card.dataset.confidence || '';
+    const supplier = (card.dataset.supplier || '').toLowerCase();
+    const item     = (card.dataset.item || '').toLowerCase();
+    const isApproved  = card.classList.contains('approved');
+    const isDismissed = card.classList.contains('dismissed');
+
+    let show = true;
+    if (filters.status.size && !filters.status.has(status)) show = false;
+    if (filters.suptype.size && !filters.suptype.has(suptype)) show = false;
+    if (filters.confidence.size && !filters.confidence.has(confidence)) show = false;
+
+    if (filters.action === 'approved'  && !isApproved)  show = false;
+    if (filters.action === 'dismissed' && !isDismissed) show = false;
+    if (filters.action === 'pending'   && (isApproved || isDismissed)) show = false;
+
+    if (searchQuery) {
+      if (!item.includes(searchQuery) && !supplier.includes(searchQuery)) show = false;
+    }
+
+    card.style.display = show ? '' : 'none';
+    if (show) visible++;
+  });
+
+  const countEl = document.getElementById('recs-count');
+  const total = cards.length;
+  if (countEl) countEl.textContent = visible + ' of ' + total;
+
+  const emptyEl = document.getElementById('mc-empty');
+  if (emptyEl) emptyEl.style.display = (visible === 0 && total > 0) ? '' : 'none';
+}
+
+// ── Approve all ──
 async function approveAll() {
   const btn = document.getElementById('approve-all-btn');
   const dismissedCount = document.querySelectorAll('.rec-card.dismissed').length;
@@ -201,7 +347,6 @@ async function approveAll() {
     });
     const data = await res.json();
     if (data.ok) {
-      // Reload to reflect new state cleanly
       window.location.reload();
     } else {
       alert('Could not approve all: ' + (data.error || 'Unknown error'));
@@ -215,6 +360,7 @@ async function approveAll() {
   }
 }
 
+// ── Approve / dismiss single ──
 async function takeAction(idx, item, action) {
   const note = document.getElementById('note-' + idx)?.value || '';
   const res  = await fetch('/recommend/action', {
@@ -227,7 +373,8 @@ async function takeAction(idx, item, action) {
     const card = document.getElementById('rec-' + idx);
     card.classList.remove('approved', 'dismissed');
     card.classList.add(action === 'approve' ? 'approved' : 'dismissed');
-    // Update badges
+
+    // Replace the action badge
     const badges = card.querySelectorAll('.badge-healthy, .badge-dead');
     badges.forEach(b => {
       if (b.textContent.includes('Approved') || b.textContent.includes('Dismissed')) b.remove();
@@ -237,6 +384,22 @@ async function takeAction(idx, item, action) {
     nb.className = action === 'approve' ? 'badge badge-healthy' : 'badge badge-dead';
     nb.textContent = action === 'approve' ? '✓ Approved' : 'Dismissed';
     header.appendChild(nb);
+
+    // Bump the approved counter in the sidebar (purely visual)
+    const counter = document.getElementById('approved-counter');
+    if (counter) {
+      const approvedNow = document.querySelectorAll('.rec-card.approved').length;
+      const old = parseInt(counter.textContent, 10) || 0;
+      if (approvedNow !== old) {
+        counter.textContent = approvedNow;
+        counter.style.animation = 'none';
+        counter.offsetHeight;
+        counter.style.animation = 'numberFlash 600ms ease-out';
+      }
+    }
+
+    // Reapply filters in case "action state" filter is active
+    applyFilters();
   }
 }
 </script>
