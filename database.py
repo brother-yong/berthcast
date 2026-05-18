@@ -593,19 +593,3 @@ def get_supplier_accuracy(org_name: str, supplier_name: str, days: int = 90) -> 
         "dismissed": dismissed,
         "days_window": days,
     }
-           FROM recommendation_outcomes ro
-           JOIN upload_sessions us ON ro.session_id = us.id
-           WHERE us.org_name=?
-             AND ro.created_at >= datetime('now', ?)
-             AND ro.item LIKE ?""",
-        (org_name, f"-{days} days", f"%{supplier_name}%")
-    )
-    total = len(rows)
-    dismissed = sum(1 for r in rows if r.get("user_action") == "dismissed")
-    approved  = sum(1 for r in rows if r.get("user_action") == "approved")
-    return {
-        "total_recs": total,
-        "approved": approved,
-        "dismissed": dismissed,
-        "days_window": days,
-    }
