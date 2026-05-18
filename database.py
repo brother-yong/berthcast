@@ -81,6 +81,44 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (conversation_id) REFERENCES chat_conversations(id)
         );
+
+        CREATE TABLE IF NOT EXISTS company_config (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            org_name TEXT UNIQUE NOT NULL,
+            stockout_cost_per_unit REAL DEFAULT 50.0,
+            holding_cost_per_unit_per_day REAL DEFAULT 0.5,
+            service_level_target REAL DEFAULT 0.95,
+            default_lead_time_days INTEGER DEFAULT 56,
+            lead_time_variance_days INTEGER DEFAULT 14,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS supplier_profiles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            org_name TEXT NOT NULL,
+            supplier_name TEXT NOT NULL,
+            delay_probability REAL DEFAULT 0.2,
+            avg_lead_time_days INTEGER DEFAULT 56,
+            data_quality_score REAL DEFAULT 0.5,
+            notes TEXT,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(org_name, supplier_name)
+        );
+
+        CREATE TABLE IF NOT EXISTS recommendation_outcomes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id INTEGER NOT NULL,
+            item TEXT NOT NULL,
+            action_recommended TEXT,
+            user_action TEXT,
+            predicted_loss_no_act REAL,
+            predicted_cost_act REAL,
+            net_benefit REAL,
+            confidence TEXT,
+            actual_outcome TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (session_id) REFERENCES upload_sessions(id)
+        );
     """)
     conn.commit()
 
@@ -88,6 +126,8 @@ def init_db():
         "ALTER TABLE upload_sessions ADD COLUMN file_names_json TEXT",
         "ALTER TABLE upload_sessions ADD COLUMN conversion_status_json TEXT",
         "ALTER TABLE upload_sessions ADD COLUMN scope TEXT DEFAULT 'all'",
+        "ALTER TABLE company_config ADD COLUMN industry TEXT DEFAULT 'general'",
+        "ALTER TABLE company_config ADD COLUMN company_description TEXT",
     ]:
         try:
             conn.execute(migration)
@@ -389,4 +429,183 @@ def get_session_tables(session_id: int) -> dict:
     return {
         name: table_exists(f"{name}_{session_id}")
         for name in expected
+    }
+
+
+# ---------------------------------------------------------------------------
+# Company config helpers
+# ---------------------------------------------------------------------------
+
+def get_company_config(org_name: str) -> dict:
+    rows = query("SELECT * FROM company_config WHERE org_name=?", (org_name,))
+    if rows:
+        return dict(rows[0])
+    # Return sensible defaults if not yet configured
+    return {
+        "org_name": org_name,
+        "stockout_cost_per_unit": 50.0,
+        "holding_cost_per_unit_per_day": 0.5,
+        "service_level_target": 0.95,
+        "default_lead_time_days": 56,
+        "lead_time_variance_days": 14,
+    }
+
+
+def upsert_company_config(org_name: str, **kwargs):
+    existing = query("SELECT id FROM company_config WHERE org_name=?", (org_name,))
+    allowed = {
+        "stockout_cost_per_unit", "holding_cost_per_unit_per_day",
+        "service_level_target", "default_lead_time_days", "lead_time_variance_days",
+        "industry", "company_description",
+    }
+    fields = {k: v for k, v in kwargs.items() if k in allowed}
+    if not fields:
+        return
+    if existing:
+        sets = ", ".join(f"{k}=?" for k in fields) + ", updated_at=CURRENT_TIMESTAMP"
+        execute(f"UPDATE company_config SET {sets} WHERE org_name=?",
+                tuple(fields.values()) + (org_name,))
+    else:
+        cols = "org_name, " + ", ".join(fields.keys())
+        placeholders = ", ".join("?" * (len(fields) + 1))
+        execute(f"INSERT INTO company_config ({cols}) VALUES ({placeholders})",
+                (org_name,) + tuple(fields.values()))
+
+
+# ---------------------------------------------------------------------------
+# Supplier profile helpers
+# ---------------------------------------------------------------------------
+
+def get_supplier_profiles(org_name: str) -> list:
+    return query("SELECT * FROM supplier_profiles WHERE org_name=? ORDER BY supplier_name",
+                 (org_name,))
+
+
+def get_supplier_profile(org_name: str, supplier_name: str) -> dict:
+    rows = query(
+        "SELECT * FROM supplier_profiles WHERE org_name=? AND supplier_name=?",
+        (org_name, supplier_name)
+    )
+    if rows:
+        return dict(rows[0])
+    return {
+        "org_name": org_name,
+        "supplier_name": supplier_name,
+        "delay_probability": 0.2,
+        "avg_lead_time_days": 56,
+        "data_quality_score": 0.3,  # Low — unknown supplier
+        "notes": "No profile. Using defaults.",
+    }
+
+
+def upsert_supplier_profile(org_name: str, supplier_name: str, **kwargs):
+    existing = query(
+        "SELECT id FROM supplier_profiles WHERE org_name=? AND supplier_name=?",
+        (org_name, supplier_name)
+    )
+    allowed = {"delay_probability", "avg_lead_time_days", "data_quality_score", "notes"}
+    fields = {k: v for k, v in kwargs.items() if k in allowed}
+    if existing:
+        sets = ", ".join(f"{k}=?" for k in fields) + ", updated_at=CURRENT_TIMESTAMP"
+        execute(
+            f"UPDATE supplier_profiles SET {sets} WHERE org_name=? AND supplier_name=?",
+            tuple(fields.values()) + (org_name, supplier_name)
+        )
+    else:
+        cols = "org_name, supplier_name, " + ", ".join(fields.keys())
+        placeholders = ", ".join("?" * (len(fields) + 2))
+        execute(
+            f"INSERT INTO supplier_profiles ({cols}) VALUES ({placeholders})",
+            (org_name, supplier_name) + tuple(fields.values())
+        )
+
+
+def seed_distributor_defaults():
+    """Pre-seed a regional food distributor supplier profiles from known data.
+    Only writes if a regional food distributor has no config row yet — safe to call multiple times."""
+    org = "a regional food distributor"
+    existing = query("SELECT id FROM company_config WHERE org_name=?", (org,))
+    if not existing:
+        upsert_company_config(org,
+            stockout_cost_per_unit=80.0,
+            holding_cost_per_unit_per_day=0.4,
+            service_level_target=0.95,
+            default_lead_time_days=56,
+            lead_time_variance_days=21,
+            industry="food_distribution",
+            company_description=(
+                "Food distribution company in Singapore. "
+                "Imports chilled, frozen, and dry goods. "
+                "Key risk: import lead times of 90–120 days with unreliable suppliers."
+            ),
+        )
+    known_suppliers = [
+        ("an overseas supplier",    0.55, 112, 0.7, "Flagged unreliable. Import. High delay history."),
+        ("ABD Khan",    0.50, 112, 0.6, "Flagged unreliable. Import. Frequent delays."),
+        ("Nhan Tu",     0.45, 112, 0.6, "Flagged unreliable. Import. Inconsistent lead times."),
+        ("Local SG",    0.10,  21, 0.9, "Local supplier. Reliable. Fast lead time."),
+        ("Import Other",0.25,  56, 0.5, "Generic import. Moderate risk."),
+    ]
+    for name, delay_p, lead, quality, notes in known_suppliers:
+        upsert_supplier_profile(org, name,
+            delay_probability=delay_p,
+            avg_lead_time_days=lead,
+            data_quality_score=quality,
+            notes=notes,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Outcome tracking helpers
+# ---------------------------------------------------------------------------
+
+def save_recommendation_outcome(session_id: int, item: str, action_recommended: str,
+                                  predicted_loss_no_act: float, predicted_cost_act: float,
+                                  net_benefit: float, confidence: str):
+    execute(
+        """INSERT OR IGNORE INTO recommendation_outcomes
+           (session_id, item, action_recommended, predicted_loss_no_act,
+            predicted_cost_act, net_benefit, confidence)
+           VALUES (?,?,?,?,?,?,?)""",
+        (session_id, item, action_recommended, predicted_loss_no_act,
+         predicted_cost_act, net_benefit, confidence)
+    )
+
+
+def get_supplier_accuracy(org_name: str, supplier_name: str, days: int = 90) -> dict:
+    """Return historical prediction accuracy for a supplier across recent sessions."""
+    rows = query(
+        """SELECT ro.action_recommended, ro.user_action, ro.actual_outcome,
+                  ro.predicted_loss_no_act, ro.confidence
+           FROM recommendation_outcomes ro
+           JOIN upload_sessions us ON ro.session_id = us.id
+           WHERE us.org_name=?
+             AND ro.created_at >= datetime('now', ?)
+             AND ro.item LIKE ?""",
+        (org_name, f"-{days} days", f"%{supplier_name}%")
+    )
+    total = len(rows)
+    dismissed = sum(1 for r in rows if r.get("user_action") == "dismissed")
+    approved  = sum(1 for r in rows if r.get("user_action") == "approved")
+    return {
+        "total_recs": total,
+        "approved": approved,
+        "dismissed": dismissed,
+        "days_window": days,
+    }
+           FROM recommendation_outcomes ro
+           JOIN upload_sessions us ON ro.session_id = us.id
+           WHERE us.org_name=?
+             AND ro.created_at >= datetime('now', ?)
+             AND ro.item LIKE ?""",
+        (org_name, f"-{days} days", f"%{supplier_name}%")
+    )
+    total = len(rows)
+    dismissed = sum(1 for r in rows if r.get("user_action") == "dismissed")
+    approved  = sum(1 for r in rows if r.get("user_action") == "approved")
+    return {
+        "total_recs": total,
+        "approved": approved,
+        "dismissed": dismissed,
+        "days_window": days,
     }

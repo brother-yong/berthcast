@@ -358,17 +358,56 @@ def admin_panel():
             cid = request.form.get("contact_id")
             db.execute("DELETE FROM contact_requests WHERE id=?", (cid,))
             flash("Contact request deleted.", "success")
+        elif action == "save_company_config":
+            org = request.form.get("org_name", "").strip()
+            if org:
+                try:
+                    db.upsert_company_config(
+                        org,
+                        stockout_cost_per_unit     = float(request.form.get("stockout_cost_per_unit", 50)),
+                        holding_cost_per_unit_per_day = float(request.form.get("holding_cost_per_unit_per_day", 0.5)),
+                        service_level_target       = float(request.form.get("service_level_target", 0.95)),
+                        default_lead_time_days     = int(request.form.get("default_lead_time_days", 56)),
+                        lead_time_variance_days    = int(request.form.get("lead_time_variance_days", 14)),
+                    )
+                    flash(f"Config saved for {org}.", "success")
+                except Exception as e:
+                    flash(f"Error saving config: {e}", "error")
+        elif action == "save_supplier_profile":
+            org      = request.form.get("org_name", "").strip()
+            sup_name = request.form.get("supplier_name", "").strip()
+            if org and sup_name:
+                try:
+                    db.upsert_supplier_profile(
+                        org, sup_name,
+                        delay_probability  = float(request.form.get("delay_probability", 0.2)),
+                        avg_lead_time_days = int(request.form.get("avg_lead_time_days", 56)),
+                        data_quality_score = float(request.form.get("data_quality_score", 0.5)),
+                        notes              = request.form.get("notes", ""),
+                    )
+                    flash(f"Supplier profile saved: {sup_name} ({org}).", "success")
+                except Exception as e:
+                    flash(f"Error saving supplier profile: {e}", "error")
 
     users = db.query("SELECT id, email, org_name, model, created_at FROM users WHERE is_admin=0 ORDER BY created_at DESC")
     contact_requests = db.query(
         "SELECT id, name, email, company, message, status, created_at "
         "FROM contact_requests ORDER BY (status='new') DESC, created_at DESC"
     )
+
+    # Org config data for consequence engine panel
+    orgs = sorted({u["org_name"] for u in users})
+    org_configs = {org: db.get_company_config(org) for org in orgs}
+    supplier_profiles_map = {org: db.get_supplier_profiles(org) for org in orgs}
+
     return render_template(
         "admin.html",
         users=users,
         models=AVAILABLE_MODELS,
         contact_requests=contact_requests,
+        orgs=orgs,
+        org_configs=org_configs,
+        supplier_profiles=supplier_profiles_map,
     )
 
 

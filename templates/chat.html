@@ -634,8 +634,13 @@
     <!-- Messages / welcome -->
     <div class="chat-messages" id="chatMessages">
       <div class="chat-welcome" id="chatWelcome">
-        <div class="welcome-logo">⚓</div>
-        <h2 class="welcome-title">BerthAI Chat</h2>
+        <div class="welcome-logo">
+          <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect width="28" height="28" rx="7" fill="none"/>
+            <path d="M8 7h7.5c2.485 0 4 1.343 4 3.5 0 1.4-.7 2.45-1.85 3.05C19.1 14.1 20 15.3 20 17c0 2.35-1.65 4-4.5 4H8V7zm2.1 5.7h5.2c1.3 0 2.1-.7 2.1-1.9 0-1.2-.8-1.85-2.1-1.85h-5.2v3.75zm0 5.55h5.5c1.45 0 2.3-.75 2.3-2.05 0-1.3-.85-2.05-2.3-2.05h-5.5v4.1z" fill="var(--brass-2)"/>
+          </svg>
+        </div>
+        <h2 class="welcome-title" id="welcomeTitle">What are we solving today?</h2>
         <p class="welcome-sub">Ask anything about your inventory, suppliers, or procurement. Or start a new analysis to upload your data files.</p>
         <div class="welcome-starters">
           <button class="starter-btn" onclick="sendStarter(this)">What are the most common reasons for marine stockouts?</button>
@@ -678,7 +683,7 @@
             📊 Analysis — upload files
           </a>
         </div>
-        <span class="model-badge">⚡ {{ session.model }}</span>
+        <span class="model-badge">Powered by Claude</span>
       </div>
     </div>
 
@@ -686,6 +691,23 @@
 </div>
 
 <script>
+// ── Welcome title rotation ─────────────────────────────────────────────────
+const WELCOME_TITLES = [
+  "What are we solving today?",
+  "Ready when you are.",
+  "What needs your attention?",
+  "Your supply chain, on demand.",
+  "Let's look at your numbers.",
+  "Ask me anything.",
+  "What's the situation?",
+  "Inventory questions? Go ahead.",
+  "Your procurement advisor, standing by.",
+  "Tell me what's going on.",
+];
+function getWelcomeTitle() {
+  return WELCOME_TITLES[Math.floor(Math.random() * WELCOME_TITLES.length)];
+}
+
 // ── State ──────────────────────────────────────────────────────────────────
 let currentConvId = null;
 let isStreaming   = false;
@@ -696,6 +718,9 @@ document.addEventListener('DOMContentLoaded', () => {
   if (typeof marked !== 'undefined') {
     marked.setOptions({ breaks: true, gfm: true });
   }
+  // Set random welcome title on page load
+  const titleEl = document.getElementById('welcomeTitle');
+  if (titleEl) titleEl.textContent = getWelcomeTitle();
   loadConversations();
   document.getElementById('chatInput').focus();
 });
@@ -942,8 +967,13 @@ function clearMessages() {
   const messages = document.getElementById('chatMessages');
   messages.innerHTML = `
     <div class="chat-welcome" id="chatWelcome">
-      <div class="welcome-logo">⚓</div>
-      <h2 class="welcome-title">BerthAI Chat</h2>
+      <div class="welcome-logo">
+        <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect width="28" height="28" rx="7" fill="none"/>
+          <path d="M8 7h7.5c2.485 0 4 1.343 4 3.5 0 1.4-.7 2.45-1.85 3.05C19.1 14.1 20 15.3 20 17c0 2.35-1.65 4-4.5 4H8V7zm2.1 5.7h5.2c1.3 0 2.1-.7 2.1-1.9 0-1.2-.8-1.85-2.1-1.85h-5.2v3.75zm0 5.55h5.5c1.45 0 2.3-.75 2.3-2.05 0-1.3-.85-2.05-2.3-2.05h-5.5v4.1z" fill="var(--brass-2)"/>
+        </svg>
+      </div>
+      <h2 class="welcome-title">${getWelcomeTitle()}</h2>
       <p class="welcome-sub">Ask anything about your inventory, suppliers, or procurement. Or start a new analysis to upload your data files.</p>
       <div class="welcome-starters">
         <button class="starter-btn" onclick="sendStarter(this)">What are the most common reasons for marine stockouts?</button>
