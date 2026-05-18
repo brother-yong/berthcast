@@ -107,6 +107,40 @@ def logout():
     return redirect(url_for("login"))
 
 
+@app.route("/contact", methods=["GET", "POST"])
+def contact():
+    """Public contact form. Stores submission in DB for admin to review.
+    No email exposed in HTML. No auth required — prospects can use it."""
+    if request.method == "POST":
+        name    = request.form.get("name", "").strip()
+        email   = request.form.get("email", "").strip().lower()
+        company = request.form.get("company", "").strip()
+        message = request.form.get("message", "").strip()
+
+        if not name or not email or not message:
+            flash("Please fill in your name, email, and message.", "error")
+            return render_template(
+                "contact.html",
+                name=name, email=email, company=company, message=message
+            )
+
+        # Basic length cap, prevent spam dumps
+        if len(message) > 5000 or len(name) > 200 or len(email) > 200:
+            flash("One of your fields is too long. Please trim and retry.", "error")
+            return render_template(
+                "contact.html",
+                name=name[:200], email=email[:200], company=company[:200], message=message[:5000]
+            )
+
+        db.execute(
+            "INSERT INTO contact_requests (name, email, company, message) VALUES (?,?,?,?)",
+            (name, email, company, message)
+        )
+        return render_template("contact.html", submitted=True)
+
+    return render_template("contact.html")
+
+
 @app.route("/admin", methods=["GET", "POST"])
 @login_required
 @admin_required
@@ -138,8 +172,26 @@ def admin_panel():
             model = request.form.get("model")
             db.execute("UPDATE users SET model=? WHERE id=?", (model, uid))
             flash("Model updated.", "success")
+        elif action == "mark_contact_read":
+            cid = request.form.get("contact_id")
+            db.execute("UPDATE contact_requests SET status='read' WHERE id=?", (cid,))
+            flash("Contact request marked as read.", "success")
+        elif action == "delete_contact":
+            cid = request.form.get("contact_id")
+            db.execute("DELETE FROM contact_requests WHERE id=?", (cid,))
+            flash("Contact request deleted.", "success")
+
     users = db.query("SELECT id, email, org_name, model, created_at FROM users WHERE is_admin=0 ORDER BY created_at DESC")
-    return render_template("admin.html", users=users, models=AVAILABLE_MODELS)
+    contact_requests = db.query(
+        "SELECT id, name, email, company, message, status, created_at "
+        "FROM contact_requests ORDER BY (status='new') DESC, created_at DESC"
+    )
+    return render_template(
+        "admin.html",
+        users=users,
+        models=AVAILABLE_MODELS,
+        contact_requests=contact_requests,
+    )
 
 
 @app.route("/dashboard")
