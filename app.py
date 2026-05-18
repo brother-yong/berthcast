@@ -5,10 +5,11 @@ import time
 from functools import wraps
 from flask import (
     Flask, render_template, request, redirect,
-    url_for, session, flash, jsonify
+    url_for, session, flash, jsonify, Response, stream_with_context
 )
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
+import anthropic as _anthropic
 
 import database as db
 from agents import (
@@ -129,7 +130,14 @@ def admin_required(f):
     return decorated
 
 
-@app.route("/", methods=["GET", "POST"])
+@app.route("/")
+def landing():
+    if "user_id" in session:
+        return redirect(url_for("dashboard"))
+    return render_template("landing.html")
+
+
+@app.route("/login", methods=["GET", "POST"])
 def login():
     if "user_id" in session:
         return redirect(url_for("dashboard"))
@@ -144,7 +152,7 @@ def login():
             session["org_name"] = u["org_name"]
             session["model"]    = u["model"]
             session["is_admin"] = bool(u["is_admin"])
-            return redirect(url_for("admin_panel") if u["is_admin"] else url_for("dashboard"))
+            return redirect(url_for("admin_panel") if u["is_admin"] else url_for("chat"))
         flash("Incorrect email or password.", "error")
     return render_template("login.html")
 
@@ -152,7 +160,129 @@ def login():
 @app.route("/logout")
 def logout():
     session.clear()
-    return redirect(url_for("login"))
+    return redirect(url_for("landing"))
+
+
+# ── Chat ─────────────────────────────────────────────────────────────────────
+
+@app.route("/chat")
+@login_required
+def chat():
+    return render_template("chat.html")
+
+
+@app.route("/api/chat", methods=["POST"])
+@login_required
+def chat_api():
+    data = request.get_json() or {}
+    conversation_id = data.get("conversation_id")
+    user_message = (data.get("message") or "").strip()
+
+    if not user_message:
+        return jsonify({"error": "Empty message"}), 400
+
+    # Verify or create conversation
+    if conversation_id:
+        rows = db.query(
+            "SELECT id FROM chat_conversations WHERE id=? AND user_id=?",
+            (conversation_id, session["user_id"])
+        )
+        if not rows:
+            return jsonify({"error": "Conversation not found"}), 404
+    else:
+        title = user_message[:60] + ("…" if len(user_message) > 60 else "")
+        conversation_id = db.execute(
+            "INSERT INTO chat_conversations (user_id, title) VALUES (?,?)",
+            (session["user_id"], title)
+        )
+
+    # Save user message first
+    db.execute(
+        "INSERT INTO chat_messages (conversation_id, role, content) VALUES (?,?,?)",
+        (conversation_id, "user", user_message)
+    )
+
+    # Build message history for Claude
+    history_rows = db.query(
+        "SELECT role, content FROM chat_messages WHERE conversation_id=? ORDER BY created_at ASC",
+        (conversation_id,)
+    )
+    messages = [{"role": r["role"], "content": r["content"]} for r in history_rows]
+    model = session["model"]
+    conv_id_snapshot = conversation_id
+
+    def generate():
+        _client = _anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+        full_response = []
+        try:
+            yield f"data: {json.dumps({'conversation_id': conv_id_snapshot})}\n\n"
+            with _client.messages.stream(
+                model=model,
+                max_tokens=4096,
+                system=(
+                    "You are BerthAI, an AI assistant specialising in marine supply chain "
+                    "and inventory management. Help users with inventory questions, demand "
+                    "forecasting, supplier issues, and procurement planning. Be direct and "
+                    "practical. When you don't have specific data, say so clearly."
+                ),
+                messages=messages,
+            ) as stream:
+                for text in stream.text_stream:
+                    full_response.append(text)
+                    yield f"data: {json.dumps({'text': text})}\n\n"
+            db.execute(
+                "INSERT INTO chat_messages (conversation_id, role, content) VALUES (?,?,?)",
+                (conv_id_snapshot, "assistant", "".join(full_response))
+            )
+            yield f"data: {json.dumps({'done': True})}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.route("/api/chat/conversations")
+@login_required
+def chat_conversations():
+    convs = db.query(
+        "SELECT id, title, created_at FROM chat_conversations "
+        "WHERE user_id=? ORDER BY created_at DESC LIMIT 50",
+        (session["user_id"],)
+    )
+    return jsonify(convs)
+
+
+@app.route("/api/chat/conversation/<int:conv_id>")
+@login_required
+def chat_conversation(conv_id):
+    rows = db.query("SELECT user_id FROM chat_conversations WHERE id=?", (conv_id,))
+    if not rows or rows[0]["user_id"] != session.get("user_id"):
+        return jsonify({"error": "Not found"}), 404
+    messages = db.query(
+        "SELECT role, content, created_at FROM chat_messages "
+        "WHERE conversation_id=? ORDER BY created_at ASC",
+        (conv_id,)
+    )
+    title_row = db.query("SELECT title FROM chat_conversations WHERE id=?", (conv_id,))
+    return jsonify({
+        "title": title_row[0]["title"] if title_row else "",
+        "messages": [dict(m) for m in messages],
+    })
+
+
+@app.route("/api/chat/conversation/<int:conv_id>", methods=["DELETE"])
+@login_required
+def delete_conversation(conv_id):
+    rows = db.query("SELECT user_id FROM chat_conversations WHERE id=?", (conv_id,))
+    if not rows or rows[0]["user_id"] != session.get("user_id"):
+        return jsonify({"error": "Not found"}), 404
+    db.execute("DELETE FROM chat_messages WHERE conversation_id=?", (conv_id,))
+    db.execute("DELETE FROM chat_conversations WHERE id=?", (conv_id,))
+    return jsonify({"ok": True})
 
 
 @app.route("/contact", methods=["GET", "POST"])

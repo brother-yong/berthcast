@@ -1,0 +1,802 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BerthAI — Inventory intelligence for marine supply</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Inter+Tight:wght@500;600;700;800&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --navy-900: #0B1424;
+      --navy-800: #0F1B2D;
+      --navy-700: #1B2B4A;
+      --navy-600: #243B66;
+      --brass:    #C89B5C;
+      --brass-2:  #E2B97A;
+      --brass-3:  #8B6B3D;
+      --paper:    #FAF8F3;
+      --paper-2:  #F3EFE3;
+      --border:   #E5DFCF;
+      --muted:    #6B7280;
+      --text:     #0F1B2D;
+      --font-display: 'Instrument Serif', Georgia, serif;
+      --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--paper);
+      color: var(--text);
+      font-size: 16px;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ── Nav ── */
+    .landing-nav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(250, 248, 243, 0.88);
+      backdrop-filter: blur(20px) saturate(180%);
+      -webkit-backdrop-filter: blur(20px) saturate(180%);
+      border-bottom: 1px solid rgba(229, 223, 207, 0.7);
+      padding: 0 40px;
+      height: 68px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .landing-nav-logo img {
+      height: 42px;
+      width: auto;
+      display: block;
+    }
+    .landing-nav-right {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .landing-nav-right a.nav-link {
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 500;
+      padding: 8px 14px;
+      border-radius: 8px;
+      transition: color 180ms, background 180ms;
+    }
+    .landing-nav-right a.nav-link:hover { color: var(--text); background: rgba(15,27,45,0.05); }
+    .btn-login {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--navy-800);
+      color: #fff !important;
+      font-size: 14px;
+      font-weight: 600;
+      padding: 9px 20px;
+      border-radius: 10px;
+      text-decoration: none;
+      transition: background 180ms, transform 180ms var(--ease-out);
+      letter-spacing: 0.01em;
+    }
+    .btn-login:hover { background: var(--navy-700); transform: translateY(-1px); }
+
+    /* ── Hero ── */
+    .hero {
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 100px 40px 80px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 64px;
+      align-items: center;
+    }
+    .hero-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(200, 155, 92, 0.12);
+      border: 1px solid rgba(200, 155, 92, 0.3);
+      color: var(--brass-3);
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 5px 12px;
+      border-radius: 100px;
+      margin-bottom: 20px;
+    }
+    .hero-label-dot {
+      width: 6px; height: 6px;
+      background: var(--brass);
+      border-radius: 50%;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+    .hero h1 {
+      font-family: var(--font-display);
+      font-size: clamp(38px, 5vw, 56px);
+      line-height: 1.1;
+      color: var(--navy-900);
+      letter-spacing: -0.02em;
+      margin-bottom: 20px;
+    }
+    .hero h1 em {
+      font-style: italic;
+      color: var(--brass-3);
+    }
+    .hero-sub {
+      font-size: 18px;
+      color: var(--muted);
+      line-height: 1.65;
+      margin-bottom: 36px;
+      max-width: 440px;
+    }
+    .hero-ctas {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      flex-wrap: wrap;
+    }
+    .btn-primary-hero {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--navy-800);
+      color: #fff;
+      font-size: 15px;
+      font-weight: 600;
+      padding: 13px 28px;
+      border-radius: 12px;
+      text-decoration: none;
+      transition: background 180ms, transform 180ms var(--ease-out), box-shadow 180ms;
+      box-shadow: 0 4px 16px rgba(15,27,45,0.18);
+    }
+    .btn-primary-hero:hover {
+      background: var(--navy-700);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(15,27,45,0.22);
+    }
+    .btn-secondary-hero {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--navy-800);
+      font-size: 15px;
+      font-weight: 500;
+      padding: 13px 24px;
+      border-radius: 12px;
+      border: 1.5px solid var(--border);
+      text-decoration: none;
+      background: #fff;
+      transition: border-color 180ms, transform 180ms var(--ease-out);
+    }
+    .btn-secondary-hero:hover { border-color: var(--brass); transform: translateY(-1px); }
+    .hero-visual {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .hero-card {
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 20px 24px;
+      box-shadow: 0 4px 24px rgba(15,27,45,0.06);
+    }
+    .hero-card-label {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 10px;
+    }
+    .hero-metric-row {
+      display: flex;
+      gap: 24px;
+      align-items: flex-end;
+    }
+    .hero-metric { flex: 1; }
+    .hero-metric-value {
+      font-family: 'Inter Tight', sans-serif;
+      font-size: 28px;
+      font-weight: 700;
+      color: var(--navy-900);
+      line-height: 1;
+    }
+    .hero-metric-value.is-danger { color: #8B2C2C; }
+    .hero-metric-value.is-success { color: #2D6A4F; }
+    .hero-metric-sub {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 3px;
+    }
+    .hero-bar-row {
+      display: flex;
+      gap: 4px;
+      margin-top: 14px;
+      align-items: flex-end;
+      height: 40px;
+    }
+    .hero-bar {
+      flex: 1;
+      border-radius: 4px 4px 0 0;
+      background: var(--paper-2);
+      transition: height 600ms var(--ease-out);
+    }
+    .hero-bar.hi { background: #2D6A4F; }
+    .hero-bar.md { background: var(--brass); }
+    .hero-bar.lo { background: #8B2C2C; }
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 12px;
+      font-weight: 500;
+      padding: 4px 10px;
+      border-radius: 100px;
+      background: rgba(45, 106, 79, 0.1);
+      color: #2D6A4F;
+    }
+    .hero-badge.warn {
+      background: rgba(184, 92, 0, 0.1);
+      color: #B85C00;
+    }
+    .hero-badge.danger {
+      background: rgba(139, 44, 44, 0.1);
+      color: #8B2C2C;
+    }
+    .hero-rec-row {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .hero-rec-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 14px;
+      background: var(--paper);
+      border-radius: 10px;
+      font-size: 13px;
+    }
+    .hero-rec-item-name { font-weight: 500; color: var(--text); }
+    .hero-rec-item-qty { font-family: 'Inter Tight', sans-serif; font-weight: 600; color: var(--navy-800); }
+
+    /* ── Divider ── */
+    .section-divider {
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 0 40px;
+      border-top: 1px solid var(--border);
+    }
+
+    /* ── Logos strip ── */
+    .logos-strip {
+      padding: 40px 40px 48px;
+      max-width: 1080px;
+      margin: 0 auto;
+      text-align: center;
+    }
+    .logos-strip-label {
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 24px;
+    }
+    .logos-strip-items {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 48px;
+      flex-wrap: wrap;
+    }
+    .logo-placeholder {
+      font-family: 'Inter Tight', sans-serif;
+      font-weight: 700;
+      font-size: 15px;
+      color: rgba(15,27,45,0.25);
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    /* ── Features ── */
+    .features {
+      background: var(--navy-900);
+      padding: 96px 40px;
+    }
+    .features-inner { max-width: 1080px; margin: 0 auto; }
+    .section-header {
+      text-align: center;
+      margin-bottom: 56px;
+    }
+    .section-eyebrow {
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--brass);
+      margin-bottom: 12px;
+    }
+    .section-title {
+      font-family: var(--font-display);
+      font-size: clamp(30px, 4vw, 44px);
+      line-height: 1.15;
+      color: #fff;
+      letter-spacing: -0.02em;
+    }
+    .section-title.dark { color: var(--navy-900); }
+    .section-sub {
+      font-size: 17px;
+      color: rgba(255,255,255,0.55);
+      margin-top: 14px;
+      max-width: 520px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    .section-sub.dark { color: var(--muted); }
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
+    }
+    .feature-card {
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 16px;
+      padding: 28px 28px 32px;
+      transition: background 200ms, transform 200ms var(--ease-out);
+    }
+    .feature-card:hover {
+      background: rgba(255,255,255,0.08);
+      transform: translateY(-3px);
+    }
+    .feature-icon {
+      width: 44px; height: 44px;
+      background: rgba(200,155,92,0.15);
+      border: 1px solid rgba(200,155,92,0.25);
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      margin-bottom: 18px;
+    }
+    .feature-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: #fff;
+      margin-bottom: 8px;
+    }
+    .feature-desc {
+      font-size: 14px;
+      color: rgba(255,255,255,0.5);
+      line-height: 1.65;
+    }
+
+    /* ── How it works ── */
+    .how {
+      padding: 96px 40px;
+      max-width: 1080px;
+      margin: 0 auto;
+    }
+    .how-steps {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 40px;
+      margin-top: 56px;
+      position: relative;
+    }
+    .how-steps::before {
+      content: '';
+      position: absolute;
+      top: 24px;
+      left: calc(12.5% + 24px);
+      right: calc(12.5% + 24px);
+      height: 1px;
+      background: var(--border);
+    }
+    .how-step { text-align: center; }
+    .how-step-num {
+      width: 48px; height: 48px;
+      background: #fff;
+      border: 1.5px solid var(--border);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: 'Inter Tight', sans-serif;
+      font-weight: 700;
+      font-size: 16px;
+      color: var(--navy-800);
+      margin: 0 auto 18px;
+      position: relative;
+      z-index: 1;
+      box-shadow: 0 2px 8px rgba(15,27,45,0.08);
+    }
+    .how-step-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--navy-900);
+      margin-bottom: 8px;
+    }
+    .how-step-desc {
+      font-size: 13px;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+
+    /* ── Problem / stat callout ── */
+    .stat-callout {
+      background: var(--navy-800);
+      border-radius: 24px;
+      padding: 64px 56px;
+      margin: 0 40px 80px;
+      max-width: 1000px;
+      margin-left: auto;
+      margin-right: auto;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 56px;
+      align-items: center;
+    }
+    .stat-callout-copy h2 {
+      font-family: var(--font-display);
+      font-size: clamp(26px, 3vw, 38px);
+      color: #fff;
+      line-height: 1.2;
+      margin-bottom: 16px;
+    }
+    .stat-callout-copy p {
+      font-size: 16px;
+      color: rgba(255,255,255,0.6);
+      line-height: 1.65;
+    }
+    .stat-callout-numbers {
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+    .stat-item {}
+    .stat-value {
+      font-family: 'Inter Tight', sans-serif;
+      font-size: 42px;
+      font-weight: 800;
+      color: var(--brass-2);
+      line-height: 1;
+      letter-spacing: -0.02em;
+    }
+    .stat-label {
+      font-size: 14px;
+      color: rgba(255,255,255,0.5);
+      margin-top: 4px;
+    }
+    .stat-divider { width: 1px; background: rgba(255,255,255,0.08); }
+
+    /* ── CTA ── */
+    .cta-section {
+      text-align: center;
+      padding: 80px 40px 96px;
+      max-width: 640px;
+      margin: 0 auto;
+    }
+    .cta-section h2 {
+      font-family: var(--font-display);
+      font-size: clamp(30px, 4vw, 44px);
+      color: var(--navy-900);
+      line-height: 1.15;
+      letter-spacing: -0.02em;
+      margin-bottom: 14px;
+    }
+    .cta-section p {
+      font-size: 17px;
+      color: var(--muted);
+      margin-bottom: 36px;
+    }
+    .cta-btns { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+
+    /* ── Footer ── */
+    .landing-footer {
+      border-top: 1px solid var(--border);
+      padding: 32px 40px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      max-width: 1080px;
+      margin: 0 auto;
+    }
+    .landing-footer-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+    .landing-footer-brand img { height: 24px; }
+    .landing-footer-links {
+      display: flex;
+      gap: 20px;
+    }
+    .landing-footer-links a {
+      font-size: 13px;
+      color: var(--muted);
+      text-decoration: none;
+      transition: color 150ms;
+    }
+    .landing-footer-links a:hover { color: var(--text); }
+    .powered-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      font-weight: 500;
+      color: rgba(15,27,45,0.4);
+    }
+
+    /* ── Responsive ── */
+    @media (max-width: 900px) {
+      .hero { grid-template-columns: 1fr; padding: 64px 24px 56px; gap: 48px; }
+      .features-grid { grid-template-columns: 1fr 1fr; }
+      .how-steps { grid-template-columns: 1fr 1fr; gap: 32px; }
+      .how-steps::before { display: none; }
+      .stat-callout { grid-template-columns: 1fr; padding: 48px 32px; margin: 0 24px 64px; }
+    }
+    @media (max-width: 600px) {
+      .landing-nav { padding: 0 20px; }
+      .features-grid { grid-template-columns: 1fr; }
+      .features { padding: 64px 20px; }
+      .how { padding: 64px 20px; }
+      .how-steps { grid-template-columns: 1fr 1fr; }
+      .landing-footer { flex-direction: column; gap: 16px; text-align: center; }
+      .cta-section { padding: 60px 24px 72px; }
+      .landing-nav-right .nav-link { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── Navigation ── -->
+<nav class="landing-nav">
+  <a class="landing-nav-logo" href="{{ url_for('landing') }}">
+    <img src="{{ url_for('static', filename='logo.png') }}" alt="BerthAI">
+  </a>
+  <div class="landing-nav-right">
+    <a href="#features" class="nav-link">Features</a>
+    <a href="#how" class="nav-link">How it works</a>
+    <a href="{{ url_for('contact') }}" class="nav-link">Contact</a>
+    <a href="{{ url_for('login') }}" class="btn-login">Sign in →</a>
+  </div>
+</nav>
+
+<!-- ── Hero ── -->
+<section class="hero">
+  <div class="hero-copy">
+    <div class="hero-label">
+      <span class="hero-label-dot"></span>
+      AI-powered inventory operations
+    </div>
+    <h1>Stop losing revenue to <em>stockouts</em> you could have seen coming.</h1>
+    <p class="hero-sub">BerthAI analyses your inventory, purchase orders, and sales data to surface what's going critical — and tells you exactly what to reorder before it's too late.</p>
+    <div class="hero-ctas">
+      <a href="{{ url_for('contact') }}" class="btn-primary-hero">Request access →</a>
+      <a href="#how" class="btn-secondary-hero">See how it works</a>
+    </div>
+  </div>
+  <div class="hero-visual">
+    <div class="hero-card">
+      <div class="hero-card-label">Inventory snapshot — last analysis</div>
+      <div class="hero-metric-row">
+        <div class="hero-metric">
+          <div class="hero-metric-value">248</div>
+          <div class="hero-metric-sub">SKUs tracked</div>
+        </div>
+        <div class="hero-metric">
+          <div class="hero-metric-value is-danger">14</div>
+          <div class="hero-metric-sub">Critical</div>
+        </div>
+        <div class="hero-metric">
+          <div class="hero-metric-value is-success">31</div>
+          <div class="hero-metric-sub">Recommendations</div>
+        </div>
+      </div>
+      <div class="hero-bar-row">
+        <div class="hero-bar hi" style="height:30px;"></div>
+        <div class="hero-bar hi" style="height:36px;"></div>
+        <div class="hero-bar md" style="height:24px;"></div>
+        <div class="hero-bar hi" style="height:40px;"></div>
+        <div class="hero-bar lo" style="height:16px;"></div>
+        <div class="hero-bar md" style="height:28px;"></div>
+        <div class="hero-bar hi" style="height:34px;"></div>
+        <div class="hero-bar lo" style="height:12px;"></div>
+        <div class="hero-bar hi" style="height:38px;"></div>
+        <div class="hero-bar md" style="height:22px;"></div>
+        <div class="hero-bar hi" style="height:32px;"></div>
+        <div class="hero-bar lo" style="height:18px;"></div>
+      </div>
+    </div>
+    <div class="hero-card">
+      <div class="hero-card-label" style="display:flex;align-items:center;justify-content:space-between;">
+        Top reorder recommendations
+        <span class="hero-badge">31 ready</span>
+      </div>
+      <div class="hero-rec-row">
+        <div class="hero-rec-item">
+          <span class="hero-rec-item-name">Frozen Salmon Fillet (1kg)</span>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span class="hero-badge danger">CRITICAL</span>
+            <span class="hero-rec-item-qty">Order 200 kg</span>
+          </div>
+        </div>
+        <div class="hero-rec-item">
+          <span class="hero-rec-item-name">Chilled Squid (500g)</span>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span class="hero-badge warn">LOW</span>
+            <span class="hero-rec-item-qty">Order 80 kg</span>
+          </div>
+        </div>
+        <div class="hero-rec-item">
+          <span class="hero-rec-item-name">Dry Biscuit Rations</span>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span class="hero-badge">NORMAL</span>
+            <span class="hero-rec-item-qty">Order 500 pcs</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Logo strip ── -->
+<div class="section-divider"></div>
+<div class="logos-strip">
+  <div class="logos-strip-label">Built for marine provisioning &amp; ship supply</div>
+  <div class="logos-strip-items">
+    <span class="logo-placeholder">Ship Supply</span>
+    <span class="logo-placeholder">Marine Prov.</span>
+    <span class="logo-placeholder">Port Services</span>
+    <span class="logo-placeholder">Chandlery</span>
+    <span class="logo-placeholder">Cold Chain</span>
+  </div>
+</div>
+
+<!-- ── Features ── -->
+<section class="features" id="features">
+  <div class="features-inner">
+    <div class="section-header">
+      <div class="section-eyebrow">What BerthAI does</div>
+      <h2 class="section-title">Three AI agents working in parallel on your data</h2>
+      <p class="section-sub">Upload your exports once. BerthAI does the rest — no setup, no configuration, no spreadsheet formulas.</p>
+    </div>
+    <div class="features-grid">
+      <div class="feature-card">
+        <div class="feature-icon">📊</div>
+        <div class="feature-title">Inventory health analysis</div>
+        <div class="feature-desc">Classifies every SKU as CRITICAL, LOW, or NORMAL based on days of stock remaining vs your actual lead times — import vs local suppliers.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🔁</div>
+        <div class="feature-title">Reorder recommendations</div>
+        <div class="feature-desc">Calculates exact reorder quantities per item, accounting for sales velocity, spoilage thresholds, and supplier lead times. No guesswork.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">⚠️</div>
+        <div class="feature-title">Stockout pattern detection</div>
+        <div class="feature-desc">Cross-references your stockout history against current stock levels to flag items most likely to go out again in the next 30 days.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🗂️</div>
+        <div class="feature-title">Supplier-aware planning</div>
+        <div class="feature-desc">Knows which suppliers are import (16-week lead) vs local (3-week). Applies the right buffer automatically so orders land before you run dry.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🖨️</div>
+        <div class="feature-title">Printable purchase orders</div>
+        <div class="feature-desc">Approve recommendations with one click. BerthAI generates a formatted purchase order you can send directly — no reformatting needed.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">💬</div>
+        <div class="feature-title">Chat with your data</div>
+        <div class="feature-desc">Ask questions in plain language. "Which items are critical this week?" or "What should I order before the long weekend?" BerthAI answers instantly.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Stat callout ── -->
+<div style="padding-top:80px; background:var(--paper);">
+  <div class="stat-callout">
+    <div class="stat-callout-copy">
+      <h2>Marine supply businesses lose tens of thousands a month to stockouts.</h2>
+      <p>When ships need provisioning, delays aren't just lost sales — they're broken contracts, damaged relationships, and reputational risk. BerthAI keeps your shelves ahead of demand.</p>
+    </div>
+    <div class="stat-callout-numbers">
+      <div class="stat-item">
+        <div class="stat-value">SGD 100K</div>
+        <div class="stat-label">monthly stockout losses identified in pilot</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-value">3 agents</div>
+        <div class="stat-label">running in parallel on every analysis</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-value">&lt; 5 min</div>
+        <div class="stat-label">from file upload to full recommendations</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── How it works ── -->
+<section class="how" id="how">
+  <div class="section-header">
+    <div class="section-eyebrow" style="color:var(--brass-3);">How it works</div>
+    <h2 class="section-title dark">From your data to a purchase order in four steps</h2>
+    <p class="section-sub dark">No integration required. Works directly from the Excel reports you already export from your ERP.</p>
+  </div>
+  <div class="how-steps">
+    <div class="how-step">
+      <div class="how-step-num">1</div>
+      <div class="how-step-title">Upload your files</div>
+      <div class="how-step-desc">Export your inventory, purchase orders, and sales data from your ERP. Upload the Excel files — that's it.</div>
+    </div>
+    <div class="how-step">
+      <div class="how-step-num">2</div>
+      <div class="how-step-title">Add context</div>
+      <div class="how-step-desc">Tell BerthAI about delayed suppliers, upcoming large orders, or items you're discontinuing. Takes 30 seconds.</div>
+    </div>
+    <div class="how-step">
+      <div class="how-step-num">3</div>
+      <div class="how-step-title">AI runs the analysis</div>
+      <div class="how-step-desc">Three agents process your data in parallel — inventory health, reorder calculations, and stockout risk. Usually under 5 minutes.</div>
+    </div>
+    <div class="how-step">
+      <div class="how-step-num">4</div>
+      <div class="how-step-title">Approve and order</div>
+      <div class="how-step-desc">Review the recommendations, approve the ones you want, and print a ready-to-send purchase order.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ── CTA ── -->
+<div style="background: var(--paper-2); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);">
+  <div class="cta-section">
+    <h2>Ready to stop guessing your reorders?</h2>
+    <p>BerthAI is currently in a pilot with select marine supply businesses. Request access to get started.</p>
+    <div class="cta-btns">
+      <a href="{{ url_for('contact') }}" class="btn-primary-hero">Request access →</a>
+      <a href="{{ url_for('login') }}" class="btn-secondary-hero">Sign in</a>
+    </div>
+  </div>
+</div>
+
+<!-- ── Footer ── -->
+<footer>
+  <div class="landing-footer">
+    <div class="landing-footer-brand">
+      <img src="{{ url_for('static', filename='logo.png') }}" alt="BerthAI">
+      <span>© 2026 BerthAI · Inventory operations for marine supply</span>
+    </div>
+    <div class="landing-footer-links">
+      <a href="{{ url_for('contact') }}">Contact</a>
+      <a href="{{ url_for('login') }}">Sign in</a>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>
