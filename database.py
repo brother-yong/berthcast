@@ -129,6 +129,7 @@ def init_db():
         "ALTER TABLE company_config ADD COLUMN industry TEXT DEFAULT 'general'",
         "ALTER TABLE company_config ADD COLUMN company_description TEXT",
         "ALTER TABLE supplier_profiles ADD COLUMN supplier_type TEXT DEFAULT 'other'",
+        "ALTER TABLE chat_conversations ADD COLUMN pinned INTEGER DEFAULT 0",
     ]:
         try:
             conn.execute(migration)
