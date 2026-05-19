@@ -1083,26 +1083,3 @@ def _verify_session_owner(upload_session_id):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=False)
-dismiss")
-            r["note"]      = note
-    db.execute(
-        "UPDATE analysis_results SET recommendations_json=? WHERE session_id=?",
-        (json.dumps(recs), session_id)
-    )
-    return jsonify({"ok": True})
-
-
-def _allowed(filename):
-    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
-
-
-def _verify_session_owner(upload_session_id):
-    rows = db.query("SELECT user_id FROM upload_sessions WHERE id=?", (upload_session_id,))
-    if not rows or rows[0]["user_id"] != session.get("user_id"):
-        from flask import abort
-        abort(403)
-
-
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=False)
