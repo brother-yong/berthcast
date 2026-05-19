@@ -177,11 +177,13 @@ def chat_api():
     data = request.get_json() or {}
     conversation_id = data.get("conversation_id")
     user_message = (data.get("message") or "").strip()
+    req_features = data.get("features") or []
 
     if not user_message:
         return jsonify({"error": "Empty message"}), 400
 
     # Verify or create conversation
+    is_new_conv = False
     if conversation_id:
         rows = db.query(
             "SELECT id FROM chat_conversations WHERE id=? AND user_id=?",
@@ -190,10 +192,10 @@ def chat_api():
         if not rows:
             return jsonify({"error": "Conversation not found"}), 404
     else:
-        title = user_message[:60] + ("…" if len(user_message) > 60 else "")
+        is_new_conv = True
         conversation_id = db.execute(
             "INSERT INTO chat_conversations (user_id, title) VALUES (?,?)",
-            (session["user_id"], title)
+            (session["user_id"], "New conversation")
         )
 
     # Save user message first
@@ -210,30 +212,64 @@ def chat_api():
     messages = [{"role": r["role"], "content": r["content"]} for r in history_rows]
     model = session["model"]
     conv_id_snapshot = conversation_id
+    is_new_snapshot = is_new_conv
+    user_msg_snapshot = user_message
+    features_snapshot = req_features
+
+    # Build system prompt based on feature toggles
+    base_system = (
+        "You are BerthAI, an AI assistant specialising in marine supply chain "
+        "and inventory management. Help users with inventory questions, demand "
+        "forecasting, supplier issues, and procurement planning. Be direct and "
+        "practical. When you don't have specific data, say so clearly."
+    )
 
     def generate():
         _client = _anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
         full_response = []
+        feature_addons = []
+        if "show_reasoning" in features_snapshot:
+            feature_addons.append(
+                "Before your answer, wrap your step-by-step reasoning in <thinking>...</thinking> tags. "
+                "Write it in first-person exploratory prose — think out loud, consider the problem, then give your answer."
+            )
+        if "detailed" in features_snapshot:
+            feature_addons.append("Provide a thorough, detailed response with examples where relevant.")
+        system_prompt = base_system + ("\n\n" + " ".join(feature_addons) if feature_addons else "")
         try:
             yield f"data: {json.dumps({'conversation_id': conv_id_snapshot})}\n\n"
             with _client.messages.stream(
                 model=model,
                 max_tokens=4096,
-                system=(
-                    "You are BerthAI, an AI assistant specialising in marine supply chain "
-                    "and inventory management. Help users with inventory questions, demand "
-                    "forecasting, supplier issues, and procurement planning. Be direct and "
-                    "practical. When you don't have specific data, say so clearly."
-                ),
+                system=system_prompt,
                 messages=messages,
             ) as stream:
                 for text in stream.text_stream:
                     full_response.append(text)
                     yield f"data: {json.dumps({'text': text})}\n\n"
+            assistant_text = "".join(full_response)
             db.execute(
                 "INSERT INTO chat_messages (conversation_id, role, content) VALUES (?,?,?)",
-                (conv_id_snapshot, "assistant", "".join(full_response))
+                (conv_id_snapshot, "assistant", assistant_text)
             )
+            # Auto-generate a smart title on first exchange
+            if is_new_snapshot:
+                try:
+                    title_resp = _client.messages.create(
+                        model="claude-haiku-4-5-20251001",
+                        max_tokens=30,
+                        system="Generate a short 4-7 word conversation title based on the user's question. Return ONLY the title, no punctuation, no quotes.",
+                        messages=[{"role": "user", "content": user_msg_snapshot}],
+                    )
+                    auto_title = title_resp.content[0].text.strip().strip('"').strip("'")
+                    if auto_title:
+                        db.execute(
+                            "UPDATE chat_conversations SET title=? WHERE id=?",
+                            (auto_title, conv_id_snapshot)
+                        )
+                        yield f"data: {json.dumps({'title_updated': auto_title})}\n\n"
+                except Exception:
+                    pass
             yield f"data: {json.dumps({'done': True})}\n\n"
         except Exception as e:
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
@@ -248,12 +284,21 @@ def chat_api():
 @app.route("/api/chat/conversations")
 @login_required
 def chat_conversations():
-    convs = db.query(
-        "SELECT id, title, created_at FROM chat_conversations "
-        "WHERE user_id=? ORDER BY created_at DESC LIMIT 50",
-        (session["user_id"],)
-    )
-    return jsonify(convs)
+    q = request.args.get("q", "").strip()
+    if q:
+        convs = db.query(
+            "SELECT id, title, created_at, pinned FROM chat_conversations "
+            "WHERE user_id=? AND title LIKE ? "
+            "ORDER BY pinned DESC, created_at DESC LIMIT 50",
+            (session["user_id"], f"%{q}%")
+        )
+    else:
+        convs = db.query(
+            "SELECT id, title, created_at, pinned FROM chat_conversations "
+            "WHERE user_id=? ORDER BY pinned DESC, created_at DESC LIMIT 50",
+            (session["user_id"],)
+        )
+    return jsonify([dict(c) for c in convs])
 
 
 @app.route("/api/chat/conversation/<int:conv_id>")
@@ -272,6 +317,21 @@ def chat_conversation(conv_id):
         "title": title_row[0]["title"] if title_row else "",
         "messages": [dict(m) for m in messages],
     })
+
+
+@app.route("/api/chat/conversation/<int:conv_id>", methods=["PATCH"])
+@login_required
+def patch_conversation(conv_id):
+    rows = db.query("SELECT user_id FROM chat_conversations WHERE id=?", (conv_id,))
+    if not rows or rows[0]["user_id"] != session.get("user_id"):
+        return jsonify({"error": "Not found"}), 404
+    data = request.get_json() or {}
+    if "title" in data:
+        new_title = str(data["title"]).strip()[:120] or "Untitled"
+        db.execute("UPDATE chat_conversations SET title=? WHERE id=?", (new_title, conv_id))
+    if "pinned" in data:
+        db.execute("UPDATE chat_conversations SET pinned=? WHERE id=?", (1 if data["pinned"] else 0, conv_id))
+    return jsonify({"ok": True})
 
 
 @app.route("/api/chat/conversation/<int:conv_id>", methods=["DELETE"])
@@ -1001,6 +1061,29 @@ def recommend_action():
         if r.get("item") == item:
             r["approved"]  = (action == "approve")
             r["dismissed"] = (action == "dismiss")
+            r["note"]      = note
+    db.execute(
+        "UPDATE analysis_results SET recommendations_json=? WHERE session_id=?",
+        (json.dumps(recs), session_id)
+    )
+    return jsonify({"ok": True})
+
+
+def _allowed(filename):
+    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
+
+
+def _verify_session_owner(upload_session_id):
+    rows = db.query("SELECT user_id FROM upload_sessions WHERE id=?", (upload_session_id,))
+    if not rows or rows[0]["user_id"] != session.get("user_id"):
+        from flask import abort
+        abort(403)
+
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=False)
+dismiss")
             r["note"]      = note
     db.execute(
         "UPDATE analysis_results SET recommendations_json=? WHERE session_id=?",
