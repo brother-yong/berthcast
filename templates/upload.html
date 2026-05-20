@@ -20,9 +20,9 @@
     <div class="card-title">Files to upload</div>
 
     {% set slots = [
-      ('inventory',       'slot-inventory',       'ICON_INV',  'ICON_DONE', 'Inventory Report',       '',                        'Current stock on hand — all items, quantities, and categories.'),
-      ('purchase_orders', 'slot-purchase_orders', 'ICON_PO',   'ICON_DONE', 'Purchase Order Record',  '',                        'All orders placed with suppliers — dates, items, quantities, and costs.'),
-      ('sales',           'slot-sales',           'ICON_SALES','ICON_DONE', 'Sales Report',           '',                        'What customers have ordered — items, quantities, and dates.'),
+      ('inventory',       'slot-inventory',       'ICON_INV',  'ICON_DONE', 'Inventory Report',       '',                        'Current stock on hand — all items and their quantities.'),
+      ('sales',           'slot-sales',           'ICON_SALES','ICON_DONE', 'Sales Report',           '',                        'Items sold and quantities or revenue per period. Used to identify fast-movers and dead SKUs.'),
+      ('purchase_orders', 'slot-purchase_orders', 'ICON_PO',   'ICON_DONE', 'Purchase Order Record',  '(optional)',              'Past orders placed with suppliers. Adds lead time context to recommendations.'),
       ('suppliers',       'slot-suppliers',       'ICON_SUP',  'ICON_DONE', 'Supplier Listing',       '(optional)',              'Your suppliers and whether they are local or import. Affects lead time calculations.'),
       ('stockouts',       'slot-stockouts',       'ICON_STOCK','ICON_DONE', 'Stockout Report',        '(optional)',              'Items that ran out of stock — dates and quantities.'),
     ] %}
@@ -66,7 +66,7 @@
     <!-- ── Scope selector ── -->
     <div style="margin-top:28px;padding-top:24px;border-top:1px solid var(--border);">
       <p style="font-size:14px;font-weight:600;color:var(--text);margin-bottom:6px;">Analysis scope</p>
-      <p style="font-size:13px;color:var(--muted);margin-bottom:14px;">How many products should be analysed? Items are ranked by revenue from your Sales Report.</p>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:14px;">How many products should be analysed? Items are ranked by revenue (or units sold) from your Sales Report.</p>
       <div id="scope-pills" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px;">
         <button type="button" class="scope-pill" data-scope="100"  onclick="selectScope(this)">Top 100</button>
         <button type="button" class="scope-pill" data-scope="200"  onclick="selectScope(this)">Top 200</button>
@@ -88,9 +88,9 @@
     <!-- ── Continue ── -->
     <div style="margin-top:4px;padding-top:20px;border-top:1px solid var(--border);">
       <p id="upload-status" style="color:var(--muted);font-size:15px;margin-bottom:16px;">
-        {% set required_done = tables.inventory and tables.purchase_orders and tables.sales %}
+        {% set required_done = tables.inventory and tables.sales %}
         {% if required_done %}All required files uploaded. You can continue.
-        {% else %}Upload the Inventory Report, Purchase Order Record, and Sales Report to continue.{% endif %}
+        {% else %}Upload the Inventory Report and Sales Report to continue.{% endif %}
       </p>
       <button id="continue-btn"
               onclick="continueToStep2()"
@@ -123,7 +123,7 @@
 const sessionId      = {{ session_id }};
 const CHUNK_SIZE     = 5 * 1024 * 1024;  // 5 MB per chunk
 const MAX_SIZE_MB    = 100;
-const required       = ["inventory","purchase_orders","sales"];
+const required       = ["inventory","sales"];
 const contextUrl     = "{{ url_for('context_form', upload_session_id=session_id) }}";
 
 let uploadedSlots = {
@@ -240,7 +240,7 @@ function _updateContinueBtn() {
     btn.classList.add('btn-disabled');
     btn.disabled = true;
     btn.onclick = null;
-    status.textContent = 'Upload the three required files to continue.';
+    status.textContent = 'Upload the Inventory Report and Sales Report to continue.';
     status.style.color = 'var(--muted)';
   }
 }
