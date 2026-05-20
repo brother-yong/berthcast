@@ -33,9 +33,9 @@
         <th>#</th>
         <th>Item</th>
         <th>Supplier</th>
-        <th>Lead time</th>
+        <th>Stock runway</th>
         <th>Suggested qty</th>
-        <th>Reason / Notes</th>
+        <th>Notes</th>
       </tr>
     </thead>
     <tbody>
@@ -44,13 +44,15 @@
         <td>{{ loop.index }}</td>
         <td><strong>{{ r.item }}</strong></td>
         <td>{{ r.supplier }}</td>
-        <td>{% if r.lead_time_days %}{{ r.lead_time_days }} days{% else %}—{% endif %}</td>
+        <td>
+          {%- if r.days_of_supply -%}
+            {{ (r.days_of_supply / 30) | round(1) }} months
+          {%- else -%}
+            —
+          {%- endif -%}
+        </td>
         <td>{{ r.suggested_quantity }}</td>
         <td>
-          {% if r.days_of_supply %}
-            {% set months_left = (r.days_of_supply / 30) | round(1) %}
-            <strong>{{ months_left }} month{% if months_left != 1 %}s{% endif %} of stock remaining.</strong>
-          {% endif %}
           {{ r.reason }}
           {% if r.note %}
             <div class="note">Note: {{ r.note }}</div>
