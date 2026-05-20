@@ -152,7 +152,7 @@
 
             <div class="rec-card-body">
               <p>
-                <strong>Supplier:</strong> {{ rec.supplier }} ({{ rec.supplier_type }}{% if rec.lead_time_days %}, {{ rec.lead_time_days }}-day lead time{% endif %})
+                <strong>Supplier:</strong> {{ rec.supplier }} ({{ rec.supplier_type }})
               </p>
               <p style="margin-top:6px;"><strong>Suggested order:</strong> {{ rec.suggested_quantity }}</p>
               {% if rec.days_of_supply %}
