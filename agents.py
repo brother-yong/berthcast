@@ -243,17 +243,37 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
     if scope != "all":
         try:
             n = int(scope)
-            # Find revenue or quantity column in sales table
             sal_sample = query(f"SELECT * FROM {sal_table} LIMIT 1")
             if sal_sample:
-                sal_cols  = list(sal_sample[0].keys())
+                sal_cols = list(sal_sample[0].keys())
+
+                # Description column — broad match (exact list first, then fuzzy)
                 desc_col_s = next((c for c in sal_cols if c in (
                     "inventory_desc", "item_description", "description", "product_name")), None)
-                val_col_s  = next((c for c in sal_cols if c in (
+                if not desc_col_s:
+                    desc_col_s = next((c for c in sal_cols
+                        if any(k in c.lower() for k in ("desc", "item_name", "product_name", "item"))
+                        and "supplier" not in c.lower()), None)
+
+                # Revenue column — exact list first, then fuzzy
+                val_col_s = next((c for c in sal_cols if c in (
                     "net_amount", "total_amount", "amount", "value", "billing_amount",
-                    "sales_value", "net_value", "total_value", "revenue", "ext_price")), None)
-                qty_col_s  = next((c for c in sal_cols if c in (
-                    "billing_qty", "qty", "quantity", "billing_quantity")), None)
+                    "sales_value", "net_value", "total_value", "revenue", "ext_price",
+                    "unit_price", "price", "sales_amount", "invoice_amount")), None)
+                if not val_col_s:
+                    val_col_s = next((c for c in sal_cols
+                        if any(k in c.lower() for k in ("amount", "value", "revenue", "price"))), None)
+
+                # Quantity column — exact list first, then fuzzy
+                qty_col_s = next((c for c in sal_cols if c in (
+                    "billing_qty", "qty", "quantity", "billing_quantity", "order_qty",
+                    "sales_qty", "shipped_qty")), None)
+                if not qty_col_s:
+                    qty_col_s = next((c for c in sal_cols
+                        if any(k in c.lower() for k in ("qty", "quantity"))), None)
+
+                _emit(progress_emit,
+                    f"Scope columns detected — desc: {desc_col_s}, revenue: {val_col_s}, qty: {qty_col_s}")
 
                 if desc_col_s and (val_col_s or qty_col_s):
                     rank_col = val_col_s if val_col_s else qty_col_s
@@ -267,9 +287,22 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
                         f'ORDER BY metric DESC '
                         f'LIMIT {n}'
                     )
-                    top_item_names = {r["item"].strip().lower() for r in top_rows if r["item"]}
+                    # Normalise names through alias_map so variants map to canonical
+                    raw_names = {r["item"].strip().lower() for r in top_rows if r["item"]}
+                    top_item_names = {
+                        alias_map.get(name, name) for name in raw_names
+                    }
                     _emit(progress_emit,
-                        f"Top {n} items by {metric} identified ({len(top_item_names)} matched) — filtering inventory")
+                        f"Top {n} items by {metric} identified ({len(top_item_names)} unique) — filtering inventory")
+
+                    # Safety check: if matching produced nothing useful, fall back to all items
+                    if not top_item_names:
+                        _emit(progress_emit, "WARNING: scope filter produced 0 items — falling back to all items")
+                        top_item_names = None
+                else:
+                    _emit(progress_emit,
+                        f"Scope filter skipped — could not detect required columns in sales table "
+                        f"(cols: {sal_cols[:10]})")
         except Exception as e:
             _emit(progress_emit, f"Scope filter skipped (will use all items): {e}")
 
@@ -284,10 +317,33 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
 
     # Apply scope filter if active
     if top_item_names is not None:
+        inv_names_normalised = {
+            alias_map.get(str(row.get(_desc_col) or "").strip().lower(),
+                          str(row.get(_desc_col) or "").strip().lower()): row
+            for row in inventory_sorted
+        }
         inventory_sorted = [
             row for row in inventory_sorted
-            if str(row.get(_desc_col) or "").strip().lower() in top_item_names
+            if alias_map.get(str(row.get(_desc_col) or "").strip().lower(),
+                             str(row.get(_desc_col) or "").strip().lower()) in top_item_names
         ]
+        # Second-chance: direct raw name match (catches items alias_map didn't normalise)
+        if not inventory_sorted and top_item_names:
+            raw_top = {r["item"].strip().lower() for r in
+                       (query(
+                           f'SELECT "{desc_col_s}" as item FROM {sal_table} '
+                           f'WHERE "{desc_col_s}" IS NOT NULL GROUP BY "{desc_col_s}" '
+                           f'ORDER BY SUM(CAST("{rank_col}" AS REAL)) DESC LIMIT {n}'
+                       ) if 'desc_col_s' in dir() else [])} if False else set()
+            inventory_sorted = [
+                row for row in sorted(inventory, key=_qty_key)
+                if str(row.get(_desc_col) or "").strip().lower() in top_item_names
+            ]
+        # Final safety: if still empty after both passes, use all items
+        if not inventory_sorted:
+            _emit(progress_emit,
+                "WARNING: scope name matching found 0 inventory items — using all items instead")
+            inventory_sorted = sorted(inventory, key=_qty_key)
 
     inv_summary_lines = []
     for row in inventory_sorted[:800]:
