@@ -233,12 +233,13 @@ function _updateContinueBtn() {
     btn.style.opacity = ''; btn.style.cursor = '';
     btn.classList.remove('btn-disabled');
     btn.disabled = false;
+    btn.onclick = continueToStep2;
     status.innerHTML = '<span style="color:var(--success)">✓ All required files uploaded. You can continue.</span>';
   } else {
-    btn.setAttribute('onclick','return false;');
     btn.style.opacity = '0.4'; btn.style.cursor = 'not-allowed';
     btn.classList.add('btn-disabled');
     btn.disabled = true;
+    btn.onclick = null;
     status.textContent = 'Upload the three required files to continue.';
     status.style.color = 'var(--muted)';
   }
