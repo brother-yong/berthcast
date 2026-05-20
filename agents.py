@@ -353,8 +353,11 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
         canonical  = alias_map.get(str(desc).lower(), desc)
         sales_info = sales_by_item.get(desc, {})
         total_sold = sales_info.get("total_qty", 0) or 0
+        txn_count  = sales_info.get("txn_count",  0) or 0
+        # Flag items with no recorded sales so the AI has a hard data signal
+        movement_tag = " | NEVER_SOLD" if (total_sold == 0 and txn_count == 0) else ""
         inv_summary_lines.append(
-            f"Item: {canonical} | Category: {cat} | Stock: {qty} | Total sold: {total_sold}"
+            f"Item: {canonical} | Category: {cat} | Stock: {qty} | Total sold: {total_sold}{movement_tag}"
         )
 
     if not inv_summary_lines:
@@ -386,10 +389,18 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
         "2. Spoilage risk: HIGH / MEDIUM / LOW / NONE\n"
         "3. Days of supply estimate if calculable\n"
         "4. A one-line plain English observation\n\n"
-        "Rules:\n"
+        "DEAD SKU rules (apply strictly — DEAD items are never ordered):\n"
+        "- Any item tagged NEVER_SOLD is DEAD unless there is a clear reason it is new stock.\n"
+        "- Any item with zero total sold AND stock on hand is DEAD.\n"
+        "- Any item with zero total sold AND zero stock is DEAD (not CRITICAL).\n"
+        "- Once marked DEAD, the spoilage_risk should be set to NONE regardless of category.\n\n"
+        "Other status rules:\n"
+        "- CRITICAL: actively selling item with stock at or near zero — needs urgent reorder.\n"
+        "- LOW: actively selling item with declining stock — reorder soon.\n"
+        "- HEALTHY: adequate stock relative to sales velocity.\n\n"
+        "Spoilage rules:\n"
         + spoilage_rules +
-        "- Zero stock items are CRITICAL (still selling) or DEAD (not selling)\n\n"
-        "Return ONLY a JSON array of objects with keys:\n"
+        "\nReturn ONLY a JSON array of objects with keys:\n"
         "item, category, stock, status, spoilage_risk, days_of_supply, observation\n"
         "Do not include text outside the JSON array."
     )
@@ -469,8 +480,14 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
 
     _emit(progress_emit, f"Mapped {len(supplier_type_map)} suppliers, {len(item_supplier_map)} item-supplier links")
 
+    # Strip dead SKUs first — they must never reach the recommendation agent
+    live_items = [r for r in inventory_report if r.get("status") != "DEAD"]
+    dead_count = len(inventory_report) - len(live_items)
+    if dead_count:
+        _emit(progress_emit, f"Excluded {dead_count} dead SKUs from recommendations")
+
     actionable = [
-        r for r in inventory_report
+        r for r in live_items
         if r.get("status") in ("LOW", "CRITICAL") or r.get("spoilage_risk") in ("HIGH", "MEDIUM")
     ][:150]
 
