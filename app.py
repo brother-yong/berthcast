@@ -2,6 +2,9 @@ import os
 import json
 import threading
 import time
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from functools import wraps
 from flask import (
     Flask, render_template, request, redirect,
@@ -345,10 +348,42 @@ def delete_conversation(conv_id):
     return jsonify({"ok": True})
 
 
+def _send_contact_email(name: str, email: str, company: str, message: str) -> None:
+    """Send a contact form submission to the BerthAI inbox via Gmail SMTP.
+    Requires MAIL_SENDER and MAIL_APP_PASSWORD env vars. Fails silently if not set."""
+    sender    = os.environ.get("MAIL_SENDER", "")
+    password  = os.environ.get("MAIL_APP_PASSWORD", "")
+    recipient = os.environ.get("MAIL_RECIPIENT", "tanyonghan41@gmail.com")
+    if not sender or not password:
+        return  # Not configured — DB record is the fallback
+
+    subject = f"BerthAI contact: {name}" + (f" ({company})" if company else "")
+    body = (
+        f"Name: {name}\n"
+        f"Email: {email}\n"
+        f"Company: {company or '—'}\n\n"
+        f"Message:\n{message}\n\n"
+        f"---\nReply directly to this email to respond to {name}."
+    )
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"]    = sender
+    msg["To"]      = recipient
+    msg["Reply-To"] = email
+    msg.attach(MIMEText(body, "plain"))
+
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as smtp:
+            smtp.login(sender, password)
+            smtp.sendmail(sender, recipient, msg.as_string())
+    except Exception:
+        pass  # Never surface email errors to the user
+
+
 @app.route("/contact", methods=["GET", "POST"])
 def contact():
-    """Public contact form. Stores submission in DB for admin to review.
-    No email exposed in HTML. No auth required — prospects can use it."""
+    """Public contact form. Stores submission in DB and emails the BerthAI inbox."""
     if request.method == "POST":
         name    = request.form.get("name", "").strip()
         email   = request.form.get("email", "").strip().lower()
@@ -374,6 +409,12 @@ def contact():
             "INSERT INTO contact_requests (name, email, company, message) VALUES (?,?,?,?)",
             (name, email, company, message)
         )
+        # Fire email in background so the page responds instantly
+        threading.Thread(
+            target=_send_contact_email,
+            args=(name, email, company, message),
+            daemon=True,
+        ).start()
         return render_template("contact.html", submitted=True)
 
     return render_template("contact.html")
