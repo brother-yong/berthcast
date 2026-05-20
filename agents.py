@@ -552,6 +552,34 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
     _emit(progress_emit, f"Filtered to {len(actionable)} items needing attention")
     _emit(progress_emit, "Building supplier context for consequence reasoning")
 
+    # Compute avg monthly sales per item so we can suggest order quantities
+    sales_velocity: dict = {}
+    try:
+        sal_table_r = f"sales_{session_id}"
+        s_sample = query(f"SELECT * FROM {sal_table_r} LIMIT 1")
+        if s_sample:
+            s_cols = list(s_sample[0].keys())
+            s_desc = next((c for c in s_cols if c in ("inventory_desc", "item_description", "description", "product_name")), None)
+            if not s_desc:
+                s_desc = next((c for c in s_cols if any(k in c.lower() for k in ("desc", "item_name", "product_name", "item")) and "supplier" not in c.lower()), None)
+            s_qty = next((c for c in s_cols if c in ("billing_qty", "qty", "quantity", "billing_quantity")), None)
+            if not s_qty:
+                s_qty = next((c for c in s_cols if any(k in c.lower() for k in ("qty", "quantity")) and "allocated" not in c.lower()), None)
+            if s_desc and s_qty:
+                try:
+                    mo_r = query(f'SELECT COUNT(DISTINCT strftime("%Y-%m", date)) as m FROM {sal_table_r} LIMIT 1')
+                    months_r = max(1, (mo_r[0]["m"] or 0) if mo_r else 0) or 12
+                except Exception:
+                    months_r = 12
+                vel_rows = query(
+                    f'SELECT "{s_desc}" as item, '
+                    f'SUM(CAST("{s_qty}" AS REAL)) / {months_r} as avg_monthly '
+                    f'FROM {sal_table_r} GROUP BY "{s_desc}" LIMIT 5000'
+                )
+                sales_velocity = {r["item"]: round(r["avg_monthly"] or 0, 1) for r in vel_rows if r["item"]}
+    except Exception:
+        sales_velocity = {}
+
     # Build enriched item lines for Claude
     enriched_lines = []
     for inv_item in actionable:
@@ -560,7 +588,11 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
         stype    = supplier_type_map.get(supplier, "other")
 
         sup_profile = get_supplier_profile(org_name, supplier)
-        lt_days     = sup_profile.get("avg_lead_time_days") or LEAD_TIME_DAYS.get(stype, config.get("default_lead_time_days", 56))
+        # Only apply a default lead time when the supplier is actually known
+        if supplier == "Unknown":
+            lt_days = sup_profile.get("avg_lead_time_days") or None
+        else:
+            lt_days = sup_profile.get("avg_lead_time_days") or LEAD_TIME_DAYS.get(stype, config.get("default_lead_time_days", 56))
         delay_prob  = sup_profile.get("delay_probability", 0.2)
         quality     = sup_profile.get("data_quality_score", 0.3)
         sup_notes   = sup_profile.get("notes", "")
@@ -573,12 +605,22 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
             acc_note = (f" | Past recs: {acc['total_recs']} — "
                         f"{acc['approved']} approved, {acc['dismissed']} dismissed")
 
+        # Compute a suggested order quantity from sales velocity
+        avg_monthly = sales_velocity.get(iname, 0)
+        if avg_monthly > 0:
+            lt_months = (lt_days / 30) if lt_days else 2.0  # default 2-month cover if lead time unknown
+            suggested_qty = round(avg_monthly * (lt_months + 1.5))  # lead time + 1.5 months safety buffer
+        else:
+            suggested_qty = None
+
         enriched_lines.append(
             f"---\n"
             f"Item: {iname}\n"
             f"Status: {inv_item.get('status')} | Spoilage risk: {inv_item.get('spoilage_risk')}\n"
             f"Stock: {inv_item.get('stock')} units | Days of supply: {inv_item.get('days_of_supply', 'unknown')}\n"
-            f"Supplier: {supplier} ({stype}, lead time: {lt_days} days)\n"
+            f"Avg monthly sales: {avg_monthly} units\n"
+            f"Pre-computed suggested order quantity: {suggested_qty if suggested_qty is not None else 'insufficient sales data'}\n"
+            f"Supplier: {supplier} ({stype}, lead time: {lt_days if lt_days else 'unknown — do not guess'})\n"
             f"Supplier delay rate: {int(delay_prob*100)}% | "
             f"Supplier known to system: {'Yes' if known_sup else 'No'}"
             + (f" | Notes: {sup_notes}" if sup_notes else "")
@@ -611,26 +653,27 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
         '  "item": "<name>",\n'
         '  "supplier": "<name>",\n'
         '  "supplier_type": "<import|local|other>",\n'
-        '  "lead_time_days": <number>,\n'
+        '  "lead_time_days": <number or null — null when lead time is unknown, never guess>,\n'
+        '  "days_of_supply": <number or null — copy from input>,\n'
         '  "recommended_action": "<REORDER|HOLD|ESCALATE|MONITOR>",\n'
-        '  "suggested_quantity": <number or "Verify with team">,\n'
+        '  "suggested_quantity": <use the pre-computed quantity from input; only override with a number if you have strong reason>,\n'
         '  "confidence": "<HIGH|MED|LOW|INSUFFICIENT_DATA>",\n'
         '  "consequence_if_acting": "<1 plain sentence>",\n'
         '  "consequence_if_not_acting": "<1 plain sentence>",\n'
         '  "supplier_risk": "<None|LOW|HIGH>",\n'
         '  "mitigation": "<Concrete action if HIGH risk, else empty string>",\n'
         '  "flags": ["<string>"],\n'
-        '  "reason": "<2 sentences max. Plain English.>"\n'
+        '  "reason": "<2 sentences max. Plain English. State the urgency and why.>"\n'
         "}\n\n"
         "RULES:\n"
-        "1. consequence_if_acting and consequence_if_not_acting must be plain business statements. "
+        "1. lead_time_days: output null when the input says 'unknown'. Never invent a number.\n"
+        "2. suggested_quantity: use the pre-computed value from input. If it says 'insufficient sales data', output 'Verify with team'.\n"
+        "3. consequence_if_acting and consequence_if_not_acting must be plain business statements. "
         "   No SGD amounts unless you have reliable sales data. Name the company and item.\n"
-        "2. confidence = INSUFFICIENT_DATA if supplier is not known to the system. Do not guess.\n"
-        "3. supplier_risk = HIGH and mitigation REQUIRED if delay rate > 30% or supplier unknown. "
-        "   Mitigation must be actionable (e.g. 'Confirm stock availability before raising PO').\n"
-        "4. Every recommendation must have a confidence level. No exceptions.\n"
-        "5. Do NOT recommend ordering dead SKUs.\n"
-        "6. Return ONLY a valid JSON array. No text outside the array."
+        "4. confidence = INSUFFICIENT_DATA if supplier is not known to the system.\n"
+        "5. supplier_risk = HIGH and mitigation REQUIRED if delay rate > 30% or supplier unknown.\n"
+        "6. Do NOT recommend ordering dead SKUs.\n"
+        "7. Return ONLY a valid JSON array. No text outside the array."
     )
 
     user_prompt = (

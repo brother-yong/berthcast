@@ -151,18 +151,17 @@
             </div>
 
             <div class="rec-card-body">
-              <p><strong>Supplier:</strong> {{ rec.supplier }} ({{ rec.supplier_type }}, {{ rec.lead_time_days }} day lead time)</p>
+              <p>
+                <strong>Supplier:</strong> {{ rec.supplier }} ({{ rec.supplier_type }}{% if rec.lead_time_days %}, {{ rec.lead_time_days }}-day lead time{% endif %})
+              </p>
               <p style="margin-top:6px;"><strong>Suggested order:</strong> {{ rec.suggested_quantity }}</p>
+              {% if rec.days_of_supply %}
+              <p style="margin-top:6px; color:var(--muted);">
+                <strong>Stock runway:</strong> {{ (rec.days_of_supply / 30) | round(1) }} months remaining
+              </p>
+              {% endif %}
               <p style="margin-top:8px;">{{ rec.reason }}</p>
             </div>
-
-            {% if rec.flags %}
-            <div class="rec-card-flags">
-              {% for flag in rec.flags %}
-              <span class="flag-chip">⚠ {{ flag }}</span>
-              {% endfor %}
-            </div>
-            {% endif %}
 
             <div class="rec-card-actions">
               <input type="text" class="rec-note"
