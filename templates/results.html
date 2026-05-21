@@ -18,6 +18,7 @@
   </section>
 
   <!-- Tab toggle -->
+  {% set dead_count = inventory | selectattr('status', 'equalto', 'DEAD') | list | length %}
   <div style="display:flex; border-bottom:2px solid var(--border); margin: 24px 0 0; gap:4px;">
     <button class="tab-btn active" onclick="showTab('tab-recs', this)">
       Purchase recommendations
@@ -25,6 +26,14 @@
     <button class="tab-btn" onclick="showTab('tab-inv', this)">
       Inventory health
     </button>
+    {% if dead_count %}
+    <button id="dead-tab-btn" class="tab-btn" onclick="showTab('tab-dead', this)">
+      Dead SKUs
+      <span style="margin-left:6px; background:var(--muted); color:#fff;
+                   font-size:11px; padding:1px 7px; border-radius:10px;
+                   font-weight:600;">{{ dead_count }}</span>
+    </button>
+    {% endif %}
   </div>
 
   <!-- ── RECOMMENDATIONS TAB (mission control split layout) ── -->
@@ -203,7 +212,8 @@
 
   <!-- ── INVENTORY HEALTH TAB ── -->
   <div id="tab-inv" style="display:none; margin-top: 24px;">
-    {% if inventory %}
+    {% set live_items = inventory | rejectattr('status', 'equalto', 'DEAD') | list %}
+    {% if live_items %}
     <div class="card" style="overflow-x:auto;">
       <table class="data-table">
         <thead>
@@ -218,7 +228,7 @@
           </tr>
         </thead>
         <tbody>
-          {% for item in inventory %}
+          {% for item in live_items %}
           <tr>
             <td>{{ item.item }}</td>
             <td>{{ item.category }}</td>
@@ -232,12 +242,55 @@
         </tbody>
       </table>
     </div>
+    {% if dead_count %}
+    <p style="color:var(--muted); font-size:14px; margin-top:16px; text-align:center;">
+      {{ dead_count }} dead SKU{{ 's' if dead_count != 1 }} hidden —
+      <button class="remove-link" onclick="showTab('tab-dead', document.getElementById('dead-tab-btn'))">
+        view dead SKUs →
+      </button>
+    </p>
+    {% endif %}
     {% else %}
     <div class="card" style="margin-top: 24px;">
-      <p style="color:var(--muted);">No inventory data to display.</p>
+      <p style="color:var(--muted);">No active inventory data to display.</p>
     </div>
     {% endif %}
   </div>
+
+  <!-- ── DEAD SKUs TAB ── -->
+  {% if dead_count %}
+  {% set dead_items = inventory | selectattr('status', 'equalto', 'DEAD') | list %}
+  <div id="tab-dead" style="display:none; margin-top: 24px;">
+    <div class="card" style="margin-bottom:16px; background:var(--paper-2);">
+      <p style="font-size:14px; color:var(--muted); margin:0;">
+        These {{ dead_count }} SKU{{ 's' if dead_count != 1 }} have recorded zero sales and zero movement.
+        They are excluded from recommendations. Review periodically to decide whether to discontinue or write off stock.
+      </p>
+    </div>
+    <div class="card" style="overflow-x:auto;">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Item</th>
+            <th>Category</th>
+            <th>Stock on hand</th>
+            <th>Note</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in dead_items %}
+          <tr style="opacity:0.75;">
+            <td>{{ item.item }}</td>
+            <td>{{ item.category }}</td>
+            <td>{{ item.stock }}</td>
+            <td style="color:var(--muted); font-size:14px;">{{ item.observation }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
 </div>
 
 <script>
