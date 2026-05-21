@@ -51,13 +51,19 @@
           {% endif %}
         </div>
       </div>
-      <div class="upload-slot-btn">
+      <div class="upload-slot-btn" style="display:flex; gap:8px; align-items:center;">
         <label class="btn btn-outline btn-sm" id="label-{{ slot }}" style="cursor:pointer;">
           {{ 'Replace' if uploaded else 'Upload' }}
           <input type="file" accept=".xlsx,.csv" style="display:none;"
                  id="input-{{ slot }}"
                  onchange="uploadFile(this,'{{ slot }}','{{ slotId }}')">
         </label>
+        <button type="button" class="btn btn-muted btn-sm"
+                id="cancel-{{ slot }}"
+                style="display:none;"
+                onclick="cancelUpload('{{ slot }}','{{ slotId }}')">
+          Cancel
+        </button>
       </div>
       <div class="slot-progress-bar"></div>
     </div>
@@ -133,6 +139,9 @@ let uploadedSlots = {
   suppliers:       {{ 'true' if tables.suppliers else 'false' }},
   stockouts:       {{ 'true' if tables.stockouts else 'false' }},
 };
+
+// AbortControllers keyed by slot — allow in-flight uploads to be cancelled
+const _abortControllers = {};
 
 // ── Scope selector ────────────────────────────────────────────────────────────
 
@@ -247,6 +256,29 @@ function _updateContinueBtn() {
 
 // ── chunked upload ───────────────────────────────────────────────────────────
 
+function _setCancelBtn(slot, visible) {
+  const btn = document.getElementById('cancel-' + slot);
+  if (btn) btn.style.display = visible ? '' : 'none';
+}
+
+function cancelUpload(slot, slotId) {
+  // Abort in-flight fetch
+  if (_abortControllers[slot]) {
+    _abortControllers[slot].abort();
+    delete _abortControllers[slot];
+  }
+  // Reset slot UI back to ready state
+  const slotEl = document.getElementById(slotId);
+  slotEl.querySelector('.upload-slot-icon').textContent = slotEl.dataset.icon || '📋';
+  slotEl.classList.remove('uploading', 'done', 'error');
+  _setLabelText(slot, 'Upload');
+  _setProgress(slotId, 0);
+  _setStatus(slot, '');
+  _setCancelBtn(slot, false);
+  document.getElementById('input-' + slot).value = '';
+  _updateContinueBtn();
+}
+
 async function uploadFile(input, slot, slotId) {
   if (!input.files[0]) return;
   const file   = input.files[0];
@@ -261,9 +293,14 @@ async function uploadFile(input, slot, slotId) {
   slotEl.classList.remove('done','error'); slotEl.classList.add('uploading');
   _setLabelText(slot, 'Uploading…');
   _setProgress(slotId, 0);
+  _setCancelBtn(slot, true);
 
   const totalChunks = Math.max(1, Math.ceil(file.size / CHUNK_SIZE));
   const uploadId    = Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+
+  // Create a fresh AbortController for this upload
+  const controller = new AbortController();
+  _abortControllers[slot] = controller;
 
   for (let i = 0; i < totalChunks; i++) {
     const start = i * CHUNK_SIZE;
@@ -290,7 +327,7 @@ async function uploadFile(input, slot, slotId) {
     let success = false;
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
-        const res  = await fetch('/upload', { method: 'POST', body: fd });
+        const res  = await fetch('/upload', { method: 'POST', body: fd, signal: controller.signal });
         const data = await res.json();
 
         if (!data.ok) {
@@ -299,6 +336,8 @@ async function uploadFile(input, slot, slotId) {
 
         if (data.processing) {
           // Last chunk acknowledged — server is now processing
+          _setCancelBtn(slot, false);
+          delete _abortControllers[slot];
           _setProgress(slotId, 95);
           _setStatus(slot,
             '<span class="uploading-dot"></span> ' +
@@ -314,7 +353,12 @@ async function uploadFile(input, slot, slotId) {
         break;
 
       } catch (err) {
+        if (err.name === 'AbortError') {
+          // User cancelled — clean up silently
+          return;
+        }
         if (attempt === 2) {
+          _setCancelBtn(slot, false);
           _setError(slot, slotId, 'Failed at chunk ' + (i+1) + '/' + totalChunks + ': ' + err.message);
           return;
         }

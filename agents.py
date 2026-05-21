@@ -37,6 +37,7 @@ def _call_claude(model: str, system: str, user: str, max_tokens: int = 4096) -> 
     response = client.messages.create(
         model=model,
         max_tokens=max_tokens,
+        temperature=0,
         system=system,
         messages=[{"role": "user", "content": user}]
     )
@@ -721,7 +722,8 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
         "5. confidence = INSUFFICIENT_DATA if supplier is not known to the system.\n"
         "6. supplier_risk = HIGH and mitigation REQUIRED if delay rate > 30% or supplier unknown.\n"
         "7. Do NOT recommend ordering dead SKUs.\n"
-        "8. Return ONLY a valid JSON array. No text outside the array."
+        "8. Return EXACTLY one JSON object per item in the input. Do not skip any item, even if data is thin.\n"
+        "9. Return ONLY a valid JSON array. No text outside the array."
     )
 
     user_prompt = (

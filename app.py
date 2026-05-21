@@ -541,6 +541,23 @@ def user_settings():
                     (org, sup_name)
                 )
                 flash(f"Supplier '{sup_name}' deleted.", "success")
+        elif action == "change_password":
+            current_pw  = request.form.get("current_password", "")
+            new_pw      = request.form.get("new_password", "")
+            confirm_pw  = request.form.get("confirm_password", "")
+            user_row    = db.query("SELECT password_hash FROM users WHERE id=?", (session["user_id"],))
+            if not user_row or not check_password_hash(user_row[0]["password_hash"], current_pw):
+                flash("Current password is incorrect.", "error")
+            elif len(new_pw) < 8:
+                flash("New password must be at least 8 characters.", "error")
+            elif new_pw != confirm_pw:
+                flash("New passwords do not match.", "error")
+            else:
+                db.execute(
+                    "UPDATE users SET password_hash=? WHERE id=?",
+                    (generate_password_hash(new_pw), session["user_id"])
+                )
+                flash("Password updated.", "success")
         return redirect(url_for("user_settings"))
 
     profiles = db.get_supplier_profiles(org)
@@ -1067,22 +1084,49 @@ def recommend_approve_all():
     except Exception:
         return jsonify({"ok": False, "error": "Could not read recommendations."})
 
-    approved_count = 0
+    newly_approved_items = []
     for r in recs:
         if r.get("error"):
             continue
         if r.get("dismissed"):
-            # User explicitly dismissed this — leave it alone
             continue
         if not r.get("approved"):
-            approved_count += 1
+            newly_approved_items.append(r.get("item", ""))
         r["approved"] = True
 
     db.execute(
         "UPDATE analysis_results SET recommendations_json=? WHERE session_id=?",
         (json.dumps(recs), session_id)
     )
-    return jsonify({"ok": True, "newly_approved": approved_count, "total": len(recs)})
+    return jsonify({"ok": True, "newly_approved": len(newly_approved_items),
+                    "newly_approved_items": newly_approved_items, "total": len(recs)})
+
+
+@app.route("/recommend/undo_approve_all", methods=["POST"])
+@login_required
+def recommend_undo_approve_all():
+    data       = request.get_json() or {}
+    session_id = data.get("session_id")
+    items      = data.get("items", [])   # list of item names that were bulk-approved
+    _verify_session_owner(session_id)
+    ar = db.query("SELECT recommendations_json FROM analysis_results WHERE session_id=?", (session_id,))
+    if not ar:
+        return jsonify({"ok": False, "error": "No recommendations found."})
+    try:
+        recs = json.loads(ar[0]["recommendations_json"] or "[]")
+    except Exception:
+        return jsonify({"ok": False, "error": "Could not read recommendations."})
+
+    item_set = set(items)
+    for r in recs:
+        if r.get("item") in item_set:
+            r["approved"] = False
+
+    db.execute(
+        "UPDATE analysis_results SET recommendations_json=? WHERE session_id=?",
+        (json.dumps(recs), session_id)
+    )
+    return jsonify({"ok": True})
 
 
 @app.route("/recommend/action", methods=["POST"])

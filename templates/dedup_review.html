@@ -114,12 +114,46 @@ function removeGroup(id) {
   }
 }
 
+let _removedAllSnapshot = null;
+let _removedAllGroups   = null;
+
 function removeAllGroups() {
-  document.querySelectorAll('.dedup-group').forEach(el => el.remove());
+  const container = document.getElementById('groups-container');
+  // Store snapshot before wiping
+  _removedAllSnapshot = container.innerHTML;
+  _removedAllGroups   = [...activeGroups];
+
+  container.innerHTML = '';
   activeGroups = [];
   document.getElementById('no-groups-msg').style.display = 'block';
   const btn = document.getElementById('remove-all-btn');
   if (btn) btn.style.display = 'none';
+
+  // Show undo button
+  let undoBtn = document.getElementById('undo-remove-all-btn');
+  if (!undoBtn) {
+    undoBtn = document.createElement('button');
+    undoBtn.type = 'button';
+    undoBtn.id   = 'undo-remove-all-btn';
+    undoBtn.className = 'btn btn-muted btn-sm no-print';
+    undoBtn.textContent = 'Undo';
+    undoBtn.onclick = undoRemoveAll;
+    btn.parentNode.insertBefore(undoBtn, btn.nextSibling);
+  }
+  undoBtn.style.display = '';
+}
+
+function undoRemoveAll() {
+  if (!_removedAllSnapshot) return;
+  const container = document.getElementById('groups-container');
+  container.innerHTML = _removedAllSnapshot;
+  activeGroups = [..._removedAllGroups];
+  document.getElementById('no-groups-msg').style.display = 'none';
+  const removeAllBtn = document.getElementById('remove-all-btn');
+  if (removeAllBtn) removeAllBtn.style.display = '';
+  document.getElementById('undo-remove-all-btn').style.display = 'none';
+  _removedAllSnapshot = null;
+  _removedAllGroups   = null;
 }
 
 function prepareSubmit() {
