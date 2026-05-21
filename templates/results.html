@@ -108,6 +108,10 @@
           <button id="approve-all-btn" class="btn btn-primary btn-sm no-print" onclick="approveAll()">
             ✓ Approve all
           </button>
+          <button id="undo-approve-btn" class="btn btn-muted btn-sm no-print"
+                  onclick="undoApproveAll()" style="display:none;">
+            Undo
+          </button>
           <a href="{{ url_for('print_results', upload_session_id=upload_session_id) }}"
              target="_blank" class="btn btn-success btn-sm no-print">
             Print approved
@@ -328,6 +332,9 @@ function applyFilters() {
 }
 
 // ── Approve all ──
+let _lastBulkApprovedItems = [];
+let _undoTimer = null;
+
 async function approveAll() {
   const btn = document.getElementById('approve-all-btn');
   const dismissedCount = document.querySelectorAll('.rec-card.dismissed').length;
@@ -346,7 +353,47 @@ async function approveAll() {
     });
     const data = await res.json();
     if (data.ok) {
-      window.location.reload();
+      // Update all non-dismissed cards in the DOM without reloading
+      _lastBulkApprovedItems = data.newly_approved_items || [];
+      document.querySelectorAll('.rec-card:not(.dismissed)').forEach(card => {
+        if (!card.classList.contains('approved')) {
+          card.classList.add('approved');
+          const badges = card.querySelectorAll('.badge-healthy, .badge-dead');
+          badges.forEach(b => {
+            if (b.textContent.includes('Approved') || b.textContent.includes('Dismissed')) b.remove();
+          });
+          const header = card.querySelector('.rec-card-header');
+          const nb = document.createElement('span');
+          nb.className = 'badge badge-healthy';
+          nb.textContent = '✓ Approved';
+          header.appendChild(nb);
+        }
+      });
+
+      // Update approved counter
+      const counter = document.getElementById('approved-counter');
+      if (counter) {
+        const approvedNow = document.querySelectorAll('.rec-card.approved').length;
+        counter.textContent = approvedNow;
+        counter.style.animation = 'none';
+        counter.offsetHeight;
+        counter.style.animation = 'numberFlash 600ms ease-out';
+      }
+
+      applyFilters();
+      btn.disabled = false;
+      btn.textContent = '✓ Approve all';
+
+      // Show Undo button for 15 seconds
+      if (_lastBulkApprovedItems.length > 0) {
+        const undoBtn = document.getElementById('undo-approve-btn');
+        undoBtn.style.display = '';
+        if (_undoTimer) clearTimeout(_undoTimer);
+        _undoTimer = setTimeout(() => {
+          undoBtn.style.display = 'none';
+          _lastBulkApprovedItems = [];
+        }, 15000);
+      }
     } else {
       alert('Could not approve all: ' + (data.error || 'Unknown error'));
       btn.disabled = false;
@@ -356,6 +403,45 @@ async function approveAll() {
     alert('Network error. Please try again.');
     btn.disabled = false;
     btn.textContent = '✓ Approve all';
+  }
+}
+
+async function undoApproveAll() {
+  if (_lastBulkApprovedItems.length === 0) return;
+  const undoBtn = document.getElementById('undo-approve-btn');
+  undoBtn.disabled = true;
+  undoBtn.textContent = 'Undoing...';
+  try {
+    const res = await fetch('/recommend/undo_approve_all', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: sessionId, items: _lastBulkApprovedItems })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      const itemSet = new Set(_lastBulkApprovedItems);
+      document.querySelectorAll('.rec-card').forEach(card => {
+        if (itemSet.has(card.dataset.item)) {
+          card.classList.remove('approved');
+          const badges = card.querySelectorAll('.badge-healthy');
+          badges.forEach(b => { if (b.textContent.includes('Approved')) b.remove(); });
+          const counter = document.getElementById('approved-counter');
+          if (counter) {
+            counter.textContent = document.querySelectorAll('.rec-card.approved').length;
+          }
+        }
+      });
+      applyFilters();
+      _lastBulkApprovedItems = [];
+      if (_undoTimer) clearTimeout(_undoTimer);
+    }
+    undoBtn.style.display = 'none';
+    undoBtn.disabled = false;
+    undoBtn.textContent = 'Undo';
+  } catch (e) {
+    alert('Network error. Please try again.');
+    undoBtn.disabled = false;
+    undoBtn.textContent = 'Undo';
   }
 }
 

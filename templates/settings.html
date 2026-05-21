@@ -115,6 +115,27 @@
     </form>
   </div>
 
+  <!-- Change password -->
+  <div class="card" style="margin-top:20px;">
+    <div class="card-title">Change password</div>
+    <form method="POST" action="{{ url_for('user_settings') }}" style="max-width:420px;">
+      <input type="hidden" name="action" value="change_password">
+      <div class="form-group">
+        <label>Current password</label>
+        <input type="password" name="current_password" required autocomplete="current-password">
+      </div>
+      <div class="form-group">
+        <label>New password</label>
+        <input type="password" name="new_password" required autocomplete="new-password" minlength="8">
+      </div>
+      <div class="form-group">
+        <label>Confirm new password</label>
+        <input type="password" name="confirm_password" required autocomplete="new-password" minlength="8">
+      </div>
+      <button type="submit" class="btn btn-primary">Update password</button>
+    </form>
+  </div>
+
   <!-- Quick guide -->
   <div class="card" style="background:var(--paper-2); border-color:var(--border);">
     <div class="card-title" style="font-size:14px;">How the AI uses these profiles</div>
