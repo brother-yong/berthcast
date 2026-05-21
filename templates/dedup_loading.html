@@ -17,68 +17,52 @@
     <div class="step"><div class="step-num">4</div><span class="step-label">Results</span></div>
   </div>
 
-  <!-- Stream window -->
-  <div class="card stream-card" style="margin-top:24px;">
+  <!-- Loading card -->
+  <div class="card" style="margin-top:24px; padding:52px 32px; text-align:center;">
 
-    <!-- Header bar -->
-    <div class="stream-header">
-      <div class="stream-status">
-        <span class="stream-live" id="stream-live"></span>
-        <span class="stream-label" id="stream-label">Connecting to Claude</span>
-      </div>
-      <div style="display:flex; align-items:center; gap:20px;">
-        <span id="group-count" style="font-size:13px; color:var(--muted); font-variant-numeric:tabular-nums;">
-          0 groups found
-        </span>
-        <div class="stream-timer" id="stream-timer">00:00</div>
-      </div>
+    <!-- Icon area (spinner swaps to checkmark on done) -->
+    <div id="icon-wrap" style="margin-bottom:28px;">
+      <div id="spinner" style="
+        width:56px; height:56px;
+        border:3px solid var(--border);
+        border-top-color: var(--brass, #c9a84c);
+        border-radius:50%;
+        animation: berthSpin 0.85s linear infinite;
+        margin:0 auto;
+      "></div>
     </div>
 
-    <!-- Terminal window -->
-    <div id="terminal-wrap" style="
-      background: var(--navy-900, #040f1c);
-      border-radius: 0 0 12px 12px;
-      padding: 20px 24px;
-      min-height: 260px;
-      max-height: 480px;
-      overflow-y: auto;
-      position: relative;
-    ">
-      <pre id="token-stream" style="
-        margin: 0;
-        font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', ui-monospace, monospace;
-        font-size: 13px;
-        line-height: 1.7;
-        color: var(--brass, #c9a84c);
-        white-space: pre-wrap;
-        word-break: break-all;
-      "></pre>
-      <span id="cursor" style="
-        display: inline-block;
-        width: 8px;
-        height: 15px;
-        background: var(--brass, #c9a84c);
-        opacity: 0.9;
-        animation: cursorBlink 900ms step-end infinite;
-        vertical-align: text-bottom;
-        margin-left: 1px;
-      "></span>
+    <!-- Action headline -->
+    <div id="action-msg" style="
+      font-size:21px;
+      font-weight:600;
+      color:var(--text);
+      margin-bottom:8px;
+      min-height:30px;
+    ">Connecting to Claude…</div>
+
+    <!-- Sub-line -->
+    <div id="sub-msg" style="
+      font-size:14px;
+      color:var(--muted);
+      min-height:20px;
+    ">Reading your item names</div>
+
+    <!-- Stats row -->
+    <div style="display:flex; justify-content:center; gap:40px; margin-top:36px;">
+      <div>
+        <div style="font-size:11px; text-transform:uppercase; letter-spacing:0.08em; color:var(--muted); margin-bottom:4px;">Elapsed</div>
+        <div id="stream-timer" style="font-size:20px; font-weight:700; font-variant-numeric:tabular-nums;">00:00</div>
+      </div>
+      <div id="count-block" style="display:none;">
+        <div style="font-size:11px; text-transform:uppercase; letter-spacing:0.08em; color:var(--muted); margin-bottom:4px;">Groups found</div>
+        <div id="group-count" style="font-size:20px; font-weight:700;">0</div>
+      </div>
     </div>
 
   </div>
 
-  <!-- Status line below terminal -->
-  <div id="status-line" style="
-    text-align:center;
-    color:var(--muted);
-    font-size:14px;
-    margin-top:18px;
-    min-height:22px;
-  ">
-    Reading your item names…
-  </div>
-
-  <!-- Done state (hidden until complete) -->
+  <!-- Done banner (hidden until complete) -->
   <div id="done-banner" style="display:none; text-align:center; margin-top:24px;">
     <div style="
       display:inline-flex; align-items:center; gap:10px;
@@ -94,106 +78,148 @@
 </div>
 
 <style>
-@keyframes cursorBlink {
-  0%, 100% { opacity: 0.9; }
-  50%       { opacity: 0; }
+@keyframes berthSpin {
+  to { transform: rotate(360deg); }
+}
+#action-msg {
+  transition: opacity 0.35s ease;
 }
 </style>
 
 <script>
-const sessionId   = {{ upload_session_id }};
-const timerEl     = document.getElementById('stream-timer');
-const labelEl     = document.getElementById('stream-label');
-const liveEl      = document.getElementById('stream-live');
-const outputEl    = document.getElementById('token-stream');
-const cursorEl    = document.getElementById('cursor');
-const countEl     = document.getElementById('group-count');
-const statusEl    = document.getElementById('status-line');
-const doneBanner  = document.getElementById('done-banner');
-const doneText    = document.getElementById('done-text');
-const termWrap    = document.getElementById('terminal-wrap');
+const sessionId  = {{ upload_session_id }};
+const timerEl    = document.getElementById('stream-timer');
+const actionEl   = document.getElementById('action-msg');
+const subEl      = document.getElementById('sub-msg');
+const countEl    = document.getElementById('group-count');
+const countBlock = document.getElementById('count-block');
+const iconWrap   = document.getElementById('icon-wrap');
+const doneBanner = document.getElementById('done-banner');
+const doneText   = document.getElementById('done-text');
 
-const startMs     = Date.now();
-let   groupsFound = 0;
-let   timerActive = true;
+const startMs = Date.now();
+let timerActive = true;
+let groupsFound = 0;
+let accumulated = '';
+let msgIdx = 0;
+let msgTimer = null;
 
-// ── Timer ────────────────────────────────────────────────────────────────────
-function fmtTime(s) {
-  const m = Math.floor(s / 60).toString().padStart(2, '0');
-  return m + ':' + Math.floor(s % 60).toString().padStart(2, '0');
+// ── Fun cycling messages ───────────────────────────────────────────────────────
+const MESSAGES = [
+  { action: 'Clauding your inventory…',      sub: 'Teaching Claude your product names'          },
+  { action: 'Booping item descriptions…',    sub: 'Scanning for spelling variants'              },
+  { action: 'Sniffing out lookalikes…',      sub: 'Matching similar-looking products'           },
+  { action: 'Wrangling duplicates…',         sub: 'Grouping items that mean the same thing'     },
+  { action: 'Cross-referencing names…',      sub: 'Comparing across all uploaded files'         },
+  { action: 'Untangling your SKUs…',         sub: 'Normalising product descriptions'            },
+  { action: 'Squinting at abbreviations…',   sub: 'Figuring out what FRSH WHL CHKN 1.8KG means'},
+  { action: 'Almost there…',                sub: 'Finalising the groups'                       },
+];
+
+function showMsg(m) {
+  actionEl.style.opacity = '0';
+  setTimeout(function() {
+    actionEl.textContent = m.action;
+    subEl.textContent    = m.sub;
+    actionEl.style.opacity = '1';
+  }, 350);
 }
-setInterval(() => {
+
+function cycleMsgs() {
+  if (!timerActive) return;
+  showMsg(MESSAGES[msgIdx % MESSAGES.length]);
+  msgIdx++;
+  msgTimer = setTimeout(cycleMsgs, 3200);
+}
+
+// Start cycling after a short pause (give SSE a moment to connect first)
+msgTimer = setTimeout(cycleMsgs, 700);
+
+// ── Timer ─────────────────────────────────────────────────────────────────────
+function fmtTime(s) {
+  return String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(Math.floor(s % 60)).padStart(2, '0');
+}
+setInterval(function() {
   if (!timerActive) return;
   timerEl.textContent = fmtTime((Date.now() - startMs) / 1000);
 }, 250);
 
-// ── Count "canonical" occurrences in the streamed text so far ────────────────
-function countGroups(text) {
-  return (text.match(/"canonical"/g) || []).length;
-}
-
-// ── SSE stream ───────────────────────────────────────────────────────────────
+// ── SSE stream ────────────────────────────────────────────────────────────────
 const evtSource = new EventSource('/dedup/stream/' + sessionId);
 
 evtSource.onmessage = function(e) {
-  let data;
-  try { data = JSON.parse(e.data); } catch { return; }
+  var data;
+  try { data = JSON.parse(e.data); } catch(err) { return; }
 
   if (data.type === 'status') {
-    labelEl.textContent  = `Scanning ${data.count.toLocaleString()} items`;
-    statusEl.textContent = `Claude is reading ${data.count.toLocaleString()} unique item names…`;
+    // Update sub-line with item count; headline cycling continues uninterrupted
+    subEl.textContent = 'Scanning ' + data.count.toLocaleString() + ' unique item names';
   }
 
   else if (data.type === 'token') {
-    outputEl.textContent += data.text;
-    // Auto-scroll terminal
-    termWrap.scrollTop = termWrap.scrollHeight;
-    // Update group counter live
-    const n = countGroups(outputEl.textContent);
+    // Accumulate silently — count groups live without exposing raw JSON
+    accumulated += data.text;
+    var n = (accumulated.match(/"canonical"/g) || []).length;
     if (n !== groupsFound) {
       groupsFound = n;
-      countEl.textContent = groupsFound + (groupsFound === 1 ? ' group found' : ' groups found');
+      countEl.textContent      = groupsFound;
+      countBlock.style.display = '';
     }
   }
 
   else if (data.type === 'done') {
     evtSource.close();
+    clearTimeout(msgTimer);
     timerActive = false;
-    cursorEl.style.display = 'none';
 
-    const total = data.count;
-    countEl.textContent = total + (total === 1 ? ' group found' : ' groups found');
-    labelEl.textContent  = 'Scan complete';
-    liveEl.classList.add('done');
-    statusEl.style.display = 'none';
+    var total = data.count;
+    countEl.textContent      = total;
+    countBlock.style.display = '';
+
+    // Swap spinner for a green checkmark
+    iconWrap.innerHTML =
+      '<div style="width:56px;height:56px;background:var(--success,#22c55e);' +
+      'border-radius:50%;display:flex;align-items:center;justify-content:center;' +
+      'color:#fff;font-size:22px;margin:0 auto;">✓</div>';
+
+    actionEl.style.opacity = '0';
+    setTimeout(function() {
+      actionEl.textContent = 'Scan complete';
+      subEl.textContent    = total > 0
+        ? total + ' duplicate group' + (total === 1 ? '' : 's') + ' found'
+        : 'No duplicates detected';
+      actionEl.style.opacity = '1';
+    }, 350);
 
     doneText.textContent = total > 0
-      ? `${total} duplicate group${total === 1 ? '' : 's'} found — opening review…`
+      ? total + ' group' + (total === 1 ? '' : 's') + ' found — opening review…'
       : 'No duplicates detected — opening review…';
     doneBanner.style.display = 'block';
 
-    setTimeout(() => {
+    setTimeout(function() {
       window.location.href = '/dedup/' + sessionId;
     }, 1400);
   }
 
   else if (data.type === 'error') {
     evtSource.close();
+    clearTimeout(msgTimer);
     timerActive = false;
-    cursorEl.style.display = 'none';
-    labelEl.textContent  = 'Error — redirecting…';
-    statusEl.textContent = data.msg || 'Something went wrong.';
-    // Still redirect so dedup_review can show the fallback
-    setTimeout(() => {
+    actionEl.style.opacity = '0';
+    setTimeout(function() {
+      actionEl.textContent = 'Something went wrong';
+      subEl.textContent    = data.msg || 'Error during scan';
+      actionEl.style.opacity = '1';
+    }, 350);
+    setTimeout(function() {
       window.location.href = '/dedup/' + sessionId;
     }, 1800);
   }
 };
 
 evtSource.onerror = function() {
-  // Connection dropped — redirect to dedup_review which will re-run if needed
   evtSource.close();
-  setTimeout(() => {
+  setTimeout(function() {
     window.location.href = '/dedup/' + sessionId;
   }, 1000);
 };

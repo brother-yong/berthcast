@@ -883,7 +883,7 @@ def context_form(upload_session_id):
             "other":             request.form.get("other", "").strip(),
         }
         db.execute(
-            "UPDATE upload_sessions SET context_json=? WHERE id=?",
+            "UPDATE upload_sessions SET context_json=?, status='pending', dedup_confirmed=0 WHERE id=?",
             (json.dumps(context), upload_session_id)
         )
         return redirect(url_for("dedup_loading", upload_session_id=upload_session_id))

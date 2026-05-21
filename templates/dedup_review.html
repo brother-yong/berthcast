@@ -20,10 +20,10 @@
         id="dedup-form">
     <input type="hidden" name="confirmed_groups" id="confirmed-groups-input" value="[]">
 
-    {% if message and not groups %}
+    {% if not groups %}
     <div class="card">
       <div class="alert alert-info" style="margin-bottom:0;">
-        {{ message }} No duplicates were detected — you can proceed directly to the analysis.
+        {% if message %}{{ message }} {% endif %}No duplicate item names were detected — all products will be treated as unique. You can proceed directly to the analysis.
       </div>
     </div>
     {% else %}
