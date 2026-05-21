@@ -722,8 +722,7 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
         "5. confidence = INSUFFICIENT_DATA if supplier is not known to the system.\n"
         "6. supplier_risk = HIGH and mitigation REQUIRED if delay rate > 30% or supplier unknown.\n"
         "7. Do NOT recommend ordering dead SKUs.\n"
-        "8. Return EXACTLY one JSON object per item in the input. Do not skip any item, even if data is thin.\n"
-        "9. Return ONLY a valid JSON array. No text outside the array."
+        "8. Return ONLY a valid JSON array. No text outside the array."
     )
 
     user_prompt = (
@@ -734,7 +733,7 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
     )
 
     try:
-        raw = _call_claude(model, system_prompt, user_prompt, max_tokens=12000)
+        raw = _call_claude(model, system_prompt, user_prompt, max_tokens=24000)
         recs, _repaired = _extract_json_array(raw)
         if recs is None:
             _emit(progress_emit, "Recommendation agent returned no usable response")
