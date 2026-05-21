@@ -51,6 +51,11 @@ AVAILABLE_MODELS = [
 analysis_progress = {}
 analysis_progress_lock = threading.Lock()
 
+# Cache for normalization results produced by the streaming dedup page.
+# Keyed by upload_session_id. dedup_review GET pops from here so the agent
+# doesn't run twice. Single-worker Render instance — safe to share in-process.
+normalization_cache = {}
+
 db.init_db()
 
 
@@ -881,8 +886,115 @@ def context_form(upload_session_id):
             "UPDATE upload_sessions SET context_json=? WHERE id=?",
             (json.dumps(context), upload_session_id)
         )
-        return redirect(url_for("dedup_review", upload_session_id=upload_session_id))
+        return redirect(url_for("dedup_loading", upload_session_id=upload_session_id))
     return render_template("context_form.html", upload_session_id=upload_session_id)
+
+
+@app.route("/dedup/loading/<int:upload_session_id>")
+@login_required
+def dedup_loading(upload_session_id):
+    _verify_session_owner(upload_session_id)
+    return render_template("dedup_loading.html", upload_session_id=upload_session_id)
+
+
+@app.route("/dedup/stream/<int:upload_session_id>")
+@login_required
+def dedup_stream(upload_session_id):
+    """SSE endpoint — streams Claude tokens for the normalisation agent in real time."""
+    _verify_session_owner(upload_session_id)
+    model = session["model"]
+
+    def generate():
+        import re as _re
+
+        # ── Collect unique item names (mirrors run_normalization_agent logic) ──
+        item_names = set()
+
+        def _col_candidates(table, candidates):
+            try:
+                row = db.query(f"SELECT * FROM {table} LIMIT 1")
+                if not row:
+                    return []
+                cols = list(row[0].keys())
+                for c in candidates:
+                    if c in cols:
+                        rows = db.query(
+                            f'SELECT DISTINCT "{c}" FROM {table} '
+                            f'WHERE "{c}" IS NOT NULL LIMIT 2000'
+                        )
+                        return [r[c] for r in rows if r[c]]
+            except Exception:
+                pass
+            return []
+
+        cand = ["description", "item_description", "inventory_desc",
+                "item_name", "product_description", "product_name"]
+        item_names.update(_col_candidates(f"inventory_{upload_session_id}",       cand))
+        item_names.update(_col_candidates(f"purchase_orders_{upload_session_id}", cand))
+        item_names.update(_col_candidates(f"sales_{upload_session_id}",           cand))
+
+        if not item_names:
+            normalization_cache[upload_session_id] = {"groups": [], "message": "No item names found."}
+            yield f"data: {json.dumps({'type': 'done', 'count': 0})}\n\n"
+            return
+
+        items_list = sorted(list(item_names))[:1500]
+        yield f"data: {json.dumps({'type': 'status', 'count': len(items_list)})}\n\n"
+
+        system_prompt = (
+            "You are a data normalisation specialist for a food distribution company.\n"
+            "Identify item names that clearly refer to the same product but are written differently.\n\n"
+            "Rules:\n"
+            "- Only group items you are confident are the same product (same product, same size/weight)\n"
+            "- Do NOT merge items if uncertain - leave them separate\n"
+            "- Return ONLY a JSON array of groups\n"
+            '- Each group has: "canonical" (clearest name) and "variants" (list of other names)\n'
+            "- Only include groups with 2+ variants - skip solo items\n\n"
+            "Example:\n"
+            '[{"canonical": "White Bread 400g", "variants": ["WHT BRD 400G", "Bread White 400g"]}]'
+        )
+        user_prompt = (
+            f"Here are {len(items_list)} unique item names. Group the duplicates.\n\nItem names:\n"
+            + "\n".join(items_list)
+        )
+
+        # ── Stream tokens from Claude ──────────────────────────────────────────
+        full_text = ""
+        try:
+            with _anthropic.Anthropic(
+                api_key=os.environ.get("ANTHROPIC_API_KEY")
+            ).messages.stream(
+                model=model,
+                max_tokens=8000,
+                temperature=0,
+                system=system_prompt,
+                messages=[{"role": "user", "content": user_prompt}],
+            ) as stream:
+                for text in stream.text_stream:
+                    full_text += text
+                    yield f"data: {json.dumps({'type': 'token', 'text': text})}\n\n"
+        except Exception as e:
+            normalization_cache[upload_session_id] = {"groups": [], "message": str(e)}
+            yield f"data: {json.dumps({'type': 'error', 'msg': str(e)})}\n\n"
+            return
+
+        # ── Parse and cache result ─────────────────────────────────────────────
+        groups = []
+        try:
+            m = _re.search(r'\[.*\]', full_text, _re.DOTALL)
+            if m:
+                groups = json.loads(m.group())
+        except Exception:
+            pass
+
+        normalization_cache[upload_session_id] = {"groups": groups, "message": ""}
+        yield f"data: {json.dumps({'type': 'done', 'count': len(groups)})}\n\n"
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.route("/dedup/<int:upload_session_id>", methods=["GET", "POST"])
@@ -902,9 +1014,15 @@ def dedup_review(upload_session_id):
             (upload_session_id, json.dumps({"confirmed_groups": confirmed}), "[]")
         )
         return redirect(url_for("run_analysis", upload_session_id=upload_session_id))
-    result  = run_normalization_agent(upload_session_id, model)
-    groups  = result.get("groups", [])
-    message = result.get("message", "")
+    # Use result cached by the streaming loading page if available; otherwise block
+    cached = normalization_cache.pop(upload_session_id, None)
+    if cached is not None:
+        groups  = cached["groups"]
+        message = cached.get("message", "")
+    else:
+        result  = run_normalization_agent(upload_session_id, model)
+        groups  = result.get("groups", [])
+        message = result.get("message", "")
     return render_template("dedup_review.html", groups=groups, message=message, upload_session_id=upload_session_id)
 
 
@@ -1031,41 +1149,6 @@ def results(upload_session_id):
     except Exception:
         inventory_report = []
         recommendations  = []
-    if isinstance(inventory_report, dict) and "confirmed_groups" in inventory_report:
-        inventory_report = []
-
-    # Build item → status lookup so recommendation cards can show/filter by inventory status
-    status_by_item = {}
-    for item in inventory_report:
-        if isinstance(item, dict) and item.get("item"):
-            status_by_item[item["item"]] = item.get("status") or ""
-
-    # Pull session created_at so we can show "Generated 2 hours ago" byline on results
-    sess_row = db.query("SELECT created_at FROM upload_sessions WHERE id=?", (upload_session_id,))
-    generated_at = sess_row[0]["created_at"] if sess_row else None
-
-    return render_template(
-        "results.html",
-        inventory=inventory_report,
-        recommendations=recommendations,
-        upload_session_id=upload_session_id,
-        org_name=session["org_name"],
-        status_by_item=status_by_item,
-        generated_at=generated_at,
-    )
-
-
-@app.route("/results/<int:upload_session_id>/print")
-@login_required
-def print_results(upload_session_id):
-    _verify_session_owner(upload_session_id)
-    ar = db.query("SELECT * FROM analysis_results WHERE session_id=?", (upload_session_id,))
-    if not ar:
-        return redirect(url_for("dashboard"))
-    try:
-        recommendations = json.loads(ar[0]["recommendations_json"] or "[]")
-    except Exception:
-        recommendations = []
     approved = [r for r in recommendations if r.get("approved")]
     return render_template("print_order.html", recommendations=approved, org_name=session["org_name"])
 
@@ -1107,7 +1190,7 @@ def recommend_approve_all():
 def recommend_undo_approve_all():
     data       = request.get_json() or {}
     session_id = data.get("session_id")
-    items      = data.get("items", [])   # list of item names that were bulk-approved
+    items      = data.get("items", [])
     _verify_session_owner(session_id)
     ar = db.query("SELECT recommendations_json FROM analysis_results WHERE session_id=?", (session_id,))
     if not ar:

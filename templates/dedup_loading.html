@@ -1,0 +1,201 @@
+{% extends "base.html" %}
+{% block title %}Step 3 — Scanning items — BerthAI{% endblock %}
+
+{% block content %}
+<div class="page-wrap">
+
+  <section class="hero" style="padding: 40px 0 16px;">
+    <div class="hero-eyebrow">Step 3 of 4</div>
+    <h1 style="font-size: clamp(32px, 4vw, 52px);">Scanning your <em>inventory</em></h1>
+  </section>
+
+  <!-- Steps indicator -->
+  <div class="steps card" style="padding:16px 24px;">
+    <div class="step done"><div class="step-num">✓</div><span class="step-label">Upload files</span></div>
+    <div class="step done"><div class="step-num">✓</div><span class="step-label">Add context</span></div>
+    <div class="step active"><div class="step-num">3</div><span class="step-label">Review items</span></div>
+    <div class="step"><div class="step-num">4</div><span class="step-label">Results</span></div>
+  </div>
+
+  <!-- Stream window -->
+  <div class="card stream-card" style="margin-top:24px;">
+
+    <!-- Header bar -->
+    <div class="stream-header">
+      <div class="stream-status">
+        <span class="stream-live" id="stream-live"></span>
+        <span class="stream-label" id="stream-label">Connecting to Claude</span>
+      </div>
+      <div style="display:flex; align-items:center; gap:20px;">
+        <span id="group-count" style="font-size:13px; color:var(--muted); font-variant-numeric:tabular-nums;">
+          0 groups found
+        </span>
+        <div class="stream-timer" id="stream-timer">00:00</div>
+      </div>
+    </div>
+
+    <!-- Terminal window -->
+    <div id="terminal-wrap" style="
+      background: var(--navy-900, #040f1c);
+      border-radius: 0 0 12px 12px;
+      padding: 20px 24px;
+      min-height: 260px;
+      max-height: 480px;
+      overflow-y: auto;
+      position: relative;
+    ">
+      <pre id="token-stream" style="
+        margin: 0;
+        font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', ui-monospace, monospace;
+        font-size: 13px;
+        line-height: 1.7;
+        color: var(--brass, #c9a84c);
+        white-space: pre-wrap;
+        word-break: break-all;
+      "></pre>
+      <span id="cursor" style="
+        display: inline-block;
+        width: 8px;
+        height: 15px;
+        background: var(--brass, #c9a84c);
+        opacity: 0.9;
+        animation: cursorBlink 900ms step-end infinite;
+        vertical-align: text-bottom;
+        margin-left: 1px;
+      "></span>
+    </div>
+
+  </div>
+
+  <!-- Status line below terminal -->
+  <div id="status-line" style="
+    text-align:center;
+    color:var(--muted);
+    font-size:14px;
+    margin-top:18px;
+    min-height:22px;
+  ">
+    Reading your item names…
+  </div>
+
+  <!-- Done state (hidden until complete) -->
+  <div id="done-banner" style="display:none; text-align:center; margin-top:24px;">
+    <div style="
+      display:inline-flex; align-items:center; gap:10px;
+      background:var(--paper-2); border:1.5px solid var(--border);
+      border-radius:12px; padding:14px 24px;
+      font-size:15px; color:var(--text);
+    ">
+      <span style="color:var(--success); font-size:18px;">✓</span>
+      <span id="done-text">Scan complete — opening review page…</span>
+    </div>
+  </div>
+
+</div>
+
+<style>
+@keyframes cursorBlink {
+  0%, 100% { opacity: 0.9; }
+  50%       { opacity: 0; }
+}
+</style>
+
+<script>
+const sessionId   = {{ upload_session_id }};
+const timerEl     = document.getElementById('stream-timer');
+const labelEl     = document.getElementById('stream-label');
+const liveEl      = document.getElementById('stream-live');
+const outputEl    = document.getElementById('token-stream');
+const cursorEl    = document.getElementById('cursor');
+const countEl     = document.getElementById('group-count');
+const statusEl    = document.getElementById('status-line');
+const doneBanner  = document.getElementById('done-banner');
+const doneText    = document.getElementById('done-text');
+const termWrap    = document.getElementById('terminal-wrap');
+
+const startMs     = Date.now();
+let   groupsFound = 0;
+let   timerActive = true;
+
+// ── Timer ────────────────────────────────────────────────────────────────────
+function fmtTime(s) {
+  const m = Math.floor(s / 60).toString().padStart(2, '0');
+  return m + ':' + Math.floor(s % 60).toString().padStart(2, '0');
+}
+setInterval(() => {
+  if (!timerActive) return;
+  timerEl.textContent = fmtTime((Date.now() - startMs) / 1000);
+}, 250);
+
+// ── Count "canonical" occurrences in the streamed text so far ────────────────
+function countGroups(text) {
+  return (text.match(/"canonical"/g) || []).length;
+}
+
+// ── SSE stream ───────────────────────────────────────────────────────────────
+const evtSource = new EventSource('/dedup/stream/' + sessionId);
+
+evtSource.onmessage = function(e) {
+  let data;
+  try { data = JSON.parse(e.data); } catch { return; }
+
+  if (data.type === 'status') {
+    labelEl.textContent  = `Scanning ${data.count.toLocaleString()} items`;
+    statusEl.textContent = `Claude is reading ${data.count.toLocaleString()} unique item names…`;
+  }
+
+  else if (data.type === 'token') {
+    outputEl.textContent += data.text;
+    // Auto-scroll terminal
+    termWrap.scrollTop = termWrap.scrollHeight;
+    // Update group counter live
+    const n = countGroups(outputEl.textContent);
+    if (n !== groupsFound) {
+      groupsFound = n;
+      countEl.textContent = groupsFound + (groupsFound === 1 ? ' group found' : ' groups found');
+    }
+  }
+
+  else if (data.type === 'done') {
+    evtSource.close();
+    timerActive = false;
+    cursorEl.style.display = 'none';
+
+    const total = data.count;
+    countEl.textContent = total + (total === 1 ? ' group found' : ' groups found');
+    labelEl.textContent  = 'Scan complete';
+    liveEl.classList.add('done');
+    statusEl.style.display = 'none';
+
+    doneText.textContent = total > 0
+      ? `${total} duplicate group${total === 1 ? '' : 's'} found — opening review…`
+      : 'No duplicates detected — opening review…';
+    doneBanner.style.display = 'block';
+
+    setTimeout(() => {
+      window.location.href = '/dedup/' + sessionId;
+    }, 1400);
+  }
+
+  else if (data.type === 'error') {
+    evtSource.close();
+    timerActive = false;
+    cursorEl.style.display = 'none';
+    labelEl.textContent  = 'Error — redirecting…';
+    statusEl.textContent = data.msg || 'Something went wrong.';
+    // Still redirect so dedup_review can show the fallback
+    setTimeout(() => {
+      window.location.href = '/dedup/' + sessionId;
+    }, 1800);
+  }
+};
+
+evtSource.onerror = function() {
+  // Connection dropped — redirect to dedup_review which will re-run if needed
+  evtSource.close();
+  setTimeout(() => {
+    window.location.href = '/dedup/' + sessionId;
+  }, 1000);
+};
+</script>
+{% endblock %}
