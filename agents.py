@@ -19,7 +19,7 @@ client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
 LEAD_TIME_DAYS = {
     "import": 16 * 7,
     "local":   3 * 7,
-    "other":   8 * 7,
+    # "other" deliberately omitted — no reliable default, treat as unknown
 }
 
 SPOILAGE_THRESHOLD_DAYS = {
@@ -245,6 +245,8 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
     QTY_EXACT  = ("qty_on_hand", "qty", "quantity", "stock_on_hand", "on_hand", "stock_qty",
                   "balance", "stock_balance", "closing_stock")
     CAT_EXACT  = ("category", "cat", "class", "item_category", "product_category", "storage_type")
+    UOM_EXACT  = ("uom", "unit_of_measure", "unit", "uom_code", "uom_description",
+                  "base_uom", "purchase_uom", "sales_uom", "stock_uom")
 
     _desc_col = next((k for k in _cols if k in DESC_EXACT), None) or \
                 next((k for k in _cols if ("desc" in k or "item_name" in k or "product_name" in k) and "supplier" not in k), None)
@@ -253,6 +255,8 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
                                           and "allocated" not in k and "value" not in k), None)
     _cat_col  = next((k for k in _cols if k in CAT_EXACT), None) or \
                 next((k for k in _cols if "cat" in k or "class" in k or "storage" in k), None)
+    _uom_col  = next((k for k in _cols if k.lower() in UOM_EXACT), None) or \
+                next((k for k in _cols if "uom" in k.lower() or "unit_of" in k.lower()), None)
 
     if not _desc_col or not _qty_col:
         return {"error": (
@@ -373,6 +377,16 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
             _emit(progress_emit,
                 "WARNING: scope name matching found 0 inventory items — using all items instead")
             inventory_sorted = sorted(inventory, key=_qty_key)
+
+    # Build UOM lookup: canonical item name → UOM string (e.g. "CTN", "KG", "PCS")
+    uom_by_item: dict = {}
+    if _uom_col:
+        for row in inventory:
+            desc = row.get(_desc_col) or ""
+            canonical_key = alias_map.get(str(desc).strip().lower(), str(desc).strip().lower())
+            uom_val = str(row.get(_uom_col) or "").strip()
+            if uom_val and canonical_key and canonical_key not in uom_by_item:
+                uom_by_item[canonical_key] = uom_val
 
     # Estimate months of data coverage from distinct year-months in sales table
     try:
@@ -552,6 +566,35 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
     _emit(progress_emit, f"Filtered to {len(actionable)} items needing attention")
     _emit(progress_emit, "Building supplier context for consequence reasoning")
 
+    # Build UOM lookup from inventory table
+    uom_by_item_r: dict = {}
+    try:
+        inv_table_r = f"inventory_{session_id}"
+        inv_sample_r = query(f"SELECT * FROM {inv_table_r} LIMIT 1")
+        if inv_sample_r:
+            inv_cols_r = list(inv_sample_r[0].keys())
+            UOM_EXACT_R = ("uom", "unit_of_measure", "unit", "uom_code", "uom_description",
+                           "base_uom", "purchase_uom", "sales_uom", "stock_uom")
+            uom_col_r = next((c for c in inv_cols_r if c.lower() in UOM_EXACT_R), None) or \
+                        next((c for c in inv_cols_r if "uom" in c.lower() or "unit_of" in c.lower()), None)
+            desc_col_r = next((c for c in inv_cols_r if c in (
+                "description", "item_description", "inventory_desc", "product_description",
+                "item_name", "product_name", "stock_description", "item_desc")), None) or \
+                next((c for c in inv_cols_r if ("desc" in c.lower() or "item_name" in c.lower())
+                      and "supplier" not in c.lower()), None)
+            if uom_col_r and desc_col_r:
+                uom_rows_r = query(
+                    f'SELECT "{desc_col_r}" as item, "{uom_col_r}" as uom '
+                    f'FROM {inv_table_r} WHERE "{uom_col_r}" IS NOT NULL LIMIT 5000'
+                )
+                for row in uom_rows_r:
+                    key = str(row.get("item") or "").strip().lower()
+                    uom_val = str(row.get("uom") or "").strip()
+                    if uom_val and key and key not in uom_by_item_r:
+                        uom_by_item_r[key] = uom_val
+    except Exception:
+        uom_by_item_r = {}
+
     # Compute avg monthly sales per item so we can suggest order quantities
     sales_velocity: dict = {}
     try:
@@ -592,7 +635,7 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
         if supplier == "Unknown":
             lt_days = sup_profile.get("avg_lead_time_days") or None
         else:
-            lt_days = sup_profile.get("avg_lead_time_days") or LEAD_TIME_DAYS.get(stype, config.get("default_lead_time_days", 56))
+            lt_days = sup_profile.get("avg_lead_time_days") or LEAD_TIME_DAYS.get(stype) or config.get("default_lead_time_days") or None
         delay_prob  = sup_profile.get("delay_probability", 0.2)
         quality     = sup_profile.get("data_quality_score", 0.3)
         sup_notes   = sup_profile.get("notes", "")
@@ -607,19 +650,22 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
 
         # Compute a suggested order quantity from sales velocity
         avg_monthly = sales_velocity.get(iname, 0)
+        uom = uom_by_item_r.get(iname.lower(), "")
+        uom_label = f" {uom}" if uom else " units"
         if avg_monthly > 0:
             lt_months = (lt_days / 30) if lt_days else 2.0  # default 2-month cover if lead time unknown
             suggested_qty = round(avg_monthly * (lt_months + 1.5))  # lead time + 1.5 months safety buffer
+            suggested_qty_str = f"{suggested_qty}{uom_label}"
         else:
-            suggested_qty = None
+            suggested_qty_str = None
 
         enriched_lines.append(
             f"---\n"
             f"Item: {iname}\n"
             f"Status: {inv_item.get('status')} | Spoilage risk: {inv_item.get('spoilage_risk')}\n"
-            f"Stock: {inv_item.get('stock')} units | Days of supply: {inv_item.get('days_of_supply', 'unknown')}\n"
-            f"Avg monthly sales: {avg_monthly} units\n"
-            f"Pre-computed suggested order quantity: {suggested_qty if suggested_qty is not None else 'insufficient sales data'}\n"
+            f"Stock: {inv_item.get('stock')}{uom_label} | Days of supply: {inv_item.get('days_of_supply', 'unknown')}\n"
+            f"Avg monthly sales: {avg_monthly}{uom_label}\n"
+            f"Pre-computed suggested order quantity: {suggested_qty_str if suggested_qty_str is not None else 'insufficient sales data'}\n"
             f"Supplier: {supplier} ({stype}, lead time: {lt_days if lt_days else 'unknown — do not guess'})\n"
             f"Supplier delay rate: {int(delay_prob*100)}% | "
             f"Supplier known to system: {'Yes' if known_sup else 'No'}"
@@ -668,12 +714,14 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
         "RULES:\n"
         "1. lead_time_days: output null when the input says 'unknown'. Never invent a number.\n"
         "2. suggested_quantity: use the pre-computed value from input. If it says 'insufficient sales data', output 'Verify with team'.\n"
-        "3. consequence_if_acting and consequence_if_not_acting must be plain business statements. "
+        "3. Do NOT mention any lead time or number of days in reason, consequence_if_acting, or consequence_if_not_acting. "
+        "   Those fields are for urgency and business impact only.\n"
+        "4. consequence_if_acting and consequence_if_not_acting must be plain business statements. "
         "   No SGD amounts unless you have reliable sales data. Name the company and item.\n"
-        "4. confidence = INSUFFICIENT_DATA if supplier is not known to the system.\n"
-        "5. supplier_risk = HIGH and mitigation REQUIRED if delay rate > 30% or supplier unknown.\n"
-        "6. Do NOT recommend ordering dead SKUs.\n"
-        "7. Return ONLY a valid JSON array. No text outside the array."
+        "5. confidence = INSUFFICIENT_DATA if supplier is not known to the system.\n"
+        "6. supplier_risk = HIGH and mitigation REQUIRED if delay rate > 30% or supplier unknown.\n"
+        "7. Do NOT recommend ordering dead SKUs.\n"
+        "8. Return ONLY a valid JSON array. No text outside the array."
     )
 
     user_prompt = (

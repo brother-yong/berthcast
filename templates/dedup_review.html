@@ -28,11 +28,17 @@
     </div>
     {% else %}
     <div class="card">
-      <div class="card-title">
-        Suggested groupings
-        <span style="font-weight:400; color:var(--muted); font-size:15px;">
-          — {{ groups|length }} found
+      <div class="card-title" style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
+        <span>
+          Suggested groupings
+          <span style="font-weight:400; color:var(--muted); font-size:15px;">
+            — {{ groups|length }} found
+          </span>
         </span>
+        <button type="button" class="btn btn-muted btn-sm no-print" id="remove-all-btn"
+                onclick="removeAllGroups()">
+          Remove all
+        </button>
       </div>
       <p style="color:var(--muted); font-size:15px; margin-bottom:20px;">
         Each row shows items the AI believes are the same product. If a grouping looks wrong,
@@ -103,7 +109,17 @@ function removeGroup(id) {
   el.remove();
   if (activeGroups.length === 0) {
     document.getElementById('no-groups-msg').style.display = 'block';
+    const btn = document.getElementById('remove-all-btn');
+    if (btn) btn.style.display = 'none';
   }
+}
+
+function removeAllGroups() {
+  document.querySelectorAll('.dedup-group').forEach(el => el.remove());
+  activeGroups = [];
+  document.getElementById('no-groups-msg').style.display = 'block';
+  const btn = document.getElementById('remove-all-btn');
+  if (btn) btn.style.display = 'none';
 }
 
 function prepareSubmit() {
