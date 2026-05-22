@@ -343,8 +343,12 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 20px;
       margin-bottom: 18px;
+      color: rgba(200,155,92,0.9);
+    }
+    .feature-icon img {
+      width: 22px; height: 22px;
+      filter: invert(75%) sepia(30%) saturate(600%) hue-rotate(5deg) brightness(95%);
     }
     .feature-title {
       font-size: 16px;
@@ -542,7 +546,7 @@
 <!-- ── Navigation ── -->
 <nav class="landing-nav">
   <a class="landing-nav-logo" href="{{ url_for('landing') }}">
-    <img src="{{ url_for('static', filename='logo.png') }}" alt="BerthAI">
+    <img src="{{ url_for('static', filename='logo_sbs_compressed.png') }}" alt="BerthAI">
   </a>
   <div class="landing-nav-right">
     <a href="#features" class="nav-link">Features</a>
@@ -641,32 +645,32 @@
     </div>
     <div class="features-grid">
       <div class="feature-card">
-        <div class="feature-icon">📊</div>
+        <div class="feature-icon"><img src="{{ url_for('static', filename='icons/icon-inventory.svg') }}" alt=""></div>
         <div class="feature-title">Inventory health analysis</div>
         <div class="feature-desc">Classifies every SKU as CRITICAL, LOW, or NORMAL based on days of stock remaining vs your actual lead times — import vs local suppliers.</div>
       </div>
       <div class="feature-card">
-        <div class="feature-icon">🔁</div>
+        <div class="feature-icon"><img src="{{ url_for('static', filename='icons/icon-reorder.svg') }}" alt=""></div>
         <div class="feature-title">Reorder recommendations</div>
         <div class="feature-desc">Calculates exact reorder quantities per item, accounting for sales velocity, spoilage thresholds, and supplier lead times. No guesswork.</div>
       </div>
       <div class="feature-card">
-        <div class="feature-icon">⚠️</div>
+        <div class="feature-icon"><img src="{{ url_for('static', filename='icons/icon-alert.svg') }}" alt=""></div>
         <div class="feature-title">Stockout pattern detection</div>
         <div class="feature-desc">Cross-references your stockout history against current stock levels to flag items most likely to go out again in the next 30 days.</div>
       </div>
       <div class="feature-card">
-        <div class="feature-icon">🗂️</div>
+        <div class="feature-icon"><img src="{{ url_for('static', filename='icons/icon-supplier.svg') }}" alt=""></div>
         <div class="feature-title">Supplier-aware planning</div>
         <div class="feature-desc">Knows which suppliers are import (16-week lead) vs local (3-week). Applies the right buffer automatically so orders land before you run dry.</div>
       </div>
       <div class="feature-card">
-        <div class="feature-icon">🖨️</div>
+        <div class="feature-icon"><img src="{{ url_for('static', filename='icons/icon-document.svg') }}" alt=""></div>
         <div class="feature-title">Printable purchase orders</div>
         <div class="feature-desc">Approve recommendations with one click. BerthAI generates a formatted purchase order you can send directly — no reformatting needed.</div>
       </div>
       <div class="feature-card">
-        <div class="feature-icon">💬</div>
+        <div class="feature-icon"><img src="{{ url_for('static', filename='icons/icon-chat.svg') }}" alt=""></div>
         <div class="feature-title">Chat with your data</div>
         <div class="feature-desc">Ask questions in plain language. "Which items are critical this week?" or "What should I order before the long weekend?" BerthAI answers instantly.</div>
       </div>
@@ -745,7 +749,7 @@
 <footer>
   <div class="landing-footer">
     <div class="landing-footer-brand">
-      <img src="{{ url_for('static', filename='logo.png') }}" alt="BerthAI">
+      <img src="{{ url_for('static', filename='logo_sbs_compressed.png') }}" alt="BerthAI">
       <span>© 2026 BerthAI · Inventory operations for marine supply</span>
     </div>
     <div class="landing-footer-links">
