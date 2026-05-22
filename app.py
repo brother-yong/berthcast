@@ -938,6 +938,48 @@ def dedup_stream(upload_session_id):
             yield f"data: {json.dumps({'type': 'done', 'count': 0})}\n\n"
             return
 
+        # ── Load scope + sales data for filtering ──────────────────────────────
+        sess_rows = db.query("SELECT scope FROM upload_sessions WHERE id=?", (upload_session_id,))
+        scope_val = (sess_rows[0]["scope"] if sess_rows else None) or "all"
+
+        # Build set of item names that appear in the sales table (alive SKUs).
+        # Anything in inventory with zero sales records is likely a dead SKU
+        # and should not appear in the dedup review.
+        sales_names_raw = _col_candidates(f"sales_{upload_session_id}", cand)
+        alive_lower = {n.strip().lower() for n in sales_names_raw if n}
+
+        if alive_lower:
+            # Keep only names that have a match in the sales table (case-insensitive).
+            # Names from POs / other tables that aren't in sales are also allowed
+            # through so we don't drop legitimately traded items due to name variance.
+            # The rule: if an inventory-only item has no sales counterpart at all, drop it.
+            inv_names = set(_col_candidates(f"inventory_{upload_session_id}", cand))
+            inv_lower  = {n.strip().lower() for n in inv_names}
+            sales_only_dead = inv_lower - alive_lower  # inventory names with zero sales
+            item_names = {
+                n for n in item_names
+                if n.strip().lower() not in sales_only_dead
+            }
+
+        # ── Apply Top-N scope by sales transaction frequency ──────────────────
+        if scope_val != "all":
+            try:
+                top_n = int(scope_val)
+                # Count how many times each name appears in sales (proxy for revenue)
+                sales_freq: dict = {}
+                for n in sales_names_raw:
+                    key = n.strip().lower() if n else ""
+                    if key:
+                        sales_freq[key] = sales_freq.get(key, 0) + 1
+
+                def _sales_score(name: str) -> int:
+                    return sales_freq.get(name.strip().lower(), 0)
+
+                sorted_items = sorted(item_names, key=_sales_score, reverse=True)
+                item_names   = set(sorted_items[:top_n])
+            except (ValueError, TypeError):
+                pass  # Bad scope value — fall through with all items
+
         items_list = sorted(list(item_names))[:1500]
         yield f"data: {json.dumps({'type': 'status', 'count': len(items_list)})}\n\n"
 
@@ -1144,97 +1186,53 @@ def results(upload_session_id):
         flash("No results found. Please run the analysis first.", "error")
         return redirect(url_for("dashboard"))
     try:
-        inventory_report = json.loads(ar[0]["inventory_report"] or "[]")
-        recommendations  = json.loads(ar[0]["recommendations_json"] or "[]")
+        inventory_raw   = json.loads(ar[0]["inventory_report"] or "[]")
+        recommendations = json.loads(ar[0]["recommendations_json"] or "[]")
+        generated_at    = ar[0].get("created_at", "")
     except Exception:
-        inventory_report = []
-        recommendations  = []
-    approved = [r for r in recommendations if r.get("approved")]
+        inventory_raw   = []
+        recommendations = []
+        generated_at    = ""
+
+    # inventory_report may be a list (after analysis) or a placeholder dict
+    if isinstance(inventory_raw, list):
+        inventory = inventory_raw
+    elif isinstance(inventory_raw, dict):
+        inventory = inventory_raw.get("report", [])
+    else:
+        inventory = []
+
+    status_by_item = {
+        str(item.get("item", "")): item.get("status", "")
+        for item in inventory
+    }
+
+    return render_template(
+        "results.html",
+        recommendations=recommendations,
+        inventory=inventory,
+        upload_session_id=upload_session_id,
+        org_name=session["org_name"],
+        generated_at=generated_at,
+        status_by_item=status_by_item,
+    )
+
+
+@app.route("/results/<int:upload_session_id>/print")
+@login_required
+def print_results(upload_session_id):
+    """Render a print-ready sheet containing only approved recommendations."""
+    _verify_session_owner(upload_session_id)
+    ar = db.query("SELECT recommendations_json FROM analysis_results WHERE session_id=?", (upload_session_id,))
+    if not ar:
+        flash("No results found.", "error")
+        return redirect(url_for("dashboard"))
+    try:
+        recommendations = json.loads(ar[0]["recommendations_json"] or "[]")
+    except Exception:
+        recommendations = []
+    approved = [r for r in recommendations if r.get("approved") and not r.get("error")]
     return render_template("print_order.html", recommendations=approved, org_name=session["org_name"])
-
-
-@app.route("/recommend/approve_all", methods=["POST"])
-@login_required
-def recommend_approve_all():
-    data       = request.get_json() or {}
-    session_id = data.get("session_id")
-    _verify_session_owner(session_id)
-    ar = db.query("SELECT recommendations_json FROM analysis_results WHERE session_id=?", (session_id,))
-    if not ar:
-        return jsonify({"ok": False, "error": "No recommendations found."})
-    try:
-        recs = json.loads(ar[0]["recommendations_json"] or "[]")
-    except Exception:
-        return jsonify({"ok": False, "error": "Could not read recommendations."})
-
-    newly_approved_items = []
-    for r in recs:
-        if r.get("error"):
-            continue
-        if r.get("dismissed"):
-            continue
-        if not r.get("approved"):
-            newly_approved_items.append(r.get("item", ""))
-        r["approved"] = True
-
-    db.execute(
-        "UPDATE analysis_results SET recommendations_json=? WHERE session_id=?",
-        (json.dumps(recs), session_id)
-    )
-    return jsonify({"ok": True, "newly_approved": len(newly_approved_items),
-                    "newly_approved_items": newly_approved_items, "total": len(recs)})
-
-
-@app.route("/recommend/undo_approve_all", methods=["POST"])
-@login_required
-def recommend_undo_approve_all():
-    data       = request.get_json() or {}
-    session_id = data.get("session_id")
-    items      = data.get("items", [])
-    _verify_session_owner(session_id)
-    ar = db.query("SELECT recommendations_json FROM analysis_results WHERE session_id=?", (session_id,))
-    if not ar:
-        return jsonify({"ok": False, "error": "No recommendations found."})
-    try:
-        recs = json.loads(ar[0]["recommendations_json"] or "[]")
-    except Exception:
-        return jsonify({"ok": False, "error": "Could not read recommendations."})
-
-    item_set = set(items)
-    for r in recs:
-        if r.get("item") in item_set:
-            r["approved"] = False
-
-    db.execute(
-        "UPDATE analysis_results SET recommendations_json=? WHERE session_id=?",
-        (json.dumps(recs), session_id)
-    )
-    return jsonify({"ok": True})
-
-
-@app.route("/recommend/action", methods=["POST"])
-@login_required
-def recommend_action():
-    data       = request.get_json()
-    session_id = data.get("session_id")
-    item       = data.get("item")
-    action     = data.get("action")
-    note       = data.get("note", "")
-    _verify_session_owner(session_id)
-    ar = db.query("SELECT recommendations_json FROM analysis_results WHERE session_id=?", (session_id,))
-    if not ar:
-        return jsonify({"ok": False})
-    recs = json.loads(ar[0]["recommendations_json"] or "[]")
-    for r in recs:
-        if r.get("item") == item:
-            r["approved"]  = (action == "approve")
-            r["dismissed"] = (action == "dismiss")
-            r["note"]      = note
-    db.execute(
-        "UPDATE analysis_results SET recommendations_json=? WHERE session_id=?",
-        (json.dumps(recs), session_id)
-    )
-    return jsonify({"ok": True})
 
 
 def _allowed(filename):
