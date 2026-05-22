@@ -34,14 +34,16 @@ SPOILAGE_THRESHOLD_DAYS = {
 # ---------------------------------------------------------------------------
 
 def _call_claude(model: str, system: str, user: str, max_tokens: int = 4096) -> str:
-    response = client.messages.create(
+    # Use streaming internally — Anthropic requires it for large max_tokens values.
+    # Callers receive the complete text string exactly as before.
+    with client.messages.stream(
         model=model,
         max_tokens=max_tokens,
         temperature=0,
         system=system,
         messages=[{"role": "user", "content": user}]
-    )
-    return response.content[0].text
+    ) as stream:
+        return stream.get_final_text()
 
 
 def _emit(progress_emit, msg: str) -> None:
