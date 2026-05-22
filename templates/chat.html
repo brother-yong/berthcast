@@ -72,7 +72,7 @@
     background: var(--paper);
     border: 1.5px solid var(--border);
     border-radius: 9px;
-    padding: 6px 10px 6px 34px;
+    padding: 6px 10px;
     font-size: 13px;
     color: var(--text);
     outline: none;
@@ -627,11 +627,6 @@
         </button>
       </div>
       <div class="sidebar-search">
-        <span class="sidebar-search-icon">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
-          </svg>
-        </span>
         <input type="text" class="sidebar-search-input" id="searchInput" placeholder="Search conversations…" oninput="debounceSearch(this.value)">
       </div>
     </div>
