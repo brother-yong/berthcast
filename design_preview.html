@@ -1,0 +1,715 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BerthAI — design preview</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Inter+Tight:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --navy-900: #0B1424;
+    --navy-800: #0F1B2D;
+    --navy-700: #1B2B4A;
+    --navy-600: #243B66;
+    --brass:    #C89B5C;
+    --brass-2:  #E2B97A;
+    --brass-3:  #8B6B3D;
+    --paper:    #FAF8F3;
+    --paper-2:  #F3EFE3;
+    --line:     #E5DFCF;
+    --text:     #0F1B2D;
+    --muted:    #6B7280;
+    --success:  #2D6A4F;
+    --warning:  #B85C00;
+    --danger:   #8B2C2C;
+
+    --ease-out:    cubic-bezier(0.23, 1, 0.32, 1);
+    --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Inter', -apple-system, sans-serif;
+    background: var(--paper);
+    color: var(--text);
+    font-size: 16px;
+    line-height: 1.6;
+    background-image:
+      radial-gradient(circle at 1px 1px, rgba(15,27,45,0.06) 1px, transparent 0);
+    background-size: 24px 24px;
+  }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 48px 32px 96px; }
+
+  .section {
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 40px;
+    margin-bottom: 32px;
+    box-shadow: 0 4px 24px rgba(15,27,45,0.04);
+  }
+  h1, h2, h3 { font-family: 'Inter Tight', 'Inter', sans-serif; letter-spacing: -0.02em; }
+  h1 { font-size: 44px; font-weight: 700; line-height: 1.1; }
+  h2 { font-size: 24px; font-weight: 600; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
+  h3 { font-size: 12px; font-weight: 600; margin-bottom: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+  p { color: var(--muted); }
+  .mono { font-family: 'JetBrains Mono', monospace; }
+
+  /* Header */
+  .preview-header { margin-bottom: 40px; }
+  .preview-header .tag {
+    display: inline-block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--brass-3);
+    background: var(--paper-2);
+    border: 1px solid var(--line);
+    padding: 4px 10px;
+    border-radius: 4px;
+    margin-bottom: 20px;
+  }
+  .preview-header h1 { color: var(--navy-800); max-width: 720px; }
+  .preview-header p { font-size: 18px; max-width: 620px; margin-top: 12px; }
+
+  /* Logo tiles */
+  .logo-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 24px;
+    margin-bottom: 32px;
+  }
+  .logo-tile {
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 220px;
+    position: relative;
+    overflow: hidden;
+  }
+  .logo-tile.white { background: #fff; }
+  .logo-tile.cream { background: var(--paper-2); }
+  .logo-tile.dark  { background: var(--navy-800); border-color: var(--navy-700); }
+  .logo-tile .caption {
+    position: absolute;
+    bottom: 12px;
+    left: 16px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--muted);
+  }
+  .logo-tile.dark .caption { color: rgba(255,255,255,0.5); }
+
+  /* Logo image sizing */
+  .logo-img { display: block; height: auto; }
+  .logo-img.hero   { width: 220px; }
+  .logo-img.large  { width: 160px; }
+  .logo-img.medium { width: 96px; }
+  .logo-img.small  { width: 56px; }
+  .logo-img.nav    { width: 44px; }
+  .logo-img.favicon{ width: 16px; }
+
+  /* Colour palette */
+  .swatches { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; }
+  .swatch {
+    border-radius: 10px;
+    padding: 16px;
+    aspect-ratio: 1 / 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    border: 1px solid rgba(0,0,0,0.06);
+  }
+  .swatch .name { font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 600; }
+  .swatch .hex  { font-family: 'JetBrains Mono', monospace; font-size: 10px; opacity: 0.7; margin-top: 2px; }
+  .sw-light .name, .sw-light .hex { color: var(--text); }
+  .sw-dark  .name, .sw-dark  .hex { color: #fff; }
+
+  /* Typography */
+  .type-row { display: grid; grid-template-columns: 140px 1fr; gap: 24px; padding: 20px 0; border-bottom: 1px dashed var(--line); }
+  .type-row:last-child { border-bottom: none; }
+  .type-row .meta { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--brass-3); text-transform: uppercase; letter-spacing: 0.08em; padding-top: 6px; }
+
+  /* Mockup */
+  .mockup {
+    border-radius: 14px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    background: var(--paper);
+    margin-top: 16px;
+  }
+  .mock-nav {
+    background: #fff;
+    padding: 10px 24px;
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    border-bottom: 1px solid var(--line);
+  }
+  .mock-nav .links { display: flex; gap: 4px; margin-left: auto; font-size: 14px; }
+  .mock-nav .links a {
+    color: var(--muted);
+    text-decoration: none;
+    padding: 8px 14px;
+    border-radius: 8px;
+    font-weight: 500;
+    transition: background 160ms var(--ease-out), color 160ms var(--ease-out);
+  }
+  .mock-nav .links a:hover { color: var(--navy-800); background: var(--paper); }
+  .mock-nav .links a.active {
+    color: var(--navy-800);
+    background: var(--paper-2);
+    box-shadow: inset 0 -2px 0 var(--brass);
+  }
+  .mock-nav .user {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--brass-3);
+    border-left: 1px solid var(--line);
+    padding-left: 16px;
+    margin-left: 16px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .mock-body { padding: 32px; }
+  .mock-crumb {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--brass-3);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    margin-bottom: 8px;
+  }
+  .mock-title {
+    font-family: 'Inter Tight', sans-serif;
+    font-size: 32px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--navy-800);
+    margin-bottom: 6px;
+  }
+  .mock-sub { color: var(--muted); margin-bottom: 28px; }
+
+  /* Step rail */
+  .step-rail {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 6px;
+    margin-bottom: 28px;
+    width: fit-content;
+  }
+  .step-pill {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    font-size: 13px;
+    color: var(--muted);
+    font-weight: 500;
+    border-radius: 999px;
+    transition: background 200ms var(--ease-out), color 200ms var(--ease-out);
+  }
+  .step-pill .dot {
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    border: 1.5px solid var(--line);
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 600;
+  }
+  .step-pill.done .dot { background: var(--success); border-color: var(--success); color: #fff; }
+  .step-pill.active { background: var(--navy-800); color: #fff; }
+  .step-pill.active .dot { background: var(--brass); border-color: var(--brass); color: var(--navy-800); }
+
+  /* Metric cards */
+  .metric-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 28px; }
+  .metric {
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 20px;
+    opacity: 0;
+    transform: scale(0.96) translateY(4px);
+    animation: cardIn 360ms var(--ease-out) forwards;
+  }
+  .metric:nth-child(1) { animation-delay: 0ms; }
+  .metric:nth-child(2) { animation-delay: 60ms; }
+  .metric:nth-child(3) { animation-delay: 120ms; }
+  .metric:nth-child(4) { animation-delay: 180ms; }
+  @keyframes cardIn { to { opacity: 1; transform: scale(1) translateY(0); } }
+
+  .metric .label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+  .metric .value {
+    font-family: 'Inter Tight', sans-serif;
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--navy-800);
+    letter-spacing: -0.02em;
+  }
+  .metric .delta {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    margin-top: 4px;
+  }
+  .metric .delta.up   { color: var(--success); }
+  .metric .delta.down { color: var(--danger); }
+  .metric .accent-bar {
+    width: 24px; height: 3px; background: var(--brass); border-radius: 2px; margin-bottom: 12px;
+  }
+
+  /* Reco cards */
+  .reco {
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 22px 24px;
+    margin-bottom: 12px;
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 20px;
+    align-items: center;
+    opacity: 0;
+    transform: scale(0.97) translateY(6px);
+    animation: cardIn 380ms var(--ease-out) forwards;
+    transition: border-color 200ms var(--ease-out), background 200ms var(--ease-out);
+  }
+  .reco:hover { border-color: var(--brass); background: var(--paper); }
+  .reco:nth-of-type(1) { animation-delay: 200ms; }
+  .reco:nth-of-type(2) { animation-delay: 250ms; }
+  .reco:nth-of-type(3) { animation-delay: 300ms; }
+  .reco .iconbox {
+    width: 44px; height: 44px;
+    background: var(--paper-2);
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--brass-3);
+  }
+  .reco .body strong {
+    font-family: 'Inter Tight', sans-serif;
+    font-size: 17px;
+    font-weight: 600;
+    color: var(--navy-800);
+  }
+  .reco .body p { font-size: 14px; margin-top: 4px; }
+  .reco .meta-line {
+    margin-top: 8px;
+    display: flex;
+    gap: 16px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    flex-wrap: wrap;
+  }
+  .reco .meta-line span.warn { color: var(--warning); }
+  .reco .actions { display: flex; gap: 8px; }
+  .reco-btn {
+    padding: 9px 16px;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    background: #fff;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    color: var(--text);
+    font-family: inherit;
+    transition: transform 160ms var(--ease-out), background 160ms var(--ease-out), border-color 160ms var(--ease-out);
+  }
+  .reco-btn:hover { background: var(--paper); border-color: var(--brass); }
+  .reco-btn:active { transform: scale(0.97); }
+  .reco-btn.primary {
+    background: var(--navy-800);
+    color: #fff;
+    border-color: var(--navy-800);
+  }
+  .reco-btn.primary:hover { background: var(--navy-900); border-color: var(--navy-900); }
+  .reco-btn.primary:active { transform: scale(0.97); }
+
+  /* Streaming agent panel */
+  .agent-stream {
+    background: var(--navy-900);
+    border-radius: 12px;
+    padding: 24px;
+    color: rgba(255,255,255,0.85);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    line-height: 1.7;
+    position: relative;
+    overflow: hidden;
+  }
+  .agent-stream::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0; height: 1px;
+    background: linear-gradient(90deg, transparent, var(--brass), transparent);
+  }
+  .agent-stream .header {
+    display: flex; align-items: center; gap: 10px;
+    margin-bottom: 16px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--brass-2);
+  }
+  .agent-stream .header .live {
+    width: 7px; height: 7px;
+    background: var(--brass);
+    border-radius: 50%;
+    box-shadow: 0 0 0 0 var(--brass);
+    animation: pulse 1.8s var(--ease-out) infinite;
+  }
+  @keyframes pulse {
+    0%   { box-shadow: 0 0 0 0 rgba(200,155,92,0.55); }
+    100% { box-shadow: 0 0 0 12px rgba(200,155,92,0); }
+  }
+  .agent-stream .line {
+    opacity: 0;
+    transform: translateX(-6px) scale(0.99);
+    animation: streamIn 360ms var(--ease-out) forwards;
+  }
+  .agent-stream .line:nth-of-type(1) { animation-delay: 120ms; }
+  .agent-stream .line:nth-of-type(2) { animation-delay: 340ms; }
+  .agent-stream .line:nth-of-type(3) { animation-delay: 620ms; }
+  .agent-stream .line:nth-of-type(4) { animation-delay: 980ms; }
+  .agent-stream .line:nth-of-type(5) { animation-delay: 1380ms; }
+  .agent-stream .line:nth-of-type(6) { animation-delay: 1800ms; }
+  @keyframes streamIn { to { opacity: 1; transform: translateX(0) scale(1); } }
+  .agent-stream .line .key { color: var(--brass-2); }
+  .agent-stream .line .ok  { color: #6FE89A; }
+  .agent-stream .line .warn { color: #FFB78A; }
+  .agent-stream .cursor {
+    display: inline-block;
+    width: 8px; height: 14px;
+    background: var(--brass);
+    vertical-align: middle;
+    margin-left: 2px;
+    animation: blink 1s steps(2) infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* Notes */
+  .notes { background: var(--paper-2); border-left: 3px solid var(--brass); padding: 20px 24px; border-radius: 8px; margin-top: 16px; }
+  .notes h3 { color: var(--brass-3); margin-bottom: 8px; }
+  .notes p, .notes li { color: var(--text); font-size: 14px; line-height: 1.7; }
+  .notes ul { margin-top: 8px; padding-left: 20px; }
+  .notes li { margin-bottom: 4px; }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+  <!-- HEADER -->
+  <div class="preview-header">
+    <span class="tag">Design preview · v1 · with your logo</span>
+    <h1>BerthAI — visual direction</h1>
+    <p>Your logo, untouched. The rest of the design (palette, typography, screens) is v1 — paper, navy, brass. The palette already echoes the logo's navy and gold tones.</p>
+  </div>
+
+  <!-- LOGO -->
+  <section class="section">
+    <h2>Logo — your artwork, as supplied</h2>
+    <p style="margin-bottom: 24px; max-width: 640px;">Displayed at multiple sizes on different backgrounds. Nothing has been recoloured, cropped, or redrawn. The same file is used at every size.</p>
+
+    <div class="logo-grid">
+      <div class="logo-tile white">
+        <img class="logo-img hero" src="static/logo.png" alt="BerthAI logo">
+        <span class="caption">Primary · on white</span>
+      </div>
+      <div class="logo-tile cream">
+        <img class="logo-img hero" src="static/logo.png" alt="BerthAI logo">
+        <span class="caption">On paper background</span>
+      </div>
+      <div class="logo-tile dark">
+        <img class="logo-img hero" src="static/logo.png" alt="BerthAI logo">
+        <span class="caption">On navy (raw — see note)</span>
+      </div>
+    </div>
+
+    <h3>Sizes — same file, scaled</h3>
+    <div class="logo-grid">
+      <div class="logo-tile white" style="flex-direction: row; gap: 28px; justify-content: center; align-items: flex-end;">
+        <img class="logo-img favicon" src="static/logo.png" alt="">
+        <img class="logo-img nav"     src="static/logo.png" alt="">
+        <img class="logo-img small"   src="static/logo.png" alt="">
+        <img class="logo-img medium"  src="static/logo.png" alt="">
+        <span class="caption">16 · 44 · 56 · 96 px</span>
+      </div>
+      <div class="logo-tile cream">
+        <img class="logo-img large" src="static/logo.png" alt="">
+        <span class="caption">Marketing / docs size</span>
+      </div>
+      <div class="logo-tile white">
+        <img class="logo-img favicon" src="static/logo.png" alt="">
+        <span class="caption">Favicon at actual size</span>
+      </div>
+    </div>
+
+    <div class="notes">
+      <h3>Note about the dark navy tile</h3>
+      <p>The new logo is transparent — clean alpha channel, no white box. That solves placement on coloured surfaces. One small limitation: the ship in your logo is the same deep navy as my Navy 800 surface, so on a dark navy background the hull blends into the surface and only the gold chart stays visible. The fix is simple — keep the nav bar light. I've switched the in-app nav from navy to white in the mockup below, which makes the whole ship read cleanly.</p>
+    </div>
+  </section>
+
+  <!-- PALETTE -->
+  <section class="section">
+    <h2>Colour palette</h2>
+    <p style="margin-bottom: 24px; max-width: 640px;">Navy as the structural colour, brass-gold as the single accent, paper-tinted background. The palette is tuned to harmonise with your logo's navy hull and gold chart.</p>
+
+    <h3>Core</h3>
+    <div class="swatches" style="margin-bottom: 24px;">
+      <div class="swatch sw-dark"  style="background: #0B1424;"><div class="name">Navy 900</div><div class="hex">#0B1424</div></div>
+      <div class="swatch sw-dark"  style="background: #0F1B2D;"><div class="name">Navy 800</div><div class="hex">#0F1B2D</div></div>
+      <div class="swatch sw-dark"  style="background: #1B2B4A;"><div class="name">Navy 700</div><div class="hex">#1B2B4A</div></div>
+      <div class="swatch sw-dark"  style="background: #C89B5C;"><div class="name">Brass</div><div class="hex">#C89B5C</div></div>
+      <div class="swatch sw-light" style="background: #E2B97A;"><div class="name">Brass 2</div><div class="hex">#E2B97A</div></div>
+      <div class="swatch sw-dark"  style="background: #8B6B3D;"><div class="name">Brass 3</div><div class="hex">#8B6B3D</div></div>
+    </div>
+
+    <h3>Surfaces and status</h3>
+    <div class="swatches">
+      <div class="swatch sw-light" style="background: #FAF8F3;"><div class="name">Paper</div><div class="hex">#FAF8F3</div></div>
+      <div class="swatch sw-light" style="background: #F3EFE3;"><div class="name">Paper 2</div><div class="hex">#F3EFE3</div></div>
+      <div class="swatch sw-light" style="background: #E5DFCF;"><div class="name">Line</div><div class="hex">#E5DFCF</div></div>
+      <div class="swatch sw-dark"  style="background: #2D6A4F;"><div class="name">Success</div><div class="hex">#2D6A4F</div></div>
+      <div class="swatch sw-dark"  style="background: #B85C00;"><div class="name">Warning</div><div class="hex">#B85C00</div></div>
+      <div class="swatch sw-dark"  style="background: #8B2C2C;"><div class="name">Danger</div><div class="hex">#8B2C2C</div></div>
+    </div>
+  </section>
+
+  <!-- TYPOGRAPHY -->
+  <section class="section">
+    <h2>Typography</h2>
+    <p style="margin-bottom: 8px;">Three families. Inter Tight for headings gives them weight. Inter for body. JetBrains Mono for SKUs, dates, and labels — gives data a manifest feel.</p>
+
+    <div class="type-row">
+      <div class="meta">Inter Tight · 700</div>
+      <div>
+        <div style="font-family: 'Inter Tight'; font-weight: 700; font-size: 44px; letter-spacing: -0.02em; color: var(--navy-800);">730 of 1,346 SKUs at zero stock</div>
+      </div>
+    </div>
+    <div class="type-row">
+      <div class="meta">Inter Tight · 600</div>
+      <div>
+        <div style="font-family: 'Inter Tight'; font-weight: 600; font-size: 26px; letter-spacing: -0.01em; color: var(--navy-800);">Reorder 12 items before next vessel cycle</div>
+      </div>
+    </div>
+    <div class="type-row">
+      <div class="meta">Inter · 400</div>
+      <div>
+        <div style="font-size: 16px; color: var(--text);">White bread is at 3.5 days of stock. Three customers depend on weekly orders. Order now from local supplier — import lead time is 16 weeks.</div>
+      </div>
+    </div>
+    <div class="type-row">
+      <div class="meta">JetBrains Mono · 500</div>
+      <div>
+        <div style="font-family: 'JetBrains Mono'; font-weight: 500; font-size: 13px; letter-spacing: 0.08em; color: var(--brass-3); text-transform: uppercase;">SKU 4422 · Days of supply 3.5 · Revenue at risk SGD 12,400</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- MOCKUP -->
+  <section class="section">
+    <h2>Mockup — results dashboard</h2>
+    <p style="margin-bottom: 0; max-width: 640px;">Your transparent logo sits directly in a light nav bar. Active link gets a brass underline. The rest of the screen uses the v1 paper-and-brass palette.</p>
+
+    <div class="mockup">
+      <div class="mock-nav">
+        <img class="logo-img" src="static/logo.png" alt="BerthAI" style="height: 40px; width: auto;">
+        <div class="links">
+          <a href="#">Upload</a>
+          <a href="#">Review</a>
+          <a href="#" class="active">Results</a>
+          <a href="#">History</a>
+        </div>
+        <div class="user">COOL-LINK · BOON YEN</div>
+      </div>
+
+      <div class="mock-body">
+        <div class="mock-crumb">Analysis · 17 May 2026 · 09:42</div>
+        <h1 class="mock-title">Inventory health and recommendations</h1>
+        <p class="mock-sub">Based on 432,436 sales rows · 1,346 SKUs · 16-month window</p>
+
+        <div class="step-rail">
+          <div class="step-pill done"><span class="dot">✓</span>Upload</div>
+          <div class="step-pill done"><span class="dot">✓</span>Context</div>
+          <div class="step-pill done"><span class="dot">✓</span>Dedup</div>
+          <div class="step-pill done"><span class="dot">✓</span>Analyse</div>
+          <div class="step-pill active"><span class="dot">5</span>Review</div>
+        </div>
+
+        <div class="agent-stream" style="margin-bottom: 28px;">
+          <div class="header">
+            <span class="live"></span>
+            <span>Recommendation agent · live</span>
+          </div>
+          <div class="line"><span class="key">→</span> Reading inventory snapshot... <span class="ok">1,346 items loaded</span></div>
+          <div class="line"><span class="key">→</span> Cross-referencing supplier lead times... <span class="ok">done</span></div>
+          <div class="line"><span class="key">→</span> Flagging unreliable suppliers: <span class="warn">El Sabah, ABD Khan, Nhan Tu</span></div>
+          <div class="line"><span class="key">→</span> Item 247 / 615 · BREAD WHITE 400G · stock = 12 · days = 3.5</div>
+          <div class="line"><span class="key">→</span> Cross-checking April orders against ship chandlers...</div>
+          <div class="line"><span class="key">→</span> Generating recommendation 8 of 12<span class="cursor"></span></div>
+        </div>
+
+        <div class="metric-row">
+          <div class="metric">
+            <div class="accent-bar"></div>
+            <div class="label">Zero-stock SKUs</div>
+            <div class="value">730</div>
+            <div class="delta down">54.3% of catalogue</div>
+          </div>
+          <div class="metric">
+            <div class="accent-bar"></div>
+            <div class="label">Revenue at risk</div>
+            <div class="value">$40,159</div>
+            <div class="delta down">/ month</div>
+          </div>
+          <div class="metric">
+            <div class="accent-bar"></div>
+            <div class="label">Critical reorders</div>
+            <div class="value">12</div>
+            <div class="delta up">flagged today</div>
+          </div>
+          <div class="metric">
+            <div class="accent-bar"></div>
+            <div class="label">Lead time horizon</div>
+            <div class="value">16w</div>
+            <div class="delta">import default</div>
+          </div>
+        </div>
+
+        <h3 style="margin-bottom: 12px; color: var(--navy-800); font-family: 'Inter Tight'; font-size: 17px; text-transform: none; letter-spacing: -0.01em;">Top recommendations</h3>
+
+        <div class="reco">
+          <div class="iconbox">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+          </div>
+          <div class="body">
+            <strong>Order White Bread 400G — 3.5 days of stock left</strong>
+            <p>Three ship-chandler customers re-order this weekly. Switching to local backup costs more but prevents stockout. Import lead time is 16 weeks.</p>
+            <div class="meta-line">
+              <span>SKU 4422</span>
+              <span>QTY 480</span>
+              <span class="warn">SUPPLIER: NHAN TU (UNRELIABLE)</span>
+            </div>
+          </div>
+          <div class="actions">
+            <button class="reco-btn">Dismiss</button>
+            <button class="reco-btn primary">Approve</button>
+          </div>
+        </div>
+
+        <div class="reco">
+          <div class="iconbox">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
+          </div>
+          <div class="body">
+            <strong>Replenish Hamburger Buns — depleting at 28 units/day</strong>
+            <p>Top ten seller. Cindy Tan has Sinwa Singapore order pending next week.</p>
+            <div class="meta-line">
+              <span>SKU 4451</span>
+              <span>QTY 600</span>
+              <span>SUPPLIER: LOCAL</span>
+            </div>
+          </div>
+          <div class="actions">
+            <button class="reco-btn">Dismiss</button>
+            <button class="reco-btn primary">Approve</button>
+          </div>
+        </div>
+
+        <div class="reco">
+          <div class="iconbox">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          </div>
+          <div class="body">
+            <strong>Stop ordering Yoghurt 1L — 47 days no movement</strong>
+            <p>CHILL category, 14-day flag exceeded by 33 days. No active customer orders.</p>
+            <div class="meta-line">
+              <span>SKU 4490</span>
+              <span>CURRENT STOCK 84</span>
+              <span class="warn">EXPIRY RISK</span>
+            </div>
+          </div>
+          <div class="actions">
+            <button class="reco-btn">Dismiss</button>
+            <button class="reco-btn primary">Approve</button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- LOGIN PREVIEW -->
+  <section class="section">
+    <h2>Mockup — login screen</h2>
+    <p style="margin-bottom: 16px; max-width: 640px;">Your logo gets to breathe at hero size. Paper background and a single white card. This is the first thing Cool Link staff (and any prospect you demo to) will see.</p>
+
+    <div class="mockup" style="background: var(--paper); padding: 64px 32px; display: flex; align-items: center; justify-content: center;">
+      <div style="background: #fff; border: 1px solid var(--line); border-radius: 16px; padding: 48px 40px; width: 100%; max-width: 420px; box-shadow: 0 8px 32px rgba(15,27,45,0.06);">
+        <div style="display: flex; justify-content: center; margin-bottom: 28px;">
+          <img class="logo-img large" src="static/logo.png" alt="BerthAI">
+        </div>
+        <div style="font-family: 'Inter Tight'; font-size: 22px; font-weight: 700; color: var(--navy-800); text-align: center; letter-spacing: -0.02em; margin-bottom: 6px;">Welcome back</div>
+        <div style="color: var(--muted); text-align: center; font-size: 14px; margin-bottom: 28px;">Sign in to continue</div>
+        <div style="margin-bottom: 14px;">
+          <div style="font-size: 13px; font-weight: 500; margin-bottom: 6px; color: var(--text);">Email</div>
+          <div style="border: 1.5px solid var(--line); background: var(--paper); padding: 12px 14px; border-radius: 8px; font-family: 'JetBrains Mono'; font-size: 13px; color: var(--muted);">boon.yen@coollink.sg</div>
+        </div>
+        <div style="margin-bottom: 22px;">
+          <div style="font-size: 13px; font-weight: 500; margin-bottom: 6px; color: var(--text);">Password</div>
+          <div style="border: 1.5px solid var(--line); background: var(--paper); padding: 12px 14px; border-radius: 8px; font-family: 'JetBrains Mono'; font-size: 13px; color: var(--muted);">••••••••••••</div>
+        </div>
+        <button class="reco-btn primary" style="width: 100%; padding: 13px;">Sign in</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- BUILD NOTES -->
+  <section class="section">
+    <h2>What happens next, if you approve</h2>
+    <div class="notes">
+      <h3>Files I would update</h3>
+      <ul>
+        <li><span class="mono">static/style.css</span> — full rewrite to this paper-and-brass theme with the motion rules from above.</li>
+        <li><span class="mono">templates/base.html</span> — new nav using <span class="mono">static/logo.png</span> (already in place); Google Fonts link.</li>
+        <li><span class="mono">templates/results.html</span> — metric cards, streaming agent panel, reco cards with stagger entrance.</li>
+        <li><span class="mono">templates/upload.html</span> — upload slots redesigned; lucide SVG icons replace emojis.</li>
+        <li><span class="mono">templates/login.html</span> — hero-sized logo, single card, as shown above.</li>
+        <li>No changes to <span class="mono">static/logo.png</span> itself.</li>
+      </ul>
+    </div>
+    <div class="notes">
+      <h3>Open question</h3>
+      <p>The nav bar is now light to let your navy ship read against it. If you'd rather keep a dark navy nav bar across the app, I can ask you for a navy-on-light alt version of the logo (or an inverted-fill one where the ship is white instead of navy). Otherwise the light-nav approach below is the path of least resistance and looks clean.</p>
+    </div>
+  </section>
+
+</div>
+
+</body>
+</html>
