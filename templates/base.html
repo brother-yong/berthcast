@@ -25,7 +25,7 @@
   </div>
 </nav>
 
-{% if live_stats %}
+{% if live_stats and request.endpoint not in ['chat', 'user_settings'] %}
 <div class="ticker-strip" aria-label="Live operations summary">
   <div class="ticker-item"><span class="ticker-label">SKUs tracked</span><span class="ticker-value">{{ "{:,}".format(live_stats.skus) }}</span></div>
   <div class="ticker-sep">/</div>
