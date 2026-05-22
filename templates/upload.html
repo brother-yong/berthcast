@@ -295,8 +295,9 @@ async function uploadFile(input, slot, slotId) {
   _setProgress(slotId, 0);
   _setCancelBtn(slot, true);
 
-  const totalChunks = Math.max(1, Math.ceil(file.size / CHUNK_SIZE));
-  const uploadId    = Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+  const totalChunks    = Math.max(1, Math.ceil(file.size / CHUNK_SIZE));
+  const uploadId       = Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+  const uploadStartAt  = Date.now();
 
   // Create a fresh AbortController for this upload
   const controller = new AbortController();
@@ -308,9 +309,24 @@ async function uploadFile(input, slot, slotId) {
     const chunk = file.slice(start, end);
     const pct   = Math.round((i / totalChunks) * 90);  // reserve last 10% for processing
 
+    // ETA — only meaningful after first chunk gives us a speed reading
+    let etaStr = '';
+    if (i > 0) {
+      const elapsed   = Date.now() - uploadStartAt;
+      const bytesDone = i * CHUNK_SIZE;
+      const speed     = bytesDone / elapsed;  // bytes per ms
+      const remaining = file.size - bytesDone;
+      const etaSec    = speed > 0 ? Math.round((remaining / speed) / 1000) : null;
+      if (etaSec !== null) {
+        if (etaSec < 5)       etaStr = ' · almost done';
+        else if (etaSec < 60) etaStr = ' · about ' + etaSec + 's left';
+        else                  etaStr = ' · about ' + Math.round(etaSec / 60) + ' min left';
+      }
+    }
+
     _setStatus(slot,
       '<span class="uploading-dot"></span> ' +
-      '<span class="pct" id="pct-' + slot + '">' + pct + '% — chunk ' + (i+1) + ' of ' + totalChunks + '</span> ' +
+      '<span class="pct" id="pct-' + slot + '">Uploading ' + pct + '%' + etaStr + '</span> · ' +
       '<span class="fname">' + file.name + '</span>'
     );
     _setProgress(slotId, pct);
@@ -359,7 +375,7 @@ async function uploadFile(input, slot, slotId) {
         }
         if (attempt === 2) {
           _setCancelBtn(slot, false);
-          _setError(slot, slotId, 'Failed at chunk ' + (i+1) + '/' + totalChunks + ': ' + err.message);
+          _setError(slot, slotId, 'Upload failed — please try again.');
           return;
         }
         // Wait before retrying (1s, 2s)
