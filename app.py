@@ -141,14 +141,14 @@ def admin_required(f):
 @app.route("/")
 def landing():
     if "user_id" in session:
-        return redirect(url_for("dashboard"))
+        return redirect(url_for("chat"))
     return render_template("landing.html")
 
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if "user_id" in session:
-        return redirect(url_for("dashboard"))
+        return redirect(url_for("chat"))
     if request.method == "POST":
         email    = request.form.get("email", "").strip().lower()
         password = request.form.get("password", "")
