@@ -7,9 +7,7 @@
     <div class="hero-eyebrow">Analysis results · {{ org_name }}</div>
     <h1 style="font-size: clamp(40px, 5.5vw, 60px);">Recommendations <em>&amp;</em> inventory health</h1>
     <div class="hero-byline">
-      <span class="ai-byline">Authored by Claude</span>
       {% if generated_at %}
-      <span class="hero-byline-sep">/</span>
       <span>Generated · {{ generated_at[:10] }}</span>
       {% endif %}
       <span class="hero-byline-sep">/</span>
