@@ -572,37 +572,57 @@ def user_settings():
 @app.route("/dashboard")
 @login_required
 def dashboard():
-    sessions = db.query(
-        "SELECT * FROM upload_sessions WHERE user_id=? ORDER BY created_at DESC LIMIT 1",
+    # Load all completed sessions (most recent first, cap at 50)
+    all_sessions = db.query(
+        "SELECT * FROM upload_sessions WHERE user_id=? AND status='complete' ORDER BY created_at DESC LIMIT 50",
         (session["user_id"],)
     )
-    last_session = sessions[0] if sessions else None
+    last_session = all_sessions[0] if all_sessions else None
 
-    # Pull summary stats from last completed analysis (if any).
-    # Fails silently — dashboard still renders if anything goes wrong.
-    stats = None
-    if last_session and last_session["status"] == "complete":
+    # Build per-session stats; fail silently per session
+    def _session_stats(sess_id):
         try:
             ar = db.query(
                 "SELECT inventory_report, recommendations_json FROM analysis_results WHERE session_id=?",
-                (last_session["id"],)
+                (sess_id,)
             )
-            if ar:
-                inv  = json.loads(ar[0]["inventory_report"] or "[]")
-                recs = json.loads(ar[0]["recommendations_json"] or "[]")
-                if isinstance(inv, dict):
-                    inv = []
-                stats = {
-                    "tracked_skus":   len(inv),
-                    "critical_count": sum(1 for i in inv if i.get("status") == "CRITICAL"),
-                    "low_count":      sum(1 for i in inv if i.get("status") == "LOW"),
-                    "rec_count":      len(recs),
-                    "approved_count": sum(1 for r in recs if r.get("approved")),
-                }
+            if not ar:
+                return None
+            inv  = json.loads(ar[0]["inventory_report"] or "[]")
+            recs = json.loads(ar[0]["recommendations_json"] or "[]")
+            if isinstance(inv, dict):
+                inv = []
+            return {
+                "tracked_skus":   len(inv),
+                "critical_count": sum(1 for i in inv if i.get("status") == "CRITICAL"),
+                "low_count":      sum(1 for i in inv if i.get("status") == "LOW"),
+                "rec_count":      len(recs),
+                "approved_count": sum(1 for r in recs if r.get("approved")),
+            }
         except Exception:
-            stats = None
+            return None
 
-    return render_template("dashboard.html", last_session=last_session, stats=stats)
+    stats = _session_stats(last_session["id"]) if last_session else None
+
+    # Build history list for all sessions (dict so template can iterate)
+    past_sessions = []
+    for s in all_sessions:
+        st = _session_stats(s["id"])
+        past_sessions.append({
+            "id":         s["id"],
+            "date":       (s["created_at"] or "")[:10],
+            "rec_count":  st["rec_count"]      if st else 0,
+            "approved":   st["approved_count"] if st else 0,
+            "critical":   st["critical_count"] if st else 0,
+            "skus":       st["tracked_skus"]   if st else 0,
+        })
+
+    return render_template(
+        "dashboard.html",
+        last_session=last_session,
+        stats=stats,
+        past_sessions=past_sessions,
+    )
 
 
 @app.route("/upload/start")
@@ -1220,6 +1240,130 @@ def print_results(upload_session_id):
         recommendations = []
     approved = [r for r in recommendations if r.get("approved") and not r.get("error")]
     return render_template("print_order.html", recommendations=approved, org_name=session["org_name"])
+
+
+
+# ── Recommendation approve / dismiss routes ──────────────────────────────────
+
+@app.route("/recommend/action", methods=["POST"])
+@login_required
+def recommend_action():
+    """Approve or dismiss a single recommendation and persist the note."""
+    data       = request.get_json(force=True, silent=True) or {}
+    session_id = data.get("session_id")
+    item       = data.get("item", "").strip()
+    action     = data.get("action", "")   # "approve" | "dismiss"
+    note       = data.get("note", "").strip()
+
+    if not session_id or not item or action not in ("approve", "dismiss"):
+        return jsonify({"ok": False, "error": "Invalid parameters"}), 400
+
+    # Ownership check
+    rows = db.query("SELECT user_id FROM upload_sessions WHERE id=?", (session_id,))
+    if not rows or rows[0]["user_id"] != session.get("user_id"):
+        return jsonify({"ok": False, "error": "Forbidden"}), 403
+
+    ar = db.query("SELECT recommendations_json FROM analysis_results WHERE session_id=?", (session_id,))
+    if not ar:
+        return jsonify({"ok": False, "error": "No results for this session"}), 404
+
+    try:
+        recs = json.loads(ar[0]["recommendations_json"] or "[]")
+    except Exception:
+        return jsonify({"ok": False, "error": "Corrupt data"}), 500
+
+    updated = False
+    for rec in recs:
+        if isinstance(rec, dict) and rec.get("item", "").strip() == item:
+            rec["approved"]  = (action == "approve")
+            rec["dismissed"] = (action == "dismiss")
+            if note:
+                rec["note"] = note
+            updated = True
+            break
+
+    if not updated:
+        return jsonify({"ok": False, "error": "Item not found in recommendations"}), 404
+
+    db.execute(
+        "UPDATE analysis_results SET recommendations_json=? WHERE session_id=?",
+        (json.dumps(recs), session_id)
+    )
+    return jsonify({"ok": True})
+
+
+@app.route("/recommend/approve_all", methods=["POST"])
+@login_required
+def recommend_approve_all():
+    """Approve every non-dismissed recommendation for a session."""
+    data       = request.get_json(force=True, silent=True) or {}
+    session_id = data.get("session_id")
+
+    if not session_id:
+        return jsonify({"ok": False, "error": "Missing session_id"}), 400
+
+    rows = db.query("SELECT user_id FROM upload_sessions WHERE id=?", (session_id,))
+    if not rows or rows[0]["user_id"] != session.get("user_id"):
+        return jsonify({"ok": False, "error": "Forbidden"}), 403
+
+    ar = db.query("SELECT recommendations_json FROM analysis_results WHERE session_id=?", (session_id,))
+    if not ar:
+        return jsonify({"ok": False, "error": "No results for this session"}), 404
+
+    try:
+        recs = json.loads(ar[0]["recommendations_json"] or "[]")
+    except Exception:
+        return jsonify({"ok": False, "error": "Corrupt data"}), 500
+
+    newly_approved = []
+    for rec in recs:
+        if not isinstance(rec, dict) or rec.get("error"):
+            continue
+        if not rec.get("dismissed") and not rec.get("approved"):
+            rec["approved"] = True
+            newly_approved.append(rec.get("item", ""))
+
+    db.execute(
+        "UPDATE analysis_results SET recommendations_json=? WHERE session_id=?",
+        (json.dumps(recs), session_id)
+    )
+    return jsonify({"ok": True, "newly_approved_items": newly_approved})
+
+
+@app.route("/recommend/undo_approve_all", methods=["POST"])
+@login_required
+def recommend_undo_approve_all():
+    """Un-approve a specific list of items (the ones bulk-approved moments ago)."""
+    data       = request.get_json(force=True, silent=True) or {}
+    session_id = data.get("session_id")
+    items      = data.get("items", [])   # list of item names to un-approve
+
+    if not session_id:
+        return jsonify({"ok": False, "error": "Missing session_id"}), 400
+
+    rows = db.query("SELECT user_id FROM upload_sessions WHERE id=?", (session_id,))
+    if not rows or rows[0]["user_id"] != session.get("user_id"):
+        return jsonify({"ok": False, "error": "Forbidden"}), 403
+
+    ar = db.query("SELECT recommendations_json FROM analysis_results WHERE session_id=?", (session_id,))
+    if not ar:
+        return jsonify({"ok": False, "error": "No results for this session"}), 404
+
+    try:
+        recs = json.loads(ar[0]["recommendations_json"] or "[]")
+    except Exception:
+        return jsonify({"ok": False, "error": "Corrupt data"}), 500
+
+    item_set = set(items)
+    for rec in recs:
+        if isinstance(rec, dict) and rec.get("item", "") in item_set:
+            rec["approved"] = False
+
+    db.execute(
+        "UPDATE analysis_results SET recommendations_json=? WHERE session_id=?",
+        (json.dumps(recs), session_id)
+    )
+    return jsonify({"ok": True})
 
 
 def _allowed(filename):

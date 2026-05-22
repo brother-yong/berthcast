@@ -2,11 +2,20 @@
 {% block title %}Home — BerthAI{% endblock %}
 
 {% block content %}
+<div class="sunrise-gradient" aria-hidden="true"></div>
+
 <div class="page-wrap">
-  <div class="page-header">
-    <h1>Welcome, {{ session.org_name }}</h1>
-    <p>Upload your latest inventory data to get purchase recommendations.</p>
-  </div>
+  <section class="hero">
+    <div class="hero-eyebrow">Inventory operations</div>
+    <h1>{{ session.org_name }} <em>at a glance</em></h1>
+    <div class="hero-byline">
+      <span class="ai-byline">Authored by Claude</span>
+      {% if last_session %}
+      <span class="hero-byline-sep">/</span>
+      <span>Last analysis · {{ last_session.created_at[:10] }}</span>
+      {% endif %}
+    </div>
+  </section>
 
   {% if stats %}
   <div class="dash-stats">
@@ -46,28 +55,47 @@
       Upload your ERP exports and we will tell you exactly what to order,
       how much, and flag anything that needs your attention.
     </p>
-    <a href="{{ url_for('upload') }}" class="btn btn-primary dash-cta-btn">Upload files and begin</a>
+    <a href="{{ url_for('upload_start') }}" class="btn btn-primary dash-cta-btn">Start new analysis</a>
   </div>
 
-  {% if last_session and last_session.status == 'complete' %}
-  <div class="card dash-last">
-    <div class="dash-last-meta">
-      <div class="dash-last-label">Previous analysis</div>
-      <div class="dash-last-date">{{ last_session.created_at[:10] }}</div>
+  {% if past_sessions %}
+  <div class="card" style="margin-top: 24px;">
+    <div class="card-title" style="margin-bottom: 16px;">Past analyses</div>
+    <div style="overflow-x: auto;">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>SKUs analysed</th>
+            <th>Recommendations</th>
+            <th>Approved</th>
+            <th>Critical items</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for s in past_sessions %}
+          <tr>
+            <td>{{ s.date }}</td>
+            <td>{{ s.skus }}</td>
+            <td>{{ s.rec_count }}</td>
+            <td>{{ s.approved }}</td>
+            <td>
+              {% if s.critical %}
+              <span class="badge badge-critical">{{ s.critical }}</span>
+              {% else %}
+              <span style="color: var(--muted);">—</span>
+              {% endif %}
+            </td>
+            <td>
+              <a href="{{ url_for('results', upload_session_id=s.id) }}"
+                 class="btn btn-outline btn-sm">View</a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
     </div>
-    {% if stats %}
-    <div class="dash-last-summary">
-      <span><strong>{{ stats.rec_count }}</strong> recommendations</span>
-      <span><strong>{{ stats.approved_count }}</strong> approved</span>
-      {% if stats.critical_count %}
-      <span><strong>{{ stats.critical_count }}</strong> critical items</span>
-      {% endif %}
-    </div>
-    {% endif %}
-    <a href="{{ url_for('results', upload_session_id=last_session.id) }}"
-       class="btn btn-outline btn-sm dash-last-btn">
-      View results
-    </a>
   </div>
   {% endif %}
 </div>
