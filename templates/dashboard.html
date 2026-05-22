@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Home — BerthAI{% endblock %}
+{% block title %}Dashboard — BerthAI{% endblock %}
 
 {% block content %}
 <div class="sunrise-gradient" aria-hidden="true"></div>
@@ -7,28 +7,8 @@
 <div class="page-wrap">
 
   {% if not past_sessions %}
-  <section class="hero">
-    <div class="hero-eyebrow">Inventory operations</div>
-    <h1>{{ session.org_name }} <em>at a glance</em></h1>
-  </section>
-  <div class="card dash-cta" style="margin-top: 24px;">
-    <div class="dash-cta-icon" aria-hidden="true">
-      <svg width="44" height="44" viewBox="0 0 24 24" fill="none"
-           stroke="currentColor" stroke-width="1.5"
-           stroke-linecap="round" stroke-linejoin="round">
-        <path d="M2 21c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1 .6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1"/>
-        <path d="M19.38 20A11.6 11.6 0 0 0 21 14l-9-4-9 4c0 2.9.94 5.34 2.81 7.76"/>
-        <path d="M19 13V7a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v6"/>
-        <path d="M12 10v4"/>
-        <path d="M12 2v3"/>
-      </svg>
-    </div>
-    <h2 class="dash-cta-title">Start your first analysis</h2>
-    <p class="dash-cta-body">
-      Upload your Synergix exports and we will tell you exactly what to order,
-      how much, and flag anything that needs your attention.
-    </p>
-    <a href="{{ url_for('upload_start') }}" class="btn btn-primary dash-cta-btn">Start new analysis</a>
+  <div style="margin-top: 48px; text-align: center; color: var(--muted); font-size: 14px; line-height: 1.7;">
+    <p>No analyses yet. Use <strong>New analysis</strong> in the top bar to get started.</p>
   </div>
 
   {% else %}
