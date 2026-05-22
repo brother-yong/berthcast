@@ -7,8 +7,21 @@
 <div class="page-wrap">
 
   {% if not past_sessions %}
-  <div style="margin-top: 48px; text-align: center; color: var(--muted); font-size: 14px; line-height: 1.7;">
-    <p>No analyses yet. Use <strong>New analysis</strong> in the top bar to get started.</p>
+  <div class="empty-state-wrap">
+    <div class="card empty-state-card">
+      <div class="empty-state-icon" aria-hidden="true">
+        <svg width="36" height="36" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="1.5"
+             stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="17 8 12 3 7 8"/>
+          <line x1="12" y1="3" x2="12" y2="15"/>
+        </svg>
+      </div>
+      <h2 class="empty-state-title">Run your first analysis</h2>
+      <p class="empty-state-body">Upload your ERP exports and BerthAI will tell you exactly what to reorder, how much, and what's going critical.</p>
+      <a href="{{ url_for('upload_start') }}" class="btn btn-primary empty-state-btn">Start new analysis →</a>
+    </div>
   </div>
 
   {% else %}
@@ -124,6 +137,41 @@
 </div>
 
 <style>
+.empty-state-wrap {
+  display: flex;
+  justify-content: center;
+  padding: 64px 20px;
+}
+.empty-state-card {
+  max-width: 460px;
+  width: 100%;
+  text-align: center;
+  padding: 48px 40px;
+}
+.empty-state-icon {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 20px;
+  color: var(--brass);
+}
+.empty-state-title {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--navy-900);
+  margin-bottom: 10px;
+}
+.empty-state-body {
+  font-size: 14px;
+  color: var(--muted);
+  line-height: 1.65;
+  margin-bottom: 28px;
+}
+.empty-state-btn {
+  padding: 11px 28px;
+  font-size: 14px;
+}
+
 .dash-split {
   display: grid;
   grid-template-columns: 220px 1fr;
