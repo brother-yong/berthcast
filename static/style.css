@@ -89,7 +89,7 @@ nav {
 }
 .nav-brand:hover { transform: translateY(-1px); }
 .nav-brand img.nav-logo {
-  height: 56px;
+  height: 72px;
   width: auto;
   display: block;
 }
