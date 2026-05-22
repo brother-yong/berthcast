@@ -938,34 +938,21 @@ def dedup_stream(upload_session_id):
             yield f"data: {json.dumps({'type': 'done', 'count': 0})}\n\n"
             return
 
-        # ── Load scope + sales data for filtering ──────────────────────────────
+        # ── Load scope for Top-N filtering ────────────────────────────────────
+        # NOTE: Dead SKU exclusion is NOT done here via exact-name matching —
+        # that approach zeroes out the list because inventory and sales names
+        # differ in spelling (which is exactly what dedup is for). Dead SKUs
+        # are detected by the inventory agent AFTER dedup and separated into
+        # their own tab on the results page.
         sess_rows = db.query("SELECT scope FROM upload_sessions WHERE id=?", (upload_session_id,))
         scope_val = (sess_rows[0]["scope"] if sess_rows else None) or "all"
-
-        # Build set of item names that appear in the sales table (alive SKUs).
-        # Anything in inventory with zero sales records is likely a dead SKU
-        # and should not appear in the dedup review.
-        sales_names_raw = _col_candidates(f"sales_{upload_session_id}", cand)
-        alive_lower = {n.strip().lower() for n in sales_names_raw if n}
-
-        if alive_lower:
-            # Keep only names that have a match in the sales table (case-insensitive).
-            # Names from POs / other tables that aren't in sales are also allowed
-            # through so we don't drop legitimately traded items due to name variance.
-            # The rule: if an inventory-only item has no sales counterpart at all, drop it.
-            inv_names = set(_col_candidates(f"inventory_{upload_session_id}", cand))
-            inv_lower  = {n.strip().lower() for n in inv_names}
-            sales_only_dead = inv_lower - alive_lower  # inventory names with zero sales
-            item_names = {
-                n for n in item_names
-                if n.strip().lower() not in sales_only_dead
-            }
 
         # ── Apply Top-N scope by sales transaction frequency ──────────────────
         if scope_val != "all":
             try:
                 top_n = int(scope_val)
-                # Count how many times each name appears in sales (proxy for revenue)
+                # Count occurrences of each name in the sales table (proxy for revenue)
+                sales_names_raw = _col_candidates(f"sales_{upload_session_id}", cand)
                 sales_freq: dict = {}
                 for n in sales_names_raw:
                     key = n.strip().lower() if n else ""
