@@ -5,41 +5,14 @@
 <div class="sunrise-gradient" aria-hidden="true"></div>
 
 <div class="page-wrap">
+
+  {% if not past_sessions %}
   <section class="hero">
     <div class="hero-eyebrow">Inventory operations</div>
     <h1>{{ session.org_name }} <em>at a glance</em></h1>
-    <div class="hero-byline">
-      <span class="ai-byline">Authored by Claude</span>
-      {% if last_session %}
-      <span class="hero-byline-sep">/</span>
-      <span>Last analysis · {{ last_session.created_at[:10] }}</span>
-      {% endif %}
-    </div>
   </section>
-
-  {% if stats %}
-  <div class="dash-stats">
-    <div class="dash-stat">
-      <div class="dash-stat-label">Tracked SKUs</div>
-      <div class="dash-stat-value" data-target="{{ stats.tracked_skus }}">0</div>
-      <div class="dash-stat-meta">in last analysis</div>
-    </div>
-    <div class="dash-stat">
-      <div class="dash-stat-label">Critical stock</div>
-      <div class="dash-stat-value" data-target="{{ stats.critical_count }}">0</div>
-      <div class="dash-stat-meta">{% if stats.low_count %}plus {{ stats.low_count }} low{% else %}items flagged{% endif %}</div>
-    </div>
-    <div class="dash-stat">
-      <div class="dash-stat-label">Recommendations</div>
-      <div class="dash-stat-value" data-target="{{ stats.rec_count }}">0</div>
-      <div class="dash-stat-meta">{{ stats.approved_count }} approved</div>
-    </div>
-  </div>
-  {% endif %}
-
-  <div class="card dash-cta">
+  <div class="card dash-cta" style="margin-top: 24px;">
     <div class="dash-cta-icon" aria-hidden="true">
-      <!-- lucide: ship -->
       <svg width="44" height="44" viewBox="0 0 24 24" fill="none"
            stroke="currentColor" stroke-width="1.5"
            stroke-linecap="round" stroke-linejoin="round">
@@ -50,7 +23,7 @@
         <path d="M12 2v3"/>
       </svg>
     </div>
-    <h2 class="dash-cta-title">Start a new analysis</h2>
+    <h2 class="dash-cta-title">Start your first analysis</h2>
     <p class="dash-cta-body">
       Upload your Synergix exports and we will tell you exactly what to order,
       how much, and flag anything that needs your attention.
@@ -58,61 +31,216 @@
     <a href="{{ url_for('upload_start') }}" class="btn btn-primary dash-cta-btn">Start new analysis</a>
   </div>
 
-  {% if past_sessions %}
-  <div class="card" style="margin-top: 24px;">
-    <div class="card-title" style="margin-bottom: 16px;">Past analyses</div>
-    <div style="overflow-x: auto;">
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th>Date</th>
-            <th>SKUs analysed</th>
-            <th>Recommendations</th>
-            <th>Approved</th>
-            <th>Critical items</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for s in past_sessions %}
-          <tr>
-            <td>{{ s.date }}</td>
-            <td>{{ s.skus }}</td>
-            <td>{{ s.rec_count }}</td>
-            <td>{{ s.approved }}</td>
-            <td>
-              {% if s.critical %}
-              <span class="badge badge-critical">{{ s.critical }}</span>
-              {% else %}
-              <span style="color: var(--muted);">—</span>
-              {% endif %}
-            </td>
-            <td>
-              <a href="{{ url_for('results', upload_session_id=s.id) }}"
-                 class="btn btn-outline btn-sm">View</a>
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+  {% else %}
+
+  {% set model_raw = session.model or '' %}
+  {% if 'opus' in model_raw %}{% set model_label = 'Claude Opus' %}
+  {% elif 'sonnet' in model_raw %}{% set model_label = 'Claude Sonnet' %}
+  {% elif 'haiku' in model_raw %}{% set model_label = 'Claude Haiku' %}
+  {% else %}{% set model_label = model_raw %}{% endif %}
+
+  <div class="dash-split">
+
+    <div class="dash-left">
+
+      <div class="dash-org-header">
+        <div class="dash-org-name">{{ session.org_name }}</div>
+        <div class="dash-org-sub">Inventory operations</div>
+      </div>
+
+      {% if stats %}
+      <div class="dash-stat-col">
+        <div class="dash-stat-tile{% if stats.critical_count %} is-warn{% endif %}">
+          <div class="dash-stat-tile-label">SKUs tracked</div>
+          <div class="dash-stat-tile-value" data-target="{{ stats.tracked_skus }}">0</div>
+        </div>
+        <div class="dash-stat-tile{% if stats.critical_count %} is-warn{% endif %}">
+          <div class="dash-stat-tile-label">Critical stock</div>
+          <div class="dash-stat-tile-value{% if stats.critical_count %} text-danger{% endif %}"
+               data-target="{{ stats.critical_count }}">0</div>
+          {% if stats.low_count %}
+          <div class="dash-stat-tile-meta">+ {{ stats.low_count }} low</div>
+          {% endif %}
+        </div>
+        <div class="dash-stat-tile">
+          <div class="dash-stat-tile-label">Approved</div>
+          <div class="dash-stat-tile-value" data-target="{{ stats.approved_count }}">0</div>
+          <div class="dash-stat-tile-meta">of {{ stats.rec_count }} recommendations</div>
+        </div>
+      </div>
+
+      {% if last_session %}
+      <div class="dash-last-card">
+        <div class="dash-last-card-label">Last run</div>
+        <div class="dash-last-card-date">{{ last_session.created_at[:10] }}</div>
+        <div class="dash-last-card-meta">{{ model_label }}</div>
+        <div class="dash-last-card-meta">{{ stats.rec_count }} rec{{ 's' if stats.rec_count != 1 }} &middot; {{ stats.approved_count }} approved</div>
+      </div>
+      {% endif %}
+
+      {% else %}
+      <div class="dash-stat-col">
+        <div class="dash-stat-tile" style="opacity:0.4;">
+          <div class="dash-stat-tile-label">SKUs tracked</div>
+          <div class="dash-stat-tile-value">—</div>
+        </div>
+        <div class="dash-stat-tile" style="opacity:0.4;">
+          <div class="dash-stat-tile-label">Critical stock</div>
+          <div class="dash-stat-tile-value">—</div>
+        </div>
+        <div class="dash-stat-tile" style="opacity:0.4;">
+          <div class="dash-stat-tile-label">Approved</div>
+          <div class="dash-stat-tile-value">—</div>
+        </div>
+      </div>
+      {% endif %}
+
     </div>
+
+    <div class="dash-right">
+      <div class="card" style="height:100%;">
+        <div class="card-title" style="margin-bottom:16px;">Past analyses</div>
+        <div style="overflow-x:auto;">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>SKUs</th>
+                <th>Recs</th>
+                <th>Approved</th>
+                <th>Critical</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for s in past_sessions %}
+              <tr>
+                <td>{{ s.date }}</td>
+                <td>{{ s.skus }}</td>
+                <td>{{ s.rec_count }}</td>
+                <td>{{ s.approved }}</td>
+                <td>
+                  {% if s.critical %}
+                  <span class="badge badge-critical">{{ s.critical }}</span>
+                  {% else %}
+                  <span style="color:var(--muted);">—</span>
+                  {% endif %}
+                </td>
+                <td>
+                  <a href="{{ url_for('results', upload_session_id=s.id) }}"
+                     class="btn btn-outline btn-sm">View</a>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
   </div>
   {% endif %}
+
 </div>
 
+<style>
+.dash-split {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 20px;
+  align-items: start;
+  margin-top: 32px;
+}
+.dash-left {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.dash-org-header { margin-bottom: 4px; }
+.dash-org-name {
+  font-size: 17px;
+  font-weight: 500;
+  color: var(--text);
+  line-height: 1.3;
+}
+.dash-org-sub {
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.dash-stat-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.dash-stat-tile {
+  background: var(--paper);
+  border: 0.5px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+.dash-stat-tile.is-warn { border-color: var(--danger, #e74c3c); }
+.dash-stat-tile-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.dash-stat-tile-value {
+  font-size: 26px;
+  font-weight: 500;
+  color: var(--text);
+  line-height: 1.1;
+}
+.dash-stat-tile-value.text-danger { color: var(--danger, #e74c3c); }
+.dash-stat-tile-meta {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 3px;
+}
+.dash-last-card {
+  background: var(--paper-2, var(--paper));
+  border: 0.5px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+.dash-last-card-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+.dash-last-card-date {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+.dash-last-card-meta {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.dash-right { min-width: 0; }
+@media (max-width: 680px) {
+  .dash-split { grid-template-columns: 1fr; }
+}
+</style>
+
 <script>
-// Number tickers: count up from 0 to data-target with a slight stagger.
 (function () {
-  const els = document.querySelectorAll('.dash-stat-value');
-  els.forEach((el, idx) => {
-    const target = parseInt(el.dataset.target, 10) || 0;
+  var els = document.querySelectorAll('.dash-stat-tile-value[data-target]');
+  els.forEach(function(el, idx) {
+    var target = parseInt(el.dataset.target, 10) || 0;
     if (target === 0) { el.textContent = '0'; return; }
-    const duration = 700;
-    const startAt  = performance.now() + idx * 80;
+    var duration = 700;
+    var startAt  = performance.now() + idx * 80;
     function tick(now) {
       if (now < startAt) { requestAnimationFrame(tick); return; }
-      const t = Math.min(1, (now - startAt) / duration);
-      const eased = 1 - Math.pow(1 - t, 3); // ease-out cubic
+      var t = Math.min(1, (now - startAt) / duration);
+      var eased = 1 - Math.pow(1 - t, 3);
       el.textContent = Math.round(eased * target).toLocaleString();
       if (t < 1) requestAnimationFrame(tick);
     }
