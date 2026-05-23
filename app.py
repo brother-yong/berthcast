@@ -1376,9 +1376,14 @@ def recommend_action():
 @app.route("/recommend/approve_all", methods=["POST"])
 @login_required
 def recommend_approve_all():
-    """Approve every non-dismissed recommendation for a session."""
+    """Approve non-dismissed recommendations for a session.
+
+    If `items` is provided, only approve those specific item names (filtered subset).
+    If omitted, approve all non-dismissed recommendations.
+    """
     data       = request.get_json(force=True, silent=True) or {}
     session_id = data.get("session_id")
+    items_filter = set(data.get("items") or [])   # optional subset
 
     if not session_id:
         return jsonify({"ok": False, "error": "Missing session_id"}), 400
@@ -1399,6 +1404,8 @@ def recommend_approve_all():
     newly_approved = []
     for rec in recs:
         if not isinstance(rec, dict) or rec.get("error"):
+            continue
+        if items_filter and rec.get("item", "") not in items_filter:
             continue
         if not rec.get("dismissed") and not rec.get("approved"):
             rec["approved"] = True

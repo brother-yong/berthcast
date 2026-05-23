@@ -372,12 +372,30 @@ function applyFilters() {
     if (show) visible++;
   });
 
-  const countEl = document.getElementById('recs-count');
   const total = cards.length;
+
+  const countEl = document.getElementById('recs-count');
   if (countEl) countEl.textContent = visible + ' of ' + total;
 
   const emptyEl = document.getElementById('mc-empty');
   if (emptyEl) emptyEl.style.display = (visible === 0 && total > 0) ? '' : 'none';
+
+  // Update approve-all button label to reflect filtered subset
+  _updateApproveBtn(visible, total);
+}
+
+function _updateApproveBtn(visible, total) {
+  const btn = document.getElementById('approve-all-btn');
+  if (!btn) return;
+  const isFiltered = visible < total ||
+    filters.status.size > 0 || filters.suptype.size > 0 ||
+    filters.confidence.size > 0 || filters.action !== 'all' ||
+    searchQuery.length > 0;
+  if (isFiltered && visible > 0) {
+    btn.textContent = '✓ Approve visible (' + visible + ')';
+  } else {
+    btn.textContent = '✓ Approve all';
+  }
 }
 
 // ── Approve all ──
@@ -386,25 +404,48 @@ let _undoTimer = null;
 
 function approveAll() {
   const btn = document.getElementById('approve-all-btn');
+
+  // Collect visible cards that aren't already dismissed
+  const visibleItems = [];
+  document.querySelectorAll('.rec-card').forEach(card => {
+    if (card.style.display !== 'none' && !card.classList.contains('dismissed')) {
+      visibleItems.push(card.dataset.item);
+    }
+  });
+
+  const total = document.querySelectorAll('.rec-card').length;
+  const isFiltered = visibleItems.length < total ||
+    filters.status.size > 0 || filters.suptype.size > 0 ||
+    filters.confidence.size > 0 || filters.action !== 'all' ||
+    searchQuery.length > 0;
+
+  const countLabel = isFiltered
+    ? visibleItems.length + ' visible recommendation' + (visibleItems.length !== 1 ? 's' : '')
+    : 'all recommendations';
   const dismissedCount = document.querySelectorAll('.rec-card.dismissed').length;
-  const msg = dismissedCount > 0
+  const msg = (dismissedCount > 0 && !isFiltered)
     ? `Approve all recommendations except the ${dismissedCount} you already dismissed?`
-    : 'Approve all recommendations?';
+    : `Approve ${countLabel}?`;
+
   showConfirm(msg, async () => {
   btn.disabled = true;
   btn.textContent = 'Approving...';
   try {
+    // Only send items list when filtered (avoids sending a huge array unnecessarily)
+    const body = { session_id: sessionId };
+    if (isFiltered) body.items = visibleItems;
     const res = await fetch('/recommend/approve_all', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session_id: sessionId })
+      body: JSON.stringify(body)
     });
     const data = await res.json();
     if (data.ok) {
-      // Update all non-dismissed cards in the DOM without reloading
+      // Update only the newly-approved cards in the DOM
       _lastBulkApprovedItems = data.newly_approved_items || [];
+      const approvedSet = new Set(_lastBulkApprovedItems);
       document.querySelectorAll('.rec-card:not(.dismissed)').forEach(card => {
-        if (!card.classList.contains('approved')) {
+        if (!card.classList.contains('approved') && approvedSet.has(card.dataset.item)) {
           card.classList.add('approved');
           const badges = card.querySelectorAll('.badge-healthy, .badge-dead');
           badges.forEach(b => {
@@ -428,9 +469,8 @@ function approveAll() {
         counter.style.animation = 'numberFlash 600ms ease-out';
       }
 
-      applyFilters();
+      applyFilters();   // also calls _updateApproveBtn
       btn.disabled = false;
-      btn.textContent = '✓ Approve all';
 
       // Show Undo button for 15 seconds
       if (_lastBulkApprovedItems.length > 0) {
@@ -443,16 +483,16 @@ function approveAll() {
         }, 15000);
       }
     } else {
-      showToast('Could not approve all: ' + (data.error || 'Unknown error'));
+      showToast('Could not approve: ' + (data.error || 'Unknown error'));
       btn.disabled = false;
-      btn.textContent = '✓ Approve all';
+      applyFilters();
     }
   } catch (e) {
     showToast('Network error. Please try again.');
     btn.disabled = false;
-    btn.textContent = '✓ Approve all';
+    applyFilters();
   }
-  }, { label: 'Approve all' });
+  }, { label: 'Approve' });
 }
 
 async function undoApproveAll() {
