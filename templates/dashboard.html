@@ -8,6 +8,36 @@
 
   {% if not past_sessions %}
   <div class="empty-state-wrap">
+    {% if user_usage %}
+    <div class="free-usage-card" style="max-width:480px; margin: 0 auto 20px;">
+      <div class="free-usage-header">
+        <span class="free-usage-badge">Free plan</span>
+        <a href="{{ url_for('pricing') }}" class="free-usage-upgrade">Upgrade →</a>
+      </div>
+      <div class="free-usage-row">
+        <div class="free-usage-label">Analyses</div>
+        <div class="free-usage-bar-wrap">
+          <div class="free-usage-bar" style="width: {{ [(user_usage.analyses_used / user_usage.analyses_limit * 100), 100] | min }}%;
+            {% if user_usage.analyses_used >= user_usage.analyses_limit %}background: var(--danger);{% endif %}">
+          </div>
+        </div>
+        <div class="free-usage-count {% if user_usage.analyses_used >= user_usage.analyses_limit %}is-maxed{% endif %}">
+          {{ user_usage.analyses_used }} / {{ user_usage.analyses_limit }}
+        </div>
+      </div>
+      <div class="free-usage-row">
+        <div class="free-usage-label">Chat messages</div>
+        <div class="free-usage-bar-wrap">
+          <div class="free-usage-bar" style="width: {{ [(user_usage.chat_used / user_usage.chat_limit * 100), 100] | min }}%;
+            {% if user_usage.chat_used >= user_usage.chat_limit %}background: var(--danger);{% endif %}">
+          </div>
+        </div>
+        <div class="free-usage-count {% if user_usage.chat_used >= user_usage.chat_limit %}is-maxed{% endif %}">
+          {{ user_usage.chat_used }} / {{ user_usage.chat_limit }}
+        </div>
+      </div>
+    </div>
+    {% endif %}
     <div class="card empty-state-card">
       <div class="empty-state-icon" aria-hidden="true">
         <svg width="36" height="36" viewBox="0 0 24 24" fill="none"
@@ -40,6 +70,44 @@
         <div class="dash-org-name">{{ session.org_name }}</div>
         <div class="dash-org-sub">Inventory operations</div>
       </div>
+
+      {% if user_usage %}
+      <div class="free-usage-card">
+        <div class="free-usage-header">
+          <span class="free-usage-badge">Free plan</span>
+          <a href="{{ url_for('pricing') }}" class="free-usage-upgrade">Upgrade →</a>
+        </div>
+        <div class="free-usage-row">
+          <div class="free-usage-label">Analyses</div>
+          <div class="free-usage-bar-wrap">
+            <div class="free-usage-bar" style="width: {{ [(user_usage.analyses_used / user_usage.analyses_limit * 100), 100] | min }}%;
+              {% if user_usage.analyses_used >= user_usage.analyses_limit %}background: var(--danger);{% endif %}">
+            </div>
+          </div>
+          <div class="free-usage-count
+            {% if user_usage.analyses_used >= user_usage.analyses_limit %} is-maxed{% endif %}">
+            {{ user_usage.analyses_used }} / {{ user_usage.analyses_limit }}
+          </div>
+        </div>
+        <div class="free-usage-row">
+          <div class="free-usage-label">Chat messages</div>
+          <div class="free-usage-bar-wrap">
+            <div class="free-usage-bar" style="width: {{ [(user_usage.chat_used / user_usage.chat_limit * 100), 100] | min }}%;
+              {% if user_usage.chat_used >= user_usage.chat_limit %}background: var(--danger);{% endif %}">
+            </div>
+          </div>
+          <div class="free-usage-count
+            {% if user_usage.chat_used >= user_usage.chat_limit %} is-maxed{% endif %}">
+            {{ user_usage.chat_used }} / {{ user_usage.chat_limit }}
+          </div>
+        </div>
+        {% if user_usage.analyses_used >= user_usage.analyses_limit or user_usage.chat_used >= user_usage.chat_limit %}
+        <p class="free-usage-limit-msg">You've reached your free limit.
+          <a href="{{ url_for('contact') }}">Contact us to upgrade.</a>
+        </p>
+        {% endif %}
+      </div>
+      {% endif %}
 
       {% if stats %}
       <div class="dash-stat-col">
@@ -272,6 +340,88 @@
 }
 @media (max-width: 680px) {
   .dash-split { grid-template-columns: 1fr; }
+}
+
+/* Free usage card */
+.free-usage-card {
+  background: var(--paper);
+  border: 0.5px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.free-usage-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 2px;
+}
+.free-usage-badge {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--brass);
+  background: rgba(200,146,76,0.1);
+  border: 1px solid rgba(200,146,76,0.3);
+  border-radius: 4px;
+  padding: 2px 7px;
+}
+.free-usage-upgrade {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--brass-3, var(--brass));
+  text-decoration: none;
+  border-bottom: 1.5px solid var(--brass);
+  padding-bottom: 1px;
+}
+.free-usage-upgrade:hover { opacity: 0.8; }
+.free-usage-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.free-usage-label {
+  font-size: 11px;
+  color: var(--muted);
+  width: 100px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.free-usage-bar-wrap {
+  flex: 1;
+  height: 5px;
+  background: var(--border);
+  border-radius: 99px;
+  overflow: hidden;
+}
+.free-usage-bar {
+  height: 100%;
+  background: var(--brass);
+  border-radius: 99px;
+  transition: width 600ms ease;
+  min-width: 0;
+}
+.free-usage-count {
+  font-size: 11px;
+  color: var(--muted);
+  width: 30px;
+  text-align: right;
+  flex-shrink: 0;
+}
+.free-usage-count.is-maxed { color: var(--danger, #c0392b); font-weight: 600; }
+.free-usage-limit-msg {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 0;
+  line-height: 1.5;
+}
+.free-usage-limit-msg a {
+  color: var(--brass-3, var(--brass));
+  text-decoration: none;
+  border-bottom: 1px solid var(--brass);
 }
 </style>
 
