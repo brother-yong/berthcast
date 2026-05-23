@@ -119,6 +119,14 @@
                   onclick="undoApproveAll()" style="display:none;">
             Undo
           </button>
+          <a href="{{ url_for('export_csv', upload_session_id=upload_session_id) }}"
+             class="btn btn-outline btn-sm no-print" title="Download as CSV for Excel">
+            ↓ CSV
+          </a>
+          <a href="{{ url_for('export_pdf', upload_session_id=upload_session_id) }}"
+             class="btn btn-outline btn-sm no-print" title="Download formatted PDF">
+            ↓ PDF
+          </a>
           <a href="{{ url_for('print_results', upload_session_id=upload_session_id) }}"
              target="_blank" class="btn btn-success btn-sm no-print">
             Print approved
