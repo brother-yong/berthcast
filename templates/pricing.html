@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pricing — BerthAI</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --navy-900: #0B1424;
+      --navy-800: #0F1B2D;
+      --navy-700: #1B2B4A;
+      --brass:    #C89B5C;
+      --brass-2:  #E2B97A;
+      --brass-3:  #8B6B3D;
+      --paper:    #FAF8F3;
+      --paper-2:  #F3EFE3;
+      --border:   #E5DFCF;
+      --muted:    #6B7280;
+      --text:     #0F1B2D;
+      --success:  #27ae60;
+    }
+
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      background: var(--paper);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* ── Nav ── */
+    .landing-nav {
+      position: sticky; top: 0; z-index: 100;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 40px;
+      height: 60px;
+      background: rgba(250,248,243,0.88);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+    }
+    .landing-nav-logo img {
+      height: 36px;
+      width: auto;
+      display: block;
+    }
+    .landing-nav-right {
+      display: flex; align-items: center; gap: 28px;
+    }
+    .nav-link {
+      font-size: 14px; font-weight: 500;
+      color: var(--navy-700);
+      text-decoration: none;
+    }
+    .nav-link:hover { color: var(--brass); }
+    .btn-login {
+      font-size: 14px; font-weight: 600;
+      color: var(--navy-900);
+      text-decoration: none;
+      border: 1.5px solid var(--border);
+      border-radius: 8px;
+      padding: 7px 18px;
+      transition: border-color 180ms;
+    }
+    .btn-login:hover { border-color: var(--brass); }
+
+    /* ── Page shell ── */
+    .pricing-wrap {
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 72px 24px 96px;
+    }
+    .pricing-eyebrow {
+      text-align: center;
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--brass);
+      margin-bottom: 16px;
+    }
+    .pricing-headline {
+      text-align: center;
+      font-family: 'Instrument Serif', Georgia, serif;
+      font-size: 44px;
+      font-weight: 400;
+      color: var(--navy-900);
+      line-height: 1.15;
+      margin-bottom: 14px;
+    }
+    .pricing-sub {
+      text-align: center;
+      font-size: 16px;
+      color: var(--muted);
+      line-height: 1.6;
+      max-width: 500px;
+      margin: 0 auto 56px;
+    }
+
+    /* ── Cards ── */
+    .pricing-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+      align-items: start;
+    }
+    .pricing-card {
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 32px 28px 28px;
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+    }
+    .pricing-card.is-featured {
+      border-color: var(--brass);
+      border-width: 2px;
+      position: relative;
+    }
+    .pricing-featured-badge {
+      position: absolute;
+      top: -12px; left: 50%; transform: translateX(-50%);
+      background: var(--brass);
+      color: #fff;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      border-radius: 99px;
+      padding: 3px 14px;
+      white-space: nowrap;
+    }
+    .pricing-tier {
+      font-size: 13px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin-bottom: 12px;
+    }
+    .pricing-price {
+      font-size: 36px;
+      font-weight: 700;
+      color: var(--navy-900);
+      line-height: 1;
+      margin-bottom: 4px;
+    }
+    .pricing-price sup {
+      font-size: 18px;
+      font-weight: 600;
+      vertical-align: top;
+      margin-top: 6px;
+      margin-right: 1px;
+    }
+    .pricing-price-note {
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 24px;
+    }
+    .pricing-desc {
+      font-size: 14px;
+      color: var(--muted);
+      line-height: 1.55;
+      margin-bottom: 24px;
+      padding-bottom: 24px;
+      border-bottom: 1px solid var(--border);
+    }
+    .pricing-features {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-bottom: 28px;
+      flex: 1;
+    }
+    .pricing-features li {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      font-size: 14px;
+      color: var(--text);
+      line-height: 1.4;
+    }
+    .pricing-features li .check {
+      flex-shrink: 0;
+      width: 16px;
+      height: 16px;
+      margin-top: 1px;
+      color: var(--success);
+    }
+    .pricing-features li .dash {
+      flex-shrink: 0;
+      width: 16px;
+      height: 16px;
+      margin-top: 1px;
+      color: var(--border);
+    }
+    .pricing-cta {
+      display: block;
+      text-align: center;
+      padding: 12px 20px;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 600;
+      text-decoration: none;
+      transition: opacity 180ms;
+      cursor: pointer;
+    }
+    .pricing-cta:hover { opacity: 0.85; }
+    .pricing-cta-primary {
+      background: var(--navy-900);
+      color: #fff;
+    }
+    .pricing-cta-outline {
+      background: transparent;
+      border: 1.5px solid var(--border);
+      color: var(--navy-900);
+    }
+    .pricing-cta-brass {
+      background: var(--brass);
+      color: #fff;
+    }
+
+    /* ── FAQ strip ── */
+    .pricing-faq {
+      margin-top: 72px;
+      max-width: 620px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    .pricing-faq-title {
+      font-family: 'Instrument Serif', Georgia, serif;
+      font-size: 26px;
+      font-weight: 400;
+      color: var(--navy-900);
+      margin-bottom: 28px;
+      text-align: center;
+    }
+    .faq-item {
+      border-bottom: 1px solid var(--border);
+      padding: 18px 0;
+    }
+    .faq-q {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--navy-900);
+      margin-bottom: 8px;
+    }
+    .faq-a {
+      font-size: 14px;
+      color: var(--muted);
+      line-height: 1.65;
+    }
+    .faq-a a {
+      color: var(--brass-3);
+      text-decoration: none;
+      border-bottom: 1px solid var(--brass);
+    }
+
+    /* ── Footer ── */
+    .pricing-footer {
+      margin-top: 80px;
+      padding: 28px 40px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .pricing-footer-brand {
+      font-size: 13px;
+      color: var(--muted);
+    }
+    .pricing-footer-links {
+      display: flex;
+      gap: 24px;
+    }
+    .pricing-footer-links a {
+      font-size: 13px;
+      color: var(--muted);
+      text-decoration: none;
+    }
+    .pricing-footer-links a:hover { color: var(--text); }
+
+    @media (max-width: 760px) {
+      .pricing-grid { grid-template-columns: 1fr; }
+      .pricing-headline { font-size: 32px; }
+      .landing-nav { padding: 0 20px; }
+      .landing-nav-right .nav-link { display: none; }
+      .pricing-footer { flex-direction: column; gap: 16px; text-align: center; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── Nav ── -->
+<nav class="landing-nav">
+  <a class="landing-nav-logo" href="{{ url_for('landing') }}">
+    <img src="{{ url_for('static', filename='logo.png') }}" alt="BerthAI">
+  </a>
+  <div class="landing-nav-right">
+    <a href="{{ url_for('landing') }}" class="nav-link">Home</a>
+    <a href="{{ url_for('contact') }}" class="nav-link">Contact</a>
+    <a href="{{ url_for('login') }}" class="btn-login">Sign in →</a>
+  </div>
+</nav>
+
+<!-- ── Hero copy ── -->
+<div class="pricing-wrap">
+  <p class="pricing-eyebrow">Pricing</p>
+  <h1 class="pricing-headline">Start free.<br>Scale when you're ready.</h1>
+  <p class="pricing-sub">One free analysis to see what BerthAI finds in your data. No credit card, no commitment.</p>
+
+  <!-- ── Cards ── -->
+  <div class="pricing-grid">
+
+    <!-- Free -->
+    <div class="pricing-card">
+      <div class="pricing-tier">Free</div>
+      <div class="pricing-price">$0</div>
+      <div class="pricing-price-note">No credit card needed</div>
+      <p class="pricing-desc">
+        One analysis on your real data so you can see exactly what BerthAI does before deciding anything.
+      </p>
+      <ul class="pricing-features">
+        <li>
+          <svg class="check" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="8" cy="8" r="7.5" stroke="currentColor" stroke-opacity="0.3"/>
+            <path d="M4.5 8.5L6.5 10.5L11.5 5.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          1 inventory analysis (Haiku model)
+        </li>
+        <li>
+          <svg class="check" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="8" cy="8" r="7.5" stroke="currentColor" stroke-opacity="0.3"/>
+            <path d="M4.5 8.5L6.5 10.5L11.5 5.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          20 AI chat messages
+        </li>
+        <li>
+          <svg class="dash" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M4 8H12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+          <span style="color:var(--muted);">No PDF or CSV export</span>
+        </li>
+        <li>
+          <svg class="dash" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M4 8H12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+          <span style="color:var(--muted);">No critical stock alerts</span>
+        </li>
+      </ul>
+      <a href="{{ url_for('register') }}" class="pricing-cta pricing-cta-outline">Get started free</a>
+    </div>
+
+    <!-- Professional -->
+    <div class="pricing-card is-featured">
+      <div class="pricing-featured-badge">Most popular</div>
+      <div class="pricing-tier">Professional</div>
+      <div class="pricing-price"><sup>$</sup>800</div>
+      <div class="pricing-price-note">per month</div>
+      <p class="pricing-desc">
+        For operations teams running monthly procurement reviews who need reliable data every time.
+      </p>
+      <ul class="pricing-features">
+        <li>
+          <svg class="check" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="8" cy="8" r="7.5" stroke="currentColor" stroke-opacity="0.3"/>
+            <path d="M4.5 8.5L6.5 10.5L11.5 5.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          Unlimited analyses
+        </li>
+        <li>
+          <svg class="check" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="8" cy="8" r="7.5" stroke="currentColor" stroke-opacity="0.3"/>
+            <path d="M4.5 8.5L6.5 10.5L11.5 5.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          Unlimited AI chat
+        </li>
+        <li>
+          <svg class="check" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="8" cy="8" r="7.5" stroke="currentColor" stroke-opacity="0.3"/>
+            <path d="M4.5 8.5L6.5 10.5L11.5 5.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          PDF &amp; CSV export
+        </li>
+        <li>
+          <svg class="check" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="8" cy="8" r="7.5" stroke="currentColor" stroke-opacity="0.3"/>
+            <path d="M4.5 8.5L6.5 10.5L11.5 5.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          Critical stock email alerts
+        </li>
+        <li>
+          <svg class="check" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="8" cy="8" r="7.5" stroke="currentColor" stroke-opacity="0.3"/>
+            <path d="M4.5 8.5L6.5 10.5L11.5 5.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          Claude Sonnet model (more accurate)
+        </li>
+        <li>
+          <svg class="dash" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M4 8H12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+          <span style="color:var(--muted);">Single seat</span>
+        </li>
+      </ul>
+      <a href="{{ url_for('contact') }}" class="pricing-cta pricing-cta-brass">Get started</a>
+    </div>
+
+    <!-- Enterprise -->
+    <div class="pricing-card">
+      <div class="pricing-tier">Enterprise</div>
+      <div class="pricing-price">$2,000</div>
+      <div class="pricing-price-note">per month</div>
+      <p class="pricing-desc">
+        For larger operations that need multiple users, dedicated onboarding, and a direct line for support.
+      </p>
+      <ul class="pricing-features">
+        <li>
+          <svg class="check" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="8" cy="8" r="7.5" stroke="currentColor" stroke-opacity="0.3"/>
+            <path d="M4.5 8.5L6.5 10.5L11.5 5.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          Everything in Professional
+        </li>
+        <li>
+          <svg class="check" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="8" cy="8" r="7.5" stroke="currentColor" stroke-opacity="0.3"/>
+            <path d="M4.5 8.5L6.5 10.5L11.5 5.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          Multiple seats (up to 5 users)
+        </li>
+        <li>
+          <svg class="check" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="8" cy="8" r="7.5" stroke="currentColor" stroke-opacity="0.3"/>
+            <path d="M4.5 8.5L6.5 10.5L11.5 5.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          Claude Opus model (most thorough)
+        </li>
+        <li>
+          <svg class="check" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="8" cy="8" r="7.5" stroke="currentColor" stroke-opacity="0.3"/>
+            <path d="M4.5 8.5L6.5 10.5L11.5 5.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          Dedicated onboarding session
+        </li>
+        <li>
+          <svg class="check" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="8" cy="8" r="7.5" stroke="currentColor" stroke-opacity="0.3"/>
+            <path d="M4.5 8.5L6.5 10.5L11.5 5.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          Direct WhatsApp / email support
+        </li>
+        <li>
+          <svg class="check" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="8" cy="8" r="7.5" stroke="currentColor" stroke-opacity="0.3"/>
+            <path d="M4.5 8.5L6.5 10.5L11.5 5.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          Custom supplier profile setup
+        </li>
+      </ul>
+      <a href="{{ url_for('contact') }}" class="pricing-cta pricing-cta-primary">Talk to us</a>
+    </div>
+
+  </div><!-- /pricing-grid -->
+
+  <!-- ── FAQ ── -->
+  <div class="pricing-faq">
+    <h2 class="pricing-faq-title">Common questions</h2>
+
+    <div class="faq-item">
+      <p class="faq-q">What files do I need to use BerthAI?</p>
+      <p class="faq-a">An inventory file and a sales report are the minimum. Purchase orders and supplier data improve accuracy significantly.
+        See the <a href="{{ url_for('guide') if session.user_id else url_for('landing') }}">user guide</a> for the exact column requirements.</p>
+    </div>
+
+    <div class="faq-item">
+      <p class="faq-q">What does the free analysis actually show me?</p>
+      <p class="faq-a">A full inventory health report — every SKU flagged by status (Critical, Low, OK, Overstocked), days of supply remaining, and specific purchase recommendations with quantities. The same output as paid plans, just capped at one run.</p>
+    </div>
+
+    <div class="faq-item">
+      <p class="faq-q">How does billing work for Professional and Enterprise?</p>
+      <p class="faq-a">We invoice monthly via bank transfer or PayNow. There's no automated payment system yet — contact us and we'll set it up directly. No lock-in, cancel any time with 30 days notice.</p>
+    </div>
+
+    <div class="faq-item">
+      <p class="faq-q">What's the difference between Haiku, Sonnet, and Opus?</p>
+      <p class="faq-a">These are different Claude AI models. Haiku is fast and handles most cases well. Sonnet is more accurate on complex supplier patterns. Opus is the most thorough and best for large catalogues or nuanced procurement decisions.</p>
+    </div>
+
+    <div class="faq-item">
+      <p class="faq-q">Is my data secure?</p>
+      <p class="faq-a">Your uploaded files are stored on a private server and are only used to run your analysis. They're never shared, sold, or used to train AI models. Contact us if you have specific data handling requirements.</p>
+    </div>
+  </div>
+
+</div><!-- /pricing-wrap -->
+
+<footer class="pricing-footer">
+  <div class="pricing-footer-brand">BerthAI · Inventory operations for marine supply</div>
+  <div class="pricing-footer-links">
+    <a href="{{ url_for('landing') }}">Home</a>
+    <a href="{{ url_for('contact') }}">Contact</a>
+    <a href="{{ url_for('login') }}">Sign in</a>
+  </div>
+</footer>
+
+</body>
+</html>

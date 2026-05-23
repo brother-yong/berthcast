@@ -151,6 +151,11 @@ def guide():
     return render_template("guide.html")
 
 
+@app.route("/pricing")
+def pricing():
+    return render_template("pricing.html")
+
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if "user_id" in session:
@@ -976,11 +981,27 @@ def dashboard():
             "skus":       st["tracked_skus"]   if st else 0,
         })
 
+    # Free tier usage info
+    user_usage = None
+    if session.get("tier") == "free":
+        urow = db.query(
+            "SELECT analyses_used, chat_messages_used FROM users WHERE id=?",
+            (session["user_id"],)
+        )
+        if urow:
+            user_usage = {
+                "analyses_used":  urow[0]["analyses_used"],
+                "analyses_limit": 1,
+                "chat_used":      urow[0]["chat_messages_used"],
+                "chat_limit":     20,
+            }
+
     return render_template(
         "dashboard.html",
         last_session=last_session,
         stats=stats,
         past_sessions=past_sessions,
+        user_usage=user_usage,
     )
 
 
