@@ -1523,7 +1523,7 @@ def export_csv(upload_session_id):
             r.get("suggested_quantity", ""),
             dos or "",
             runway,
-            r.get("confidence", ""),
+            ("N/A" if r.get("confidence") == "INSUFFICIENT_DATA" else r.get("confidence", "")),
             r.get("reason", ""),
             r.get("note", ""),
         ])
@@ -1632,7 +1632,7 @@ def export_pdf(upload_session_id):
                 ),
                 Paragraph(str(r.get("suggested_quantity", "—")), cell_style),
                 runway,
-                r.get("confidence", "—"),
+                ("N/A" if r.get("confidence") == "INSUFFICIENT_DATA" else r.get("confidence", "—")),
                 reason_cell,
             ])
 

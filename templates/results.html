@@ -146,8 +146,8 @@
         <div id="recs-container">
         {% for rec in recommendations %}
         {% if not rec.error %}
-          {% set conf_class = 'high' if rec.confidence == 'HIGH' else ('medium' if rec.confidence == 'MEDIUM' else 'low') %}
-          {% set offset = 0 if rec.confidence == 'HIGH' else (48.7 if rec.confidence == 'MEDIUM' else 73.05) %}
+          {% set conf_class = 'high' if rec.confidence == 'HIGH' else ('medium' if rec.confidence == 'MEDIUM' else ('low' if rec.confidence == 'LOW' else 'insufficient')) %}
+          {% set offset = 0 if rec.confidence == 'HIGH' else (48.7 if rec.confidence == 'MEDIUM' else (73.05 if rec.confidence == 'LOW' else 97.4)) %}
           {% set item_status = status_by_item.get(rec.item, '') %}
           <div class="rec-card {% if rec.approved %}approved{% elif rec.dismissed %}dismissed{% endif %}"
                id="rec-{{ loop.index0 }}"
@@ -166,7 +166,7 @@
                           style="stroke-dashoffset: {{ offset }};"/>
                 </svg>
                 <div class="confidence-label">
-                  <span class="lbl">{{ rec.confidence | lower }}</span>
+                  <span class="lbl">{{ 'N/A' if rec.confidence == 'INSUFFICIENT_DATA' else rec.confidence | lower }}</span>
                 </div>
               </div>
               <div class="rec-card-title">{{ rec.item }}</div>
