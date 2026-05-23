@@ -24,7 +24,6 @@
       ('sales',           'slot-sales',           'ICON_SALES','ICON_DONE', 'Sales Report',           '',                        'Items sold and quantities or revenue per period. Used to identify fast-movers and dead SKUs.'),
       ('purchase_orders', 'slot-purchase_orders', 'ICON_PO',   'ICON_DONE', 'Purchase Order Record',  '(optional)',              'Past orders placed with suppliers. Adds lead time context to recommendations.'),
       ('suppliers',       'slot-suppliers',       'ICON_SUP',  'ICON_DONE', 'Supplier Listing',       '(optional)',              'Your suppliers and whether they are local or import. Affects lead time calculations.'),
-      ('stockouts',       'slot-stockouts',       'ICON_STOCK','ICON_DONE', 'Stockout Report',        '(optional)',              'Items that ran out of stock — dates and quantities.'),
     ] %}
 
     {% set icons = {
@@ -137,7 +136,6 @@ let uploadedSlots = {
   purchase_orders: {{ 'true' if tables.purchase_orders else 'false' }},
   sales:           {{ 'true' if tables.sales else 'false' }},
   suppliers:       {{ 'true' if tables.suppliers else 'false' }},
-  stockouts:       {{ 'true' if tables.stockouts else 'false' }},
 };
 
 // AbortControllers keyed by slot — allow in-flight uploads to be cancelled
