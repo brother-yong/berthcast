@@ -1019,12 +1019,14 @@ tbody tr:hover td { background: var(--paper); }
 @keyframes ringFill {
   from { stroke-dashoffset: 97.4; }
 }
-.confidence-high   .ring-fill { stroke: var(--success); }
-.confidence-medium .ring-fill { stroke: var(--brass); }
-.confidence-low    .ring-fill { stroke: var(--danger); }
-.confidence-high   .lbl { color: var(--success); }
-.confidence-medium .lbl { color: var(--brass); }
-.confidence-low    .lbl { color: var(--danger); }
+.confidence-high         .ring-fill { stroke: var(--success); }
+.confidence-medium       .ring-fill { stroke: var(--brass); }
+.confidence-low          .ring-fill { stroke: var(--danger); }
+.confidence-insufficient .ring-fill { stroke: var(--muted); stroke-dashoffset: 97.4; }
+.confidence-high         .lbl { color: var(--success); }
+.confidence-medium       .lbl { color: var(--brass); }
+.confidence-low          .lbl { color: var(--danger); }
+.confidence-insufficient .lbl { color: var(--muted); font-size: 9px; }
 
 .confidence-label {
   position: absolute;
