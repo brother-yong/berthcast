@@ -575,19 +575,19 @@
       <div class="hero-card-label">Inventory snapshot — last analysis</div>
       <div class="hero-metric-row">
         <div class="hero-metric">
-          <div class="hero-metric-value">248</div>
+          <div class="hero-metric-value" id="hero-skus">248</div>
           <div class="hero-metric-sub">SKUs tracked</div>
         </div>
         <div class="hero-metric">
-          <div class="hero-metric-value is-danger">14</div>
+          <div class="hero-metric-value is-danger" id="hero-critical">14</div>
           <div class="hero-metric-sub">Critical</div>
         </div>
         <div class="hero-metric">
-          <div class="hero-metric-value is-success">31</div>
+          <div class="hero-metric-value is-success" id="hero-recs">31</div>
           <div class="hero-metric-sub">Recommendations</div>
         </div>
       </div>
-      <div class="hero-bar-row">
+      <div class="hero-bar-row" id="hero-bars">
         <div class="hero-bar hi" style="height:30px;"></div>
         <div class="hero-bar hi" style="height:36px;"></div>
         <div class="hero-bar md" style="height:24px;"></div>
@@ -605,28 +605,28 @@
     <div class="hero-card">
       <div class="hero-card-label" style="display:flex;align-items:center;justify-content:space-between;">
         Top reorder recommendations
-        <span class="hero-badge">31 ready</span>
+        <span class="hero-badge" id="hero-ready">31 ready</span>
       </div>
-      <div class="hero-rec-row">
+      <div class="hero-rec-row" id="hero-rec-list">
         <div class="hero-rec-item">
-          <span class="hero-rec-item-name">Frozen Salmon Fillet (1kg)</span>
+          <span class="hero-rec-item-name">Bottled Water 1.5L (case)</span>
           <div style="display:flex;align-items:center;gap:8px;">
             <span class="hero-badge danger">CRITICAL</span>
-            <span class="hero-rec-item-qty">Order 200 kg</span>
+            <span class="hero-rec-item-qty">Order 120 cs</span>
           </div>
         </div>
         <div class="hero-rec-item">
-          <span class="hero-rec-item-name">Chilled Squid (500g)</span>
+          <span class="hero-rec-item-name">Long-grain Rice (50kg)</span>
           <div style="display:flex;align-items:center;gap:8px;">
             <span class="hero-badge warn">LOW</span>
-            <span class="hero-rec-item-qty">Order 80 kg</span>
+            <span class="hero-rec-item-qty">Order 15 bags</span>
           </div>
         </div>
         <div class="hero-rec-item">
-          <span class="hero-rec-item-name">Dry Biscuit Rations</span>
+          <span class="hero-rec-item-name">Cooking Oil 5L</span>
           <div style="display:flex;align-items:center;gap:8px;">
             <span class="hero-badge">NORMAL</span>
-            <span class="hero-rec-item-qty">Order 500 pcs</span>
+            <span class="hero-rec-item-qty">Order 40 btl</span>
           </div>
         </div>
       </div>
@@ -758,6 +758,118 @@
     </div>
   </div>
 </footer>
+
+<script>
+(function () {
+  // ── Data pool ────────────────────────────────────────────────────────────
+  const SNAPSHOTS = [
+    { skus: 248, critical: 14, recs: 31 },
+    { skus: 193, critical:  9, recs: 22 },
+    { skus: 312, critical: 18, recs: 44 },
+    { skus: 227, critical: 11, recs: 28 },
+    { skus: 276, critical: 16, recs: 38 },
+  ];
+
+  const ITEMS = [
+    { name: 'Bottled Water 1.5L (case)',   status: 'CRITICAL', qty: 'Order 120 cs'   },
+    { name: 'Long-grain Rice (50kg)',       status: 'LOW',      qty: 'Order 15 bags'  },
+    { name: 'Cooking Oil 5L',              status: 'NORMAL',   qty: 'Order 40 btl'   },
+    { name: 'Frozen Chicken Breast (1kg)', status: 'CRITICAL', qty: 'Order 60 kg'    },
+    { name: 'UHT Milk 1L (case)',          status: 'LOW',      qty: 'Order 50 cs'    },
+    { name: 'Canned Tuna (case)',          status: 'NORMAL',   qty: 'Order 30 cs'    },
+    { name: 'Instant Coffee (case)',       status: 'LOW',      qty: 'Order 12 cs'    },
+    { name: 'Bread Flour (25kg)',          status: 'CRITICAL', qty: 'Order 8 bags'   },
+    { name: 'Deck Wash Concentrate',       status: 'NORMAL',   qty: 'Order 20 L'     },
+    { name: 'Disposable Gloves (box)',     status: 'LOW',      qty: 'Order 25 bx'    },
+    { name: 'Canned Vegetables (case)',    status: 'NORMAL',   qty: 'Order 24 cs'    },
+    { name: 'Engine Cleaning Fluid',       status: 'LOW',      qty: 'Order 15 L'     },
+  ];
+
+  const BAR_CLASSES = ['hi', 'hi', 'md', 'lo'];
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  function animateNum(el, from, to) {
+    const dur = 700, start = performance.now();
+    function tick(now) {
+      const t = Math.min(1, (now - start) / dur);
+      const e = 1 - Math.pow(1 - t, 3);
+      el.textContent = Math.round(from + (to - from) * e);
+      if (t < 1) requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+  }
+
+  function statusClass(s) {
+    if (s === 'CRITICAL') return 'danger';
+    if (s === 'LOW')      return 'warn';
+    return '';
+  }
+
+  function shuffle(arr) {
+    const a = arr.slice();
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
+
+  // ── Update ────────────────────────────────────────────────────────────────
+  let snapIdx  = 0;
+  let prevSnap = SNAPSHOTS[0];
+
+  function update() {
+    snapIdx = (snapIdx + 1) % SNAPSHOTS.length;
+    const snap = SNAPSHOTS[snapIdx];
+
+    // Animate numbers
+    animateNum(document.getElementById('hero-skus'),      prevSnap.skus,     snap.skus);
+    animateNum(document.getElementById('hero-critical'),  prevSnap.critical,  snap.critical);
+    animateNum(document.getElementById('hero-recs'),      prevSnap.recs,      snap.recs);
+    document.getElementById('hero-ready').textContent = snap.recs + ' ready';
+
+    // Shuffle bars
+    const bars = document.querySelectorAll('#hero-bars .hero-bar');
+    bars.forEach(bar => {
+      const cls  = BAR_CLASSES[Math.floor(Math.random() * BAR_CLASSES.length)];
+      const h    = Math.floor(Math.random() * 30) + 10;
+      bar.className = 'hero-bar ' + cls;
+      bar.style.height = h + 'px';
+    });
+
+    // Swap recommendation items with fade
+    const list    = document.getElementById('hero-rec-list');
+    const picked  = shuffle(ITEMS).slice(0, 3);
+    list.style.opacity = '0';
+    list.style.transform = 'translateY(4px)';
+    setTimeout(() => {
+      list.innerHTML = picked.map(item => `
+        <div class="hero-rec-item">
+          <span class="hero-rec-item-name">${item.name}</span>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span class="hero-badge ${statusClass(item.status)}">${item.status}</span>
+            <span class="hero-rec-item-qty">${item.qty}</span>
+          </div>
+        </div>
+      `).join('');
+      list.style.transition = 'opacity 400ms ease, transform 400ms ease';
+      list.style.opacity = '1';
+      list.style.transform = 'translateY(0)';
+    }, 250);
+
+    prevSnap = snap;
+  }
+
+  // ── Init ──────────────────────────────────────────────────────────────────
+  // Add transition to bars for smooth height changes
+  document.querySelectorAll('#hero-bars .hero-bar').forEach(b => {
+    b.style.transition = 'height 600ms ease, background 600ms ease';
+  });
+  document.getElementById('hero-rec-list').style.transition = 'opacity 400ms ease, transform 400ms ease';
+
+  setInterval(update, 4000);
+})();
+</script>
 
 </body>
 </html>
