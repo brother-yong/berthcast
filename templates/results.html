@@ -109,7 +109,7 @@
       <div class="mc-canvas">
         <div class="mc-canvas-top">
           <input type="text" id="mc-search" class="mc-search"
-                 placeholder="Search items or suppliers..."
+                 placeholder="Search items or suppliers…  ( / to focus )"
                  autocomplete="off">
           <span class="mc-result-count" id="recs-count">{{ valid_recs | length }} of {{ valid_recs | length }}</span>
           <button id="approve-all-btn" class="btn btn-primary btn-sm no-print" onclick="approveAll()">
@@ -131,6 +131,16 @@
              target="_blank" class="btn btn-success btn-sm no-print">
             Print approved
           </a>
+        </div>
+
+        <!-- Keyboard shortcut hint bar -->
+        <div class="kb-hint-bar no-print" id="kb-hint-bar">
+          <span class="kb-key">j</span> next &nbsp;
+          <span class="kb-key">k</span> prev &nbsp;
+          <span class="kb-key">a</span> approve &nbsp;
+          <span class="kb-key">d</span> dismiss &nbsp;
+          <span class="kb-key">/</span> search &nbsp;
+          <span class="kb-key">Esc</span> clear
         </div>
 
         <div id="recs-container">
@@ -541,6 +551,110 @@ async function undoApproveAll() {
     undoBtn.textContent = 'Undo';
   }
 }
+
+// ── Keyboard navigation ──
+let _activeCardIdx = -1;   // index into currently visible cards
+
+function _visibleCards() {
+  return Array.from(document.querySelectorAll('.rec-card')).filter(
+    c => c.style.display !== 'none'
+  );
+}
+
+function _setActive(idx) {
+  const cards = _visibleCards();
+  // Clear previous
+  document.querySelectorAll('.rec-card.kb-active').forEach(c => c.classList.remove('kb-active'));
+  if (idx < 0 || idx >= cards.length) {
+    _activeCardIdx = -1;
+    return;
+  }
+  _activeCardIdx = idx;
+  const card = cards[idx];
+  card.classList.add('kb-active');
+  card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+
+function _activeCardData() {
+  const cards = _visibleCards();
+  if (_activeCardIdx < 0 || _activeCardIdx >= cards.length) return null;
+  const card = cards[_activeCardIdx];
+  // Extract the numeric index from the card id (rec-0, rec-1, ...)
+  const domIdx = parseInt(card.id.replace('rec-', ''), 10);
+  const item   = card.dataset.item;
+  return { card, domIdx, item };
+}
+
+document.addEventListener('keydown', function(e) {
+  const tag = (e.target.tagName || '').toLowerCase();
+  const inInput = tag === 'input' || tag === 'textarea' || e.target.isContentEditable;
+
+  // / → focus search (always, even from input)
+  if (e.key === '/' && !inInput) {
+    e.preventDefault();
+    const s = document.getElementById('mc-search');
+    if (s) { s.focus(); s.select(); }
+    return;
+  }
+
+  // Escape → blur search / clear active card
+  if (e.key === 'Escape') {
+    const s = document.getElementById('mc-search');
+    if (document.activeElement === s) { s.blur(); return; }
+    _setActive(-1);
+    return;
+  }
+
+  // All other shortcuts: ignore if typing in a field
+  if (inInput) return;
+
+  // j → next card
+  if (e.key === 'j' || e.key === 'ArrowDown') {
+    e.preventDefault();
+    const cards = _visibleCards();
+    _setActive(Math.min(_activeCardIdx + 1, cards.length - 1));
+    if (_activeCardIdx === -1 && cards.length) _setActive(0);
+    return;
+  }
+
+  // k → previous card
+  if (e.key === 'k' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    _setActive(Math.max(_activeCardIdx - 1, 0));
+    return;
+  }
+
+  // a → approve active card
+  if (e.key === 'a') {
+    const d = _activeCardData();
+    if (!d) return;
+    if (!d.card.classList.contains('approved')) {
+      takeAction(d.domIdx, d.item, 'approve');
+    }
+    return;
+  }
+
+  // d → dismiss active card
+  if (e.key === 'd') {
+    const d = _activeCardData();
+    if (!d) return;
+    if (!d.card.classList.contains('dismissed')) {
+      takeAction(d.domIdx, d.item, 'dismiss');
+    }
+    return;
+  }
+});
+
+// Clear active card when filters change (visible set changes)
+const _origApplyFilters = applyFilters;
+applyFilters = function() {
+  _origApplyFilters();
+  // Keep active card if it's still visible; otherwise clear
+  if (_activeCardIdx >= 0) {
+    const cards = _visibleCards();
+    if (_activeCardIdx >= cards.length) _setActive(-1);
+  }
+};
 
 // ── Approve / dismiss single ──
 async function takeAction(idx, item, action) {
