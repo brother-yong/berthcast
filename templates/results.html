@@ -119,6 +119,7 @@
                   onclick="undoApproveAll()" style="display:none;">
             Undo
           </button>
+          {% if user_tier != 'free' %}
           <a href="{{ url_for('export_csv', upload_session_id=upload_session_id) }}"
              class="btn btn-outline btn-sm no-print" title="Download as CSV for Excel">
             ↓ CSV
@@ -127,6 +128,14 @@
              class="btn btn-outline btn-sm no-print" title="Download formatted PDF">
             ↓ PDF
           </a>
+          {% else %}
+          <span class="btn btn-outline btn-sm no-print"
+                style="opacity:0.45;cursor:default;pointer-events:none;"
+                title="Upgrade to Professional or Enterprise to export">↓ CSV</span>
+          <span class="btn btn-outline btn-sm no-print"
+                style="opacity:0.45;cursor:default;pointer-events:none;"
+                title="Upgrade to Professional or Enterprise to export">↓ PDF</span>
+          {% endif %}
           <a href="{{ url_for('print_results', upload_session_id=upload_session_id) }}"
              target="_blank" class="btn btn-success btn-sm no-print">
             Print approved

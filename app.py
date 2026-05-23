@@ -161,11 +161,15 @@ def login():
         users = db.query("SELECT * FROM users WHERE email=?", (email,))
         if users and check_password_hash(users[0]["password_hash"], password):
             u = users[0]
+            if not u["email_verified"]:
+                flash("Please verify your email before signing in. Check your inbox for the verification link.", "error")
+                return render_template("login.html")
             session["user_id"]  = u["id"]
             session["email"]    = u["email"]
             session["org_name"] = u["org_name"]
             session["model"]    = u["model"]
             session["is_admin"] = bool(u["is_admin"])
+            session["tier"]     = u["tier"]
             return redirect(url_for("admin_panel") if u["is_admin"] else url_for("chat"))
         flash("Incorrect email or password.", "error")
     return render_template("login.html")
@@ -314,6 +318,137 @@ def _send_reset_email(to_email: str, reset_url: str) -> None:
         pass
 
 
+def _send_verification_email(to_email: str, verify_url: str) -> None:
+    """Send an email verification link via Gmail SMTP. Fails silently if not configured."""
+    sender   = os.environ.get("MAIL_SENDER", "")
+    password = os.environ.get("MAIL_APP_PASSWORD", "")
+    if not sender or not password:
+        return
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = "Verify your BerthAI account"
+    msg["From"]    = sender
+    msg["To"]      = to_email
+
+    text = (
+        f"Hi,\n\n"
+        f"Thanks for signing up for BerthAI.\n\n"
+        f"Click the link below to verify your email and activate your account:\n\n"
+        f"{verify_url}\n\n"
+        f"This link expires in 24 hours.\n\n"
+        f"— BerthAI"
+    )
+    html = f"""
+    <div style="font-family:'Segoe UI',sans-serif;max-width:480px;margin:0 auto;color:#1a2a3a;">
+      <p style="font-size:15px;line-height:1.6;margin-bottom:8px;">
+        Thanks for signing up for BerthAI.
+      </p>
+      <p style="font-size:15px;line-height:1.6;margin-top:0;">
+        Click below to verify your email and activate your account.
+      </p>
+      <a href="{verify_url}"
+         style="display:inline-block;margin:20px 0;padding:12px 28px;
+                background:#c8924c;color:#fff;text-decoration:none;
+                border-radius:8px;font-weight:600;font-size:14px;">
+        Verify my email
+      </a>
+      <p style="font-size:13px;color:#6b7280;line-height:1.5;">
+        This link expires in 24 hours. If you didn't sign up, you can ignore this email.
+      </p>
+      <p style="font-size:13px;color:#6b7280;">— BerthAI</p>
+    </div>
+    """
+    msg.attach(MIMEText(text, "plain"))
+    msg.attach(MIMEText(html, "html"))
+
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as smtp:
+            smtp.login(sender, password)
+            smtp.sendmail(sender, to_email, msg.as_string())
+    except Exception:
+        pass
+
+
+@app.route("/register", methods=["GET", "POST"])
+def register():
+    if "user_id" in session:
+        return redirect(url_for("chat"))
+    if request.method == "POST":
+        org_name  = request.form.get("org_name", "").strip()
+        email     = request.form.get("email", "").strip().lower()
+        password  = request.form.get("password", "")
+        password2 = request.form.get("password2", "")
+
+        # Validation
+        error = None
+        if not org_name:
+            error = "Organisation name is required."
+        elif not email or "@" not in email:
+            error = "A valid email address is required."
+        elif len(password) < 8:
+            error = "Password must be at least 8 characters."
+        elif password != password2:
+            error = "Passwords don't match."
+        else:
+            existing = db.query("SELECT id FROM users WHERE email=?", (email,))
+            if existing:
+                error = "An account with that email already exists."
+
+        if error:
+            return render_template("register.html", error=error,
+                                   org_name=org_name, email=email)
+
+        # Create unverified free account
+        db.execute(
+            """INSERT INTO users
+               (email, password_hash, org_name, model, tier, email_verified,
+                analyses_used, chat_messages_used)
+               VALUES (?,?,?,?,?,?,?,?)""",
+            (email, generate_password_hash(password), org_name,
+             "claude-haiku-4-5-20251001", "free", 0, 0, 0)
+        )
+        new_user = db.query("SELECT id FROM users WHERE email=?", (email,))[0]
+
+        # Issue verification token
+        db.execute(
+            "DELETE FROM email_verification_tokens WHERE user_id=?",
+            (new_user["id"],)
+        )
+        token = secrets.token_urlsafe(32)
+        db.execute(
+            "INSERT INTO email_verification_tokens (user_id, token) VALUES (?,?)",
+            (new_user["id"], token)
+        )
+        verify_url = url_for("verify_email", token=token, _external=True)
+        threading.Thread(
+            target=_send_verification_email,
+            args=(email, verify_url),
+            daemon=True,
+        ).start()
+
+        return render_template("register.html", submitted=True, email=email)
+
+    return render_template("register.html")
+
+
+@app.route("/verify-email/<token>")
+def verify_email(token):
+    rows = db.query(
+        """SELECT evt.user_id
+           FROM email_verification_tokens evt
+           WHERE evt.token=?
+             AND evt.created_at >= datetime('now', '-24 hours')""",
+        (token,)
+    )
+    if not rows:
+        return render_template("verify_email.html", expired=True)
+
+    user_id = rows[0]["user_id"]
+    db.execute("UPDATE users SET email_verified=1 WHERE id=?", (user_id,))
+    db.execute("DELETE FROM email_verification_tokens WHERE user_id=?", (user_id,))
+    return render_template("verify_email.html", expired=False)
+
+
 @app.route("/forgot-password", methods=["GET", "POST"])
 def forgot_password():
     if "user_id" in session:
@@ -401,6 +536,12 @@ def chat_api():
     if not user_message:
         return jsonify({"error": "Empty message"}), 400
 
+    # Tier limit: free users get 20 chat messages total
+    if session.get("tier") == "free":
+        cu = db.query("SELECT chat_messages_used FROM users WHERE id=?", (session["user_id"],))
+        if cu and cu[0]["chat_messages_used"] >= 20:
+            return jsonify({"error": "Free accounts include 20 chat messages. Upgrade to continue chatting."}), 403
+
     # Verify or create conversation
     is_new_conv = False
     if conversation_id:
@@ -422,6 +563,13 @@ def chat_api():
         "INSERT INTO chat_messages (conversation_id, role, content) VALUES (?,?,?)",
         (conversation_id, "user", user_message)
     )
+
+    # Increment chat_messages_used for free users
+    if session.get("tier") == "free":
+        db.execute(
+            "UPDATE users SET chat_messages_used = chat_messages_used + 1 WHERE id=?",
+            (session["user_id"],)
+        )
 
     # Build message history for Claude
     history_rows = db.query(
@@ -1295,6 +1443,15 @@ def run_analysis(upload_session_id):
     if s and s[0]["status"] == "complete":
         return redirect(url_for("results", upload_session_id=upload_session_id))
 
+    # Tier limit: free users get 1 analysis total
+    user_tier = session.get("tier", "enterprise")
+    current_user = db.query(
+        "SELECT analyses_used FROM users WHERE id=?", (session["user_id"],)
+    )
+    if user_tier == "free" and current_user and current_user[0]["analyses_used"] >= 1:
+        flash("Free accounts include 1 analysis. Upgrade to Professional or Enterprise for unlimited analyses.", "error")
+        return redirect(url_for("dashboard"))
+
     # If a run is in progress already (user refreshed the progress page), show it.
     with analysis_progress_lock:
         existing = analysis_progress.get(upload_session_id)
@@ -1302,8 +1459,10 @@ def run_analysis(upload_session_id):
         return render_template("analysis_progress.html", upload_session_id=upload_session_id)
 
     # Otherwise kick off a new run in the background.
-    model    = session["model"]
-    base_url = request.host_url.rstrip("/")  # e.g. "https://berthai.onrender.com"
+    model       = session["model"]
+    _user_id    = session["user_id"]
+    _user_tier  = user_tier
+    base_url    = request.host_url.rstrip("/")  # e.g. "https://berthai.onrender.com"
     with analysis_progress_lock:
         analysis_progress[upload_session_id] = {
             "started_at": time.time(),
@@ -1353,6 +1512,13 @@ def run_analysis(upload_session_id):
                 (json.dumps(inventory_report), json.dumps(recommendations), upload_session_id)
             )
             db.execute("UPDATE upload_sessions SET status='complete' WHERE id=?", (upload_session_id,))
+
+            # Increment analyses_used for free users
+            if _user_tier == "free":
+                db.execute(
+                    "UPDATE users SET analyses_used = analyses_used + 1 WHERE id=?",
+                    (_user_id,)
+                )
 
             # ── Critical stock alert ─────────────────────────────────────────
             # Compare against the previous completed session for this user.
@@ -1475,6 +1641,7 @@ def results(upload_session_id):
         org_name=session["org_name"],
         generated_at=generated_at,
         status_by_item=status_by_item,
+        user_tier=session.get("tier", "enterprise"),
     )
 
 
@@ -1499,6 +1666,9 @@ def print_results(upload_session_id):
 @login_required
 def export_csv(upload_session_id):
     """Download approved recommendations as a CSV file."""
+    if session.get("tier") == "free":
+        flash("CSV export is available on Professional and Enterprise plans.", "error")
+        return redirect(url_for("results", upload_session_id=upload_session_id))
     import csv, io
     _verify_session_owner(upload_session_id)
     ar = db.query("SELECT recommendations_json FROM analysis_results WHERE session_id=?", (upload_session_id,))
@@ -1545,6 +1715,9 @@ def export_csv(upload_session_id):
 @login_required
 def export_pdf(upload_session_id):
     """Download approved recommendations as a formatted PDF."""
+    if session.get("tier") == "free":
+        flash("PDF export is available on Professional and Enterprise plans.", "error")
+        return redirect(url_for("results", upload_session_id=upload_session_id))
     import io
     from datetime import datetime
     from reportlab.lib.pagesizes import A4

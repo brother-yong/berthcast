@@ -138,6 +138,18 @@ def init_db():
         "ALTER TABLE company_config ADD COLUMN company_description TEXT",
         "ALTER TABLE supplier_profiles ADD COLUMN supplier_type TEXT DEFAULT 'other'",
         "ALTER TABLE chat_conversations ADD COLUMN pinned INTEGER DEFAULT 0",
+        # Tier & verification — default 1/enterprise so existing users are unaffected
+        "ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 1",
+        "ALTER TABLE users ADD COLUMN tier TEXT NOT NULL DEFAULT 'enterprise'",
+        "ALTER TABLE users ADD COLUMN analyses_used INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE users ADD COLUMN chat_messages_used INTEGER NOT NULL DEFAULT 0",
+        """CREATE TABLE IF NOT EXISTS email_verification_tokens (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            token TEXT UNIQUE NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        )""",
     ]:
         try:
             conn.execute(migration)
