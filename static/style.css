@@ -989,6 +989,9 @@ tbody tr:hover td { background: var(--paper); }
 .confidence-high   .ring-fill { stroke: var(--success); }
 .confidence-medium .ring-fill { stroke: var(--brass); }
 .confidence-low    .ring-fill { stroke: var(--danger); }
+.confidence-high   .lbl { color: var(--success); }
+.confidence-medium .lbl { color: var(--brass); }
+.confidence-low    .lbl { color: var(--danger); }
 
 .confidence-label {
   position: absolute;
@@ -1000,17 +1003,11 @@ tbody tr:hover td { background: var(--paper); }
   font-family: 'Aptos', 'Segoe UI', sans-serif;
   line-height: 1;
 }
-.confidence-label .pct {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--navy-800);
-  letter-spacing: -0.02em;
-}
 .confidence-label .lbl {
-  font-size: 7px;
-  color: var(--muted);
+  font-size: 8px;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   margin-top: 2px;
 }
 

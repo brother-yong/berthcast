@@ -128,9 +128,8 @@
         <div id="recs-container">
         {% for rec in recommendations %}
         {% if not rec.error %}
-          {% set conf_pct = 92 if rec.confidence == 'HIGH' else (62 if rec.confidence == 'MEDIUM' else 32) %}
           {% set conf_class = 'high' if rec.confidence == 'HIGH' else ('medium' if rec.confidence == 'MEDIUM' else 'low') %}
-          {% set offset = (97.4 * (1 - conf_pct / 100)) | round(2) %}
+          {% set offset = 0 if rec.confidence == 'HIGH' else (48.7 if rec.confidence == 'MEDIUM' else 73.05) %}
           {% set item_status = status_by_item.get(rec.item, '') %}
           <div class="rec-card {% if rec.approved %}approved{% elif rec.dismissed %}dismissed{% endif %}"
                id="rec-{{ loop.index0 }}"
@@ -149,7 +148,6 @@
                           style="stroke-dashoffset: {{ offset }};"/>
                 </svg>
                 <div class="confidence-label">
-                  <span class="pct">{{ conf_pct }}</span>
                   <span class="lbl">{{ rec.confidence | lower }}</span>
                 </div>
               </div>
