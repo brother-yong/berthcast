@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Email Verification — BerthAI{% endblock %}
+
+{% block content %}
+<div class="page-narrow">
+  <div class="page-header" style="text-align:center;">
+    <img src="{{ url_for('static', filename='logo.png') }}" alt="BerthAI" style="width:220px; height:auto; margin: 0 auto 8px; display:block;">
+  </div>
+
+  {% if expired %}
+  <div class="card" style="text-align:center; padding:36px 28px;">
+    <div style="font-size:40px; margin-bottom:16px;">⏱️</div>
+    <h2 style="font-size:20px; font-weight:700; color:var(--navy); margin:0 0 10px;">Link expired</h2>
+    <p style="color:var(--muted); font-size:14px; line-height:1.6; margin:0;">
+      This verification link has expired or has already been used.<br>
+      Register again to receive a fresh link.
+    </p>
+  </div>
+  <p style="text-align:center; margin-top:20px;">
+    <a href="{{ url_for('register') }}"
+       style="color:var(--brass-3); font-weight:600; text-decoration:none; border-bottom:1.5px solid var(--brass); padding-bottom:1px;">
+      Create a new account
+    </a>
+  </p>
+
+  {% else %}
+  <div class="card" style="text-align:center; padding:36px 28px;">
+    <div style="font-size:40px; margin-bottom:16px;">✅</div>
+    <h2 style="font-size:20px; font-weight:700; color:var(--navy); margin:0 0 10px;">Email verified</h2>
+    <p style="color:var(--muted); font-size:14px; line-height:1.6; margin:0 0 24px;">
+      Your BerthAI account is now active. Sign in to get started.
+    </p>
+    <a href="{{ url_for('login') }}" class="btn btn-primary">
+      Sign in now
+    </a>
+  </div>
+  {% endif %}
+
+  <p style="text-align:center; margin-top:20px;">
+    <a href="{{ url_for('landing') }}" style="color:var(--muted); font-size:13px; text-decoration:none;">← Back to homepage</a>
+  </p>
+</div>
+{% endblock %}
