@@ -146,6 +146,12 @@ def landing():
     return render_template("landing.html")
 
 
+@app.route("/guide")
+@login_required
+def guide():
+    return render_template("guide.html")
+
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if "user_id" in session:

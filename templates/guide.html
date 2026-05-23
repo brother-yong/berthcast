@@ -1,0 +1,494 @@
+{% extends "base.html" %}
+{% block title %}User Guide — BerthAI{% endblock %}
+
+{% block content %}
+<div class="page-wrap">
+
+  <section class="hero" style="padding: 40px 0 20px;">
+    <div class="hero-eyebrow">User guide</div>
+    <h1>How to get accurate results</h1>
+    <div class="hero-byline">
+      <span>What to prepare, how to upload, and what each file needs</span>
+    </div>
+  </section>
+
+  <!-- Jump links -->
+  <div class="guide-jumps">
+    <a href="#files" class="guide-jump">What files to prepare</a>
+    <a href="#columns" class="guide-jump">Column requirements</a>
+    <a href="#steps" class="guide-jump">Upload process</a>
+    <a href="#tips" class="guide-jump">Tips for best results</a>
+  </div>
+
+  <!-- ── SECTION 1: FILE OVERVIEW ── -->
+  <section id="files" class="guide-section">
+    <div class="guide-section-label">Step 1</div>
+    <h2 class="guide-h2">What files to prepare</h2>
+    <p class="guide-intro">BerthAI works with exports from your ERP. No reformatting required — export them as Excel (.xlsx) or CSV. You can upload up to four file types. Two are required; the other two make a large difference to accuracy.</p>
+
+    <div class="card" style="overflow-x:auto; margin-top:20px;">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>File</th>
+            <th>Required?</th>
+            <th>What it's used for</th>
+            <th>Without it</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Inventory report</strong></td>
+            <td><span class="badge badge-critical">Required</span></td>
+            <td>Current stock levels and item list. This is the foundation of every analysis.</td>
+            <td>Analysis cannot run.</td>
+          </tr>
+          <tr>
+            <td><strong>Sales report</strong></td>
+            <td><span class="badge badge-critical">Required</span></td>
+            <td>Sales history per item. Used to calculate how fast each item moves and how long stock will last.</td>
+            <td>Analysis cannot run. Without velocity data, order quantities show as "Verify with team" and confidence shows as N/A.</td>
+          </tr>
+          <tr>
+            <td><strong>Purchase orders</strong></td>
+            <td><span class="badge badge-low">Recommended</span></td>
+            <td>Links each item to its supplier. Without this, BerthAI cannot tell you which supplier to contact.</td>
+            <td>All items show "Unknown supplier". Confidence drops to N/A on every recommendation.</td>
+          </tr>
+          <tr>
+            <td><strong>Supplier list</strong></td>
+            <td><span class="badge badge-low">Recommended</span></td>
+            <td>Tells BerthAI whether each supplier is import (long lead time) or local (short lead time). Directly affects stock runway calculations.</td>
+            <td>All suppliers treated as "other" with unknown lead times. Runway estimates will be unreliable.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ── SECTION 2: COLUMN REQUIREMENTS ── -->
+  <section id="columns" class="guide-section">
+    <div class="guide-section-label">Step 2</div>
+    <h2 class="guide-h2">Column requirements</h2>
+    <p class="guide-intro">BerthAI detects columns automatically. As long as your column names are close to the ones listed below, the system will find them. The exact names in your ERP export are usually fine — you do not need to rename anything.</p>
+
+    <!-- Inventory -->
+    <div class="guide-file-block">
+      <div class="guide-file-header">
+        <span class="guide-file-title">Inventory report</span>
+        <span class="badge badge-critical">Required</span>
+      </div>
+      <div class="card" style="overflow-x:auto; border-radius:0 0 12px 12px;">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>What BerthAI needs</th>
+              <th>Column names it recognises</th>
+              <th>Required?</th>
+              <th>Effect if missing</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Item name</strong></td>
+              <td><code>description</code>, <code>item_description</code>, <code>inventory_desc</code>, <code>product_description</code>, <code>item_name</code>, <code>product_name</code></td>
+              <td><span class="badge badge-critical">Required</span></td>
+              <td>Analysis fails — cannot identify items.</td>
+            </tr>
+            <tr>
+              <td><strong>Stock quantity</strong></td>
+              <td><code>qty_on_hand</code>, <code>qty</code>, <code>quantity</code>, <code>stock_on_hand</code>, <code>closing_stock</code>, <code>balance</code>, <code>stock_balance</code></td>
+              <td><span class="badge badge-critical">Required</span></td>
+              <td>Analysis fails — cannot assess stock levels.</td>
+            </tr>
+            <tr>
+              <td><strong>Category / storage type</strong></td>
+              <td><code>category</code>, <code>cat</code>, <code>class</code>, <code>item_category</code>, <code>product_category</code>, <code>storage_type</code></td>
+              <td><span class="badge badge-low">Recommended</span></td>
+              <td>Cannot determine chill / frozen / dry. Spoilage risk is less accurate.</td>
+            </tr>
+            <tr>
+              <td><strong>Unit of measure</strong></td>
+              <td><code>uom</code>, <code>unit_of_measure</code>, <code>unit</code>, <code>uom_code</code>, <code>base_uom</code>, <code>purchase_uom</code></td>
+              <td><span class="badge badge-low">Recommended</span></td>
+              <td>Order quantities show as "units" instead of kg / cartons / pcs.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Sales -->
+    <div class="guide-file-block">
+      <div class="guide-file-header">
+        <span class="guide-file-title">Sales report</span>
+        <span class="badge badge-critical">Required</span>
+      </div>
+      <div class="card" style="overflow-x:auto; border-radius:0 0 12px 12px;">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>What BerthAI needs</th>
+              <th>Column names it recognises</th>
+              <th>Required?</th>
+              <th>Effect if missing</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Item name</strong></td>
+              <td>Same as inventory — see above</td>
+              <td><span class="badge badge-critical">Required</span></td>
+              <td>Cannot link sales data to inventory items.</td>
+            </tr>
+            <tr>
+              <td><strong>Date</strong></td>
+              <td style="color:var(--danger); font-weight:600;"><code>date</code> — must be exactly this</td>
+              <td><span class="badge badge-critical">Required</span></td>
+              <td>System cannot count months of data. Velocity calculations may be off.</td>
+            </tr>
+            <tr>
+              <td><strong>Quantity sold</strong></td>
+              <td><code>billing_qty</code>, <code>qty</code>, <code>quantity</code>, <code>billing_quantity</code></td>
+              <td><span class="badge badge-critical">Required</span></td>
+              <td>Cannot calculate average monthly sales or suggested order quantities.</td>
+            </tr>
+            <tr>
+              <td><strong>Revenue / amount</strong></td>
+              <td><code>net_amount</code>, <code>total_amount</code>, <code>billing_amount</code>, <code>sales_value</code>, <code>revenue</code>, <code>ext_price</code></td>
+              <td><span class="badge badge-low">Recommended</span></td>
+              <td>Cannot rank items by revenue when analysing top SKUs only.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Purchase orders -->
+    <div class="guide-file-block">
+      <div class="guide-file-header">
+        <span class="guide-file-title">Purchase orders</span>
+        <span class="badge badge-low">Recommended</span>
+      </div>
+      <div class="card" style="overflow-x:auto; border-radius:0 0 12px 12px;">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>What BerthAI needs</th>
+              <th>Column names it recognises</th>
+              <th>Required?</th>
+              <th>Effect if missing</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Item name</strong></td>
+              <td>Same as inventory — see above</td>
+              <td><span class="badge badge-critical">Required</span></td>
+              <td>Cannot link items to suppliers.</td>
+            </tr>
+            <tr>
+              <td><strong>Supplier name</strong></td>
+              <td>Any column containing "supplier" and "name", or just "supplier"</td>
+              <td><span class="badge badge-critical">Required</span></td>
+              <td>All items show "Unknown supplier."</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Suppliers -->
+    <div class="guide-file-block">
+      <div class="guide-file-header">
+        <span class="guide-file-title">Supplier list</span>
+        <span class="badge badge-low">Recommended</span>
+      </div>
+      <div class="card" style="overflow-x:auto; border-radius:0 0 12px 12px;">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>What BerthAI needs</th>
+              <th>Column names it recognises</th>
+              <th>Required?</th>
+              <th>Effect if missing</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Supplier name</strong></td>
+              <td>Any column containing "name" or "supplier"</td>
+              <td><span class="badge badge-critical">Required</span></td>
+              <td>Cannot match suppliers to lead times.</td>
+            </tr>
+            <tr>
+              <td><strong>Supplier type</strong></td>
+              <td>Any column containing "type", "category", or "class" — value must include the word <strong>import</strong> or <strong>local</strong></td>
+              <td><span class="badge badge-critical">Required</span></td>
+              <td>All suppliers treated as unknown. Lead times will be wrong.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Lead time callout -->
+    <div class="card" style="background:var(--paper-2); border:1px solid var(--border); margin-top:8px;">
+      <p style="margin:0; font-size:14px; color:var(--muted);">
+        <strong style="color:var(--text);">How lead times work.</strong>
+        Suppliers classified as <strong>import</strong> are given a 16-week lead time.
+        Suppliers classified as <strong>local</strong> are given a 3-week lead time.
+        If a supplier's type is not recognised, lead time is marked as unknown and the recommendation confidence drops.
+      </p>
+    </div>
+  </section>
+
+  <!-- ── SECTION 3: UPLOAD STEPS ── -->
+  <section id="steps" class="guide-section">
+    <div class="guide-section-label">Step 3</div>
+    <h2 class="guide-h2">The upload process</h2>
+    <p class="guide-intro">Once your files are ready, the process takes under 10 minutes from start to purchase order.</p>
+
+    <div class="guide-steps">
+
+      <div class="guide-step">
+        <div class="guide-step-num">1</div>
+        <div class="guide-step-body">
+          <div class="guide-step-title">Upload your files</div>
+          <p class="guide-step-desc">Go to <strong>New Analysis</strong> and upload each file into its matching slot. You can upload Excel (.xlsx) or CSV. Files must be under 100 MB each.</p>
+        </div>
+      </div>
+
+      <div class="guide-step">
+        <div class="guide-step-num">2</div>
+        <div class="guide-step-body">
+          <div class="guide-step-title">Review duplicate item names</div>
+          <p class="guide-step-desc">BerthAI scans item names across all your files and flags names that refer to the same product but are written differently — e.g. "Bottled Water 1.5L" vs "BTL WATER 1.5L". Confirm the groupings so sales data links correctly to inventory.</p>
+        </div>
+      </div>
+
+      <div class="guide-step">
+        <div class="guide-step-num">3</div>
+        <div class="guide-step-body">
+          <div class="guide-step-title">Add any context the AI should know</div>
+          <p class="guide-step-desc">Before the analysis runs, you can tell BerthAI about things that affect purchasing decisions — delayed suppliers, a large upcoming order, items you're discontinuing. This is optional but improves the recommendations.</p>
+        </div>
+      </div>
+
+      <div class="guide-step">
+        <div class="guide-step-num">4</div>
+        <div class="guide-step-body">
+          <div class="guide-step-title">Wait for the analysis</div>
+          <p class="guide-step-desc">Three AI agents run in parallel — one for inventory health, one for reorder quantities, and one for risk assessment. This usually takes 2–5 minutes depending on the size of your data.</p>
+        </div>
+      </div>
+
+      <div class="guide-step">
+        <div class="guide-step-num">5</div>
+        <div class="guide-step-body">
+          <div class="guide-step-title">Review and approve recommendations</div>
+          <p class="guide-step-desc">Each recommendation shows the item, suggested order quantity, supplier, stock runway, and a plain-English reason. Approve the ones you want to action, add notes if needed, then print or download your purchase order.</p>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ── SECTION 4: TIPS ── -->
+  <section id="tips" class="guide-section" style="margin-bottom:64px;">
+    <div class="guide-section-label">Good to know</div>
+    <h2 class="guide-h2">Tips for best results</h2>
+
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:20px;">
+
+      <div class="card">
+        <div class="guide-tip-title">Use at least 6 months of sales data</div>
+        <p class="guide-tip-desc">The system calculates monthly averages from your sales history. Less than 3 months of data can make fast-moving items look slower than they are.</p>
+      </div>
+
+      <div class="card">
+        <div class="guide-tip-title">The date column must be named "date"</div>
+        <p class="guide-tip-desc">This is the one strict naming requirement. If your sales file has a date column with a different name (e.g. "invoice_date" or "txn_date"), rename it to <code>date</code> before uploading.</p>
+      </div>
+
+      <div class="card">
+        <div class="guide-tip-title">Item names must be consistent across files</div>
+        <p class="guide-tip-desc">If inventory says "White Rice 5kg" and sales says "RICE WHITE 5KG", BerthAI's deduplication step will try to match them — but the closer the names, the more reliable the match.</p>
+      </div>
+
+      <div class="card">
+        <div class="guide-tip-title">Supplier type must say "import" or "local"</div>
+        <p class="guide-tip-desc">The system does a simple text match. "Import supplier", "Local vendor", and "Imported goods" all work. Words like "overseas" or "domestic" will not be recognised.</p>
+      </div>
+
+      <div class="card">
+        <div class="guide-tip-title">Upload the most recent PO export</div>
+        <p class="guide-tip-desc">BerthAI uses the most recent purchase order per item to identify the current supplier. An old PO file may map items to suppliers you no longer use.</p>
+      </div>
+
+      <div class="card">
+        <div class="guide-tip-title">N/A confidence means supplier is unknown</div>
+        <p class="guide-tip-desc">If a recommendation shows N/A confidence, it means BerthAI could not find the item's supplier in your purchase orders file. Upload a PO file to resolve this.</p>
+      </div>
+
+    </div>
+  </section>
+
+</div>
+
+<style>
+.guide-jumps {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 0 0 40px;
+}
+.guide-jump {
+  display: inline-flex;
+  align-items: center;
+  padding: 7px 16px;
+  background: #fff;
+  border: 1.5px solid var(--border);
+  border-radius: 100px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  text-decoration: none;
+  transition: border-color 150ms, color 150ms;
+}
+.guide-jump:hover { border-color: var(--brass); color: var(--brass-3); }
+
+.guide-section { margin-bottom: 56px; }
+.guide-section-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--brass-3);
+  margin-bottom: 6px;
+}
+.guide-h2 {
+  font-family: var(--font-display), 'Segoe UI', sans-serif;
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--navy-900, #0f1b2d);
+  letter-spacing: -0.01em;
+  margin-bottom: 10px;
+}
+.guide-intro {
+  font-size: 15px;
+  color: var(--muted);
+  max-width: 680px;
+  line-height: 1.65;
+  margin-bottom: 0;
+}
+
+/* File blocks */
+.guide-file-block { margin-top: 24px; }
+.guide-file-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--navy-900, #0f1b2d);
+  color: #fff;
+  padding: 12px 20px;
+  border-radius: 12px 12px 0 0;
+}
+.guide-file-title {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+.guide-file-block .card {
+  border-top: none;
+  border-radius: 0 0 12px 12px;
+  margin-top: 0;
+}
+
+/* Steps */
+.guide-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin-top: 24px;
+  position: relative;
+}
+.guide-steps::before {
+  content: '';
+  position: absolute;
+  left: 19px;
+  top: 40px;
+  bottom: 20px;
+  width: 2px;
+  background: var(--border);
+  z-index: 0;
+}
+.guide-step {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+  padding: 0 0 28px;
+  position: relative;
+  z-index: 1;
+}
+.guide-step-num {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  background: #fff;
+  border: 2px solid var(--brass);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--brass-3);
+}
+.guide-step-body { padding-top: 8px; }
+.guide-step-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--navy-900, #0f1b2d);
+  margin-bottom: 4px;
+}
+.guide-step-desc {
+  font-size: 14px;
+  color: var(--muted);
+  line-height: 1.65;
+  margin: 0;
+  max-width: 580px;
+}
+
+/* Tips grid */
+.guide-tip-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--navy-900, #0f1b2d);
+  margin-bottom: 6px;
+}
+.guide-tip-desc {
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.6;
+  margin: 0;
+}
+
+code {
+  background: var(--paper-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 12px;
+  font-family: 'Courier New', monospace;
+  color: var(--navy-900, #0f1b2d);
+}
+
+@media (max-width: 700px) {
+  .guide-jumps { flex-direction: column; }
+  div[style*="grid-template-columns:1fr 1fr"] {
+    grid-template-columns: 1fr !important;
+  }
+}
+</style>
+{% endblock %}
