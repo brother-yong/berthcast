@@ -17,6 +17,7 @@
   <div class="nav-links">
     <a href="{{ url_for('dashboard') }}">Dashboard</a>
     <a href="{{ url_for('upload_start') }}">New Analysis</a>
+    <a href="{{ url_for('guide') }}">Guide</a>
     <a href="{{ url_for('user_settings') }}">Settings</a>
     {% if session.is_admin %}
     <a href="{{ url_for('admin_panel') }}">Admin</a>
