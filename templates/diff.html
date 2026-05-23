@@ -1,0 +1,491 @@
+{% extends "base.html" %}
+{% block title %}What changed — BerthAI{% endblock %}
+
+{% block content %}
+<div class="page-wrap">
+
+  {# ── Back nav ── #}
+  <div class="diff-back">
+    <a href="{{ url_for('dashboard') }}" class="diff-back-link">← Dashboard</a>
+    <span class="diff-back-sep">|</span>
+    <span class="diff-back-label">Comparing analyses</span>
+  </div>
+
+  {# ── Header ── #}
+  <div class="diff-header">
+    <div class="diff-period">
+      <div class="diff-period-block diff-period-old">
+        <div class="diff-period-tag">Baseline</div>
+        <div class="diff-period-date">{{ (sess_b.created_at or '')[:10] }}</div>
+      </div>
+      <div class="diff-arrow">→</div>
+      <div class="diff-period-block diff-period-new">
+        <div class="diff-period-tag">Latest</div>
+        <div class="diff-period-date">{{ (sess_a.created_at or '')[:10] }}</div>
+      </div>
+    </div>
+  </div>
+
+  {# ── Summary tiles ── #}
+  <div class="diff-tiles">
+    <div class="diff-tile diff-tile-danger">
+      <div class="diff-tile-num">{{ escalated|length }}</div>
+      <div class="diff-tile-label">Escalated to critical</div>
+    </div>
+    <div class="diff-tile diff-tile-success">
+      <div class="diff-tile-num">{{ improved|length }}</div>
+      <div class="diff-tile-label">Left critical</div>
+    </div>
+    <div class="diff-tile diff-tile-neutral">
+      <div class="diff-tile-num">{{ status_changed|length }}</div>
+      <div class="diff-tile-label">Status changed</div>
+    </div>
+    <div class="diff-tile diff-tile-new">
+      <div class="diff-tile-num">{{ new_items|length }}</div>
+      <div class="diff-tile-label">New items</div>
+    </div>
+    <div class="diff-tile diff-tile-gone">
+      <div class="diff-tile-num">{{ resolved|length }}</div>
+      <div class="diff-tile-label">No longer tracked</div>
+    </div>
+    <div class="diff-tile diff-tile-unchanged">
+      <div class="diff-tile-num">{{ unchanged|length }}</div>
+      <div class="diff-tile-label">Unchanged</div>
+    </div>
+  </div>
+
+  {# ── Escalated ── #}
+  {% if escalated %}
+  <div class="diff-section">
+    <div class="diff-section-header diff-section-danger">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+        <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+      </svg>
+      Escalated to critical
+    </div>
+    <div class="card diff-card">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Item</th>
+            <th>Was</th>
+            <th>Now</th>
+            <th>Days of supply</th>
+            <th>Stock</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in escalated %}
+          <tr>
+            <td class="diff-item-name">{{ row.item }}</td>
+            <td><span class="badge badge-{{ row.from_status|lower }}">{{ row.from_status }}</span></td>
+            <td><span class="badge badge-critical">CRITICAL</span></td>
+            <td>
+              {% set dos_b = row.b.get('days_of_supply') %}
+              {% set dos_a = row.a.get('days_of_supply') %}
+              {% if dos_b is not none and dos_a is not none %}
+                <span class="diff-val-old">{{ dos_b }}d</span> → <strong class="text-danger">{{ dos_a }}d</strong>
+              {% elif dos_a is not none %}
+                {{ dos_a }}d
+              {% else %}
+                —
+              {% endif %}
+            </td>
+            <td>{{ row.a.get('stock', '—') }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  {# ── Improved ── #}
+  {% if improved %}
+  <div class="diff-section">
+    <div class="diff-section-header diff-section-success">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <polyline points="20 6 9 17 4 12"/>
+      </svg>
+      Left critical
+    </div>
+    <div class="card diff-card">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Item</th>
+            <th>Was</th>
+            <th>Now</th>
+            <th>Days of supply</th>
+            <th>Stock</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in improved %}
+          <tr>
+            <td class="diff-item-name">{{ row.item }}</td>
+            <td><span class="badge badge-critical">CRITICAL</span></td>
+            <td><span class="badge badge-{{ row.to_status|lower }}">{{ row.to_status }}</span></td>
+            <td>
+              {% set dos_b = row.b.get('days_of_supply') %}
+              {% set dos_a = row.a.get('days_of_supply') %}
+              {% if dos_b is not none and dos_a is not none %}
+                <span class="diff-val-old">{{ dos_b }}d</span> → <strong class="text-success">{{ dos_a }}d</strong>
+              {% elif dos_a is not none %}
+                {{ dos_a }}d
+              {% else %}
+                —
+              {% endif %}
+            </td>
+            <td>{{ row.a.get('stock', '—') }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  {# ── Other status changes ── #}
+  {% if status_changed %}
+  <div class="diff-section">
+    <div class="diff-section-header diff-section-neutral">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <line x1="5" y1="12" x2="19" y2="12"/>
+        <polyline points="12 5 19 12 12 19"/>
+      </svg>
+      Status changed
+    </div>
+    <div class="card diff-card">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Item</th>
+            <th>Was</th>
+            <th>Now</th>
+            <th>Days of supply</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in status_changed %}
+          <tr>
+            <td class="diff-item-name">{{ row.item }}</td>
+            <td><span class="badge badge-{{ row.from_status|lower }}">{{ row.from_status }}</span></td>
+            <td><span class="badge badge-{{ row.to_status|lower }}">{{ row.to_status }}</span></td>
+            <td>
+              {% set dos_b = row.b.get('days_of_supply') %}
+              {% set dos_a = row.a.get('days_of_supply') %}
+              {% if dos_b is not none and dos_a is not none %}
+                {{ dos_b }}d → {{ dos_a }}d
+              {% elif dos_a is not none %}
+                {{ dos_a }}d
+              {% else %}
+                —
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  {# ── New items ── #}
+  {% if new_items %}
+  <div class="diff-section">
+    <div class="diff-section-header diff-section-new">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="10"/>
+        <line x1="12" y1="8" x2="12" y2="16"/>
+        <line x1="8" y1="12" x2="16" y2="12"/>
+      </svg>
+      New items tracked
+    </div>
+    <div class="card diff-card">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Item</th>
+            <th>Status</th>
+            <th>Days of supply</th>
+            <th>Stock</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in new_items %}
+          <tr>
+            <td class="diff-item-name">{{ item.item }}</td>
+            <td><span class="badge badge-{{ (item.status or 'normal')|lower }}">{{ item.status or '—' }}</span></td>
+            <td>{% if item.get('days_of_supply') is not none %}{{ item.get('days_of_supply') }}d{% else %}—{% endif %}</td>
+            <td>{{ item.stock or '—' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  {# ── No longer tracked ── #}
+  {% if resolved %}
+  <div class="diff-section">
+    <div class="diff-section-header diff-section-gone">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="10"/>
+        <line x1="8" y1="12" x2="16" y2="12"/>
+      </svg>
+      No longer in inventory
+    </div>
+    <div class="card diff-card">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Item</th>
+            <th>Last status</th>
+            <th>Last seen</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in resolved %}
+          <tr>
+            <td class="diff-item-name" style="color:var(--muted); text-decoration:line-through;">{{ item.item }}</td>
+            <td><span class="badge badge-{{ (item.status or 'normal')|lower }}">{{ item.status or '—' }}</span></td>
+            <td style="color:var(--muted); font-size:13px;">{{ (sess_b.created_at or '')[:10] }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  {# ── No changes at all ── #}
+  {% if not escalated and not improved and not status_changed and not new_items and not resolved %}
+  <div class="card" style="text-align:center; padding:48px 28px; margin-top:24px;">
+    <div style="font-size:32px; margin-bottom:12px;">✓</div>
+    <div style="font-size:17px; font-weight:500; color:var(--text); margin-bottom:8px;">No changes</div>
+    <div style="font-size:14px; color:var(--muted);">Every tracked SKU has the same status across both analyses.</div>
+  </div>
+  {% endif %}
+
+  {# ── Unchanged (collapsed) ── #}
+  {% if unchanged %}
+  <div class="diff-section diff-section-collapsed">
+    <button class="diff-toggle" onclick="toggleUnchanged(this)" aria-expanded="false">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="diff-toggle-icon" aria-hidden="true">
+        <polyline points="9 18 15 12 9 6"/>
+      </svg>
+      Show {{ unchanged|length }} unchanged items
+    </button>
+    <div class="diff-unchanged-body" hidden>
+      <div class="card diff-card" style="margin-top:8px;">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Item</th>
+              <th>Status</th>
+              <th>Days of supply</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in unchanged %}
+            <tr>
+              <td class="diff-item-name" style="color:var(--muted);">{{ row.item }}</td>
+              <td><span class="badge badge-{{ (row.to_status or 'normal')|lower }}">{{ row.to_status or '—' }}</span></td>
+              <td style="color:var(--muted);">{% if row.a.get('days_of_supply') is not none %}{{ row.a.get('days_of_supply') }}d{% else %}—{% endif %}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {# ── View both full reports ── #}
+  <div class="diff-footer-links">
+    <a href="{{ url_for('results', upload_session_id=session_a_id) }}" class="btn btn-outline btn-sm">
+      View latest report ({{ (sess_a.created_at or '')[:10] }})
+    </a>
+    <a href="{{ url_for('results', upload_session_id=session_b_id) }}" class="btn btn-outline btn-sm">
+      View baseline report ({{ (sess_b.created_at or '')[:10] }})
+    </a>
+  </div>
+
+</div>
+
+<style>
+.diff-back {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 20px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.diff-back-link {
+  color: var(--brass-3, var(--brass));
+  text-decoration: none;
+  font-weight: 500;
+}
+.diff-back-link:hover { text-decoration: underline; }
+.diff-back-sep { color: var(--border); }
+
+.diff-header {
+  margin-bottom: 20px;
+}
+.diff-period {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.diff-period-block {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.diff-period-tag {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--muted);
+  font-weight: 600;
+}
+.diff-period-date {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--navy-900, var(--text));
+  font-family: var(--font-display, inherit);
+}
+.diff-period-old .diff-period-date { color: var(--muted); }
+.diff-arrow {
+  font-size: 20px;
+  color: var(--border);
+  margin-top: 14px;
+}
+
+.diff-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px;
+  margin-bottom: 28px;
+}
+.diff-tile {
+  background: var(--paper);
+  border: 0.5px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 14px 12px;
+}
+.diff-tile-num {
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 1;
+  margin-bottom: 4px;
+}
+.diff-tile-label {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  line-height: 1.3;
+}
+.diff-tile-danger  { border-left: 3px solid var(--danger, #c0392b); }
+.diff-tile-danger .diff-tile-num  { color: var(--danger, #c0392b); }
+.diff-tile-success { border-left: 3px solid var(--success, #27ae60); }
+.diff-tile-success .diff-tile-num { color: var(--success, #27ae60); }
+.diff-tile-neutral { border-left: 3px solid var(--brass); }
+.diff-tile-neutral .diff-tile-num { color: var(--brass-3, var(--brass)); }
+.diff-tile-new     { border-left: 3px solid #3b82f6; }
+.diff-tile-new .diff-tile-num     { color: #3b82f6; }
+.diff-tile-gone    { border-left: 3px solid var(--muted); }
+.diff-tile-gone .diff-tile-num    { color: var(--muted); }
+.diff-tile-unchanged { border-left: 3px solid var(--border); }
+.diff-tile-unchanged .diff-tile-num { color: var(--muted); }
+
+.diff-section {
+  margin-bottom: 24px;
+}
+.diff-section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  margin-bottom: 8px;
+  padding-left: 2px;
+}
+.diff-section-danger  { color: var(--danger, #c0392b); }
+.diff-section-success { color: var(--success, #27ae60); }
+.diff-section-neutral { color: var(--brass-3, var(--brass)); }
+.diff-section-new     { color: #3b82f6; }
+.diff-section-gone    { color: var(--muted); }
+
+.diff-card { padding: 0; overflow: hidden; }
+
+.diff-item-name {
+  font-weight: 500;
+  max-width: 260px;
+}
+
+.diff-val-old {
+  color: var(--muted);
+  text-decoration: line-through;
+  font-size: 13px;
+}
+
+.text-danger  { color: var(--danger, #c0392b) !important; }
+.text-success { color: var(--success, #27ae60) !important; }
+
+.badge-low    { background: #fef3c7; color: #92400e; }
+.badge-normal { background: #dcfce7; color: #166534; }
+.badge-dead   { background: #f3f4f6; color: #6b7280; }
+
+.diff-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--muted);
+  padding: 4px 0;
+  transition: color 150ms;
+}
+.diff-toggle:hover { color: var(--text); }
+.diff-toggle-icon {
+  transition: transform 200ms;
+}
+.diff-toggle[aria-expanded="true"] .diff-toggle-icon {
+  transform: rotate(90deg);
+}
+
+.diff-footer-links {
+  display: flex;
+  gap: 10px;
+  margin-top: 32px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+</style>
+
+<script>
+function toggleUnchanged(btn) {
+  var expanded = btn.getAttribute('aria-expanded') === 'true';
+  var body = btn.nextElementSibling;
+  btn.setAttribute('aria-expanded', !expanded);
+  if (expanded) {
+    body.hidden = true;
+    btn.innerHTML = btn.innerHTML.replace('Hide', 'Show');
+  } else {
+    body.hidden = false;
+    btn.innerHTML = btn.innerHTML.replace('Show', 'Hide');
+  }
+}
+</script>
+{% endblock %}

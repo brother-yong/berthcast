@@ -1242,6 +1242,87 @@ def print_results(upload_session_id):
     return render_template("print_order.html", recommendations=approved, org_name=session["org_name"])
 
 
+@app.route("/diff/<int:session_a_id>/<int:session_b_id>")
+@login_required
+def diff_view(session_a_id, session_b_id):
+    """Compare two analysis sessions — show what changed between them."""
+    _verify_session_owner(session_a_id)
+    _verify_session_owner(session_b_id)
+
+    def _load(sid):
+        sess = db.query("SELECT * FROM upload_sessions WHERE id=?", (sid,))
+        ar   = db.query(
+            "SELECT inventory_report, recommendations_json FROM analysis_results WHERE session_id=?",
+            (sid,)
+        )
+        if not sess or not ar:
+            return None, [], []
+        inv  = json.loads(ar[0]["inventory_report"]    or "[]")
+        recs = json.loads(ar[0]["recommendations_json"] or "[]")
+        if isinstance(inv, dict):
+            inv = []
+        return sess[0], inv, recs
+
+    sess_a, inv_a, _  = _load(session_a_id)
+    sess_b, inv_b, _  = _load(session_b_id)
+
+    if not sess_a or not sess_b:
+        flash("Could not load one or both sessions.", "error")
+        return redirect(url_for("dashboard"))
+
+    # Guarantee A is the newer session
+    if str(sess_a["created_at"]) < str(sess_b["created_at"]):
+        sess_a, inv_a, session_a_id, sess_b, inv_b, session_b_id = \
+            sess_b, inv_b, session_b_id, sess_a, inv_a, session_a_id
+
+    map_a = {str(i.get("item", "")).strip(): i for i in inv_a if isinstance(i, dict)}
+    map_b = {str(i.get("item", "")).strip(): i for i in inv_b if isinstance(i, dict)}
+    all_items = sorted(set(map_a) | set(map_b))
+
+    STATUS_ORDER = {"CRITICAL": 0, "LOW": 1, "NORMAL": 2, "DEAD": 3}
+
+    escalated      = []   # became CRITICAL
+    improved       = []   # left CRITICAL
+    status_changed = []   # other status shift
+    new_items      = []   # only in A
+    resolved       = []   # only in B
+    unchanged      = []   # same status
+
+    for item in all_items:
+        a = map_a.get(item)
+        b = map_b.get(item)
+        if a and not b:
+            new_items.append(a)
+        elif b and not a:
+            resolved.append(b)
+        else:
+            sa = (a.get("status") or "").upper()
+            sb = (b.get("status") or "").upper()
+            entry = {"item": item, "from_status": sb, "to_status": sa, "a": a, "b": b}
+            if sa == sb:
+                unchanged.append(entry)
+            elif sa == "CRITICAL" and sb != "CRITICAL":
+                escalated.append(entry)
+            elif sb == "CRITICAL" and sa != "CRITICAL":
+                improved.append(entry)
+            else:
+                status_changed.append(entry)
+
+    return render_template(
+        "diff.html",
+        sess_a=sess_a,
+        sess_b=sess_b,
+        session_a_id=session_a_id,
+        session_b_id=session_b_id,
+        escalated=escalated,
+        improved=improved,
+        status_changed=status_changed,
+        new_items=new_items,
+        resolved=resolved,
+        unchanged=unchanged,
+    )
+
+
 
 # ── Recommendation approve / dismiss routes ──────────────────────────────────
 
