@@ -900,18 +900,19 @@ async function loadConversation(convId) {
     document.querySelectorAll('.conv-item').forEach(el => {
       el.classList.toggle('active', parseInt(el.dataset.id) === convId);
     });
-  } catch(e) { alert('Could not load conversation.'); }
+  } catch(e) { showToast('Could not load conversation.'); }
 }
 
 // ── Delete conversation ────────────────────────────────────────────────────
-async function deleteConversation(e, convId) {
+function deleteConversation(e, convId) {
   e.stopPropagation();
-  if (!confirm('Delete this conversation?')) return;
-  try {
-    await fetch(`/api/chat/conversation/${convId}`, { method: 'DELETE' });
-    if (currentConvId === convId) startNewChat();
-    loadConversations(document.getElementById('searchInput').value || undefined);
-  } catch(e) { alert('Could not delete conversation.'); }
+  showConfirm('Delete this conversation?', async () => {
+    try {
+      await fetch(`/api/chat/conversation/${convId}`, { method: 'DELETE' });
+      if (currentConvId === convId) startNewChat();
+      loadConversations(document.getElementById('searchInput').value || undefined);
+    } catch(e) { showToast('Could not delete conversation.'); }
+  }, { danger: true, label: 'Delete' });
 }
 
 // ── Feature toggles ────────────────────────────────────────────────────────

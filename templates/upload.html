@@ -179,7 +179,7 @@ async function continueToStep2() {
 
   const scope = getScopeValue();
   if (scope === null) {
-    alert('Please enter a number for your custom scope, or choose one of the preset options.');
+    showToast('Please enter a number for your custom scope, or choose one of the preset options.', 'info');
     document.getElementById('custom-scope-input').focus();
     return;
   }
@@ -194,10 +194,10 @@ async function continueToStep2() {
       body:    JSON.stringify({ scope }),
     });
     const data = await res.json();
-    if (!data.ok) { alert('Could not save scope: ' + (data.error || 'Unknown error')); return; }
+    if (!data.ok) { showToast('Could not save scope. Please try again.'); return; }
     window.location.href = contextUrl;
   } catch(e) {
-    alert('Network error saving scope. Please try again.');
+    showToast('Network error saving scope. Please try again.');
     btn.textContent = 'Continue to Step 2';
     btn.disabled = false;
   }
@@ -440,26 +440,27 @@ function _markSlotDone(slot, slotId, displayName, rows) {
 
 // ── remove ───────────────────────────────────────────────────────────────────
 
-async function removeFile(slot, slotId) {
-  if (!confirm('Remove this file?')) return;
-  const slotEl = document.getElementById(slotId);
-  try {
-    const res  = await fetch('/upload/remove', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ slot, session_id: sessionId })
-    });
-    const data = await res.json();
-    if (data.ok) {
-      slotEl.querySelector('.upload-slot-icon').textContent = slotEl.dataset.icon || '📋';
-      slotEl.classList.remove('done','error','uploading');
-      _setLabelText(slot, 'Upload');
-      _setProgress(slotId, 0);
-      uploadedSlots[slot] = false;
-      _setStatus(slot, '');
-    }
-  } catch(e) { alert('Could not remove file.'); }
-  _updateContinueBtn();
+function removeFile(slot, slotId) {
+  showConfirm('Remove this file?', async () => {
+    const slotEl = document.getElementById(slotId);
+    try {
+      const res  = await fetch('/upload/remove', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ slot, session_id: sessionId })
+      });
+      const data = await res.json();
+      if (data.ok) {
+        slotEl.querySelector('.upload-slot-icon').textContent = slotEl.dataset.icon || '📋';
+        slotEl.classList.remove('done','error','uploading');
+        _setLabelText(slot, 'Upload');
+        _setProgress(slotId, 0);
+        uploadedSlots[slot] = false;
+        _setStatus(slot, '');
+      }
+    } catch(e) { showToast('Could not remove file.'); }
+    _updateContinueBtn();
+  }, { label: 'Remove' });
 }
 </script>
 {% endblock %}
