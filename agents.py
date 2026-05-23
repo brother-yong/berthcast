@@ -549,6 +549,35 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
     except Exception:
         pass
 
+    # Category-based supplier type fallback — used when PO table has no match
+    CATEGORY_SUPPLIER_TYPE = {
+        "bread": "local", "bun": "local", "hotdog": "local", "prata": "local",
+        "eggs": "local", "egg": "local", "water": "local",
+        "coca-cola": "local", "fanta": "local", "sprite": "local", "pepsi": "local",
+        "7up": "local", "carbonated": "local",
+        "spring roll skin": "local", "spring roll": "local",
+        "milk": "import", "cheese": "import", "butter": "import",
+        "cream": "import", "yoghurt": "import", "yogurt": "import",
+        "ice cream": "import", "muesli": "import", "cereal": "import",
+        "pasta": "import", "noodle": "import", "flour": "import",
+        "biscuit": "import", "cracker": "import", "cookie": "import",
+        "juice": "import", "coffee": "import", "sauce": "import",
+        "ketchup": "import", "canned": "import", "tortilla": "import",
+        "pizza": "import", "pastry": "import", "puff": "import",
+        "mozzarella": "import", "parmesan": "import", "edam": "import",
+        "cheddar": "import", "feta": "import", "gouda": "import",
+        "cottage cheese": "import", "emmenthal": "import",
+    }
+
+    LEAD_TIME_BY_TYPE = {"import": 112, "local": 21, "other": 56}
+
+    def _infer_supplier_type(item_name: str) -> str:
+        name_lower = item_name.lower()
+        for keyword, stype in CATEGORY_SUPPLIER_TYPE.items():
+            if keyword in name_lower:
+                return stype
+        return "other"
+
     _emit(progress_emit, f"Mapped {len(supplier_type_map)} suppliers, {len(item_supplier_map)} item-supplier links")
 
     # Strip dead SKUs first — they must never reach the recommendation agent
@@ -559,7 +588,8 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
 
     actionable = [
         r for r in live_items
-        if r.get("status") in ("LOW", "CRITICAL") or r.get("spoilage_risk") in ("HIGH", "MEDIUM")
+        if r.get("status") in ("LOW", "CRITICAL")
+        or (r.get("status") != "HEALTHY" and r.get("spoilage_risk") in ("HIGH", "MEDIUM"))
     ][:150]
 
     if not actionable:
@@ -632,6 +662,23 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
         iname    = inv_item.get("item", "Unknown")
         supplier = item_supplier_map.get(iname, "Unknown") or "Unknown"
         stype    = supplier_type_map.get(supplier, "other")
+
+        # Fallback: if supplier unknown, infer type from item name
+        if stype == "other" and supplier == "Unknown":
+            stype = _infer_supplier_type(iname)
+
+        # Name-based override for known flagged suppliers
+        FLAGGED_SUPPLIER_PREFIXES = {
+            "EL SABAH": "El Sabah",
+            "ABD KHAN": "ABD Khan",
+            "NHAN TU": "Nhan Tu",
+        }
+        iname_upper = iname.upper()
+        for prefix, canonical_name in FLAGGED_SUPPLIER_PREFIXES.items():
+            if iname_upper.startswith(prefix):
+                supplier = canonical_name
+                stype = "import"
+                break
 
         sup_profile = get_supplier_profile(org_name, supplier)
         # Only apply a default lead time when the supplier is actually known
