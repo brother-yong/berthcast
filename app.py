@@ -37,7 +37,6 @@ FILE_SLOTS = {
     "sales":           "sales",
     "suppliers":       "suppliers",
     "customers":       "customers",
-    "stockouts":       "stockouts",
 }
 
 AVAILABLE_MODELS = [
@@ -867,7 +866,6 @@ def upload_start():
         "sales":           "Sales Report",
         "suppliers":       "Supplier Listing",
         "customers":       "Customer Listing",
-        "stockouts":       "Stockout Report",
     }
     preserved = []
     for slot, label in slot_labels.items():
