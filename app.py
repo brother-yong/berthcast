@@ -1,5 +1,6 @@
 import os
 import json
+import secrets
 import threading
 import time
 import smtplib
@@ -169,6 +170,124 @@ def login():
 def logout():
     session.clear()
     return redirect(url_for("landing"))
+
+
+# ── Password reset ────────────────────────────────────────────────────────────
+
+def _send_reset_email(to_email: str, reset_url: str) -> None:
+    """Send a password reset link via Gmail SMTP. Fails silently if not configured."""
+    sender   = os.environ.get("MAIL_SENDER", "")
+    password = os.environ.get("MAIL_APP_PASSWORD", "")
+    if not sender or not password:
+        return
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = "Reset your BerthAI password"
+    msg["From"]    = sender
+    msg["To"]      = to_email
+
+    text = (
+        f"Hi,\n\n"
+        f"Someone requested a password reset for your BerthAI account.\n\n"
+        f"Click the link below to set a new password. It expires in 1 hour.\n\n"
+        f"{reset_url}\n\n"
+        f"If you didn't request this, you can ignore this email — your password won't change.\n\n"
+        f"— BerthAI"
+    )
+    html = f"""
+    <div style="font-family:'Segoe UI',sans-serif;max-width:480px;margin:0 auto;color:#1a2a3a;">
+      <p style="font-size:15px;line-height:1.6;">
+        Someone requested a password reset for your BerthAI account.
+      </p>
+      <a href="{reset_url}"
+         style="display:inline-block;margin:20px 0;padding:12px 28px;
+                background:#c8924c;color:#fff;text-decoration:none;
+                border-radius:8px;font-weight:600;font-size:14px;">
+        Reset password
+      </a>
+      <p style="font-size:13px;color:#6b7280;line-height:1.5;">
+        This link expires in 1 hour. If you didn't request a reset, ignore this email.
+      </p>
+      <p style="font-size:13px;color:#6b7280;">— BerthAI</p>
+    </div>
+    """
+    msg.attach(MIMEText(text, "plain"))
+    msg.attach(MIMEText(html, "html"))
+
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as smtp:
+            smtp.login(sender, password)
+            smtp.sendmail(sender, to_email, msg.as_string())
+    except Exception:
+        pass
+
+
+@app.route("/forgot-password", methods=["GET", "POST"])
+def forgot_password():
+    if "user_id" in session:
+        return redirect(url_for("chat"))
+    if request.method == "POST":
+        email = request.form.get("email", "").strip().lower()
+        if email:
+            users = db.query("SELECT id FROM users WHERE email=?", (email,))
+            if users:
+                # Delete any existing tokens for this user first
+                db.execute(
+                    "DELETE FROM password_reset_tokens WHERE user_id=?",
+                    (users[0]["id"],)
+                )
+                token = secrets.token_urlsafe(32)
+                db.execute(
+                    "INSERT INTO password_reset_tokens (user_id, token) VALUES (?,?)",
+                    (users[0]["id"], token)
+                )
+                reset_url = url_for("reset_password", token=token, _external=True)
+                threading.Thread(
+                    target=_send_reset_email,
+                    args=(email, reset_url),
+                    daemon=True,
+                ).start()
+        # Always show the same message — don't reveal whether email exists
+        return render_template("forgot_password.html", submitted=True)
+    return render_template("forgot_password.html", submitted=False)
+
+
+@app.route("/reset-password/<token>", methods=["GET", "POST"])
+def reset_password(token):
+    if "user_id" in session:
+        return redirect(url_for("chat"))
+
+    # Validate token — must exist and be less than 1 hour old
+    rows = db.query(
+        """SELECT prt.id, prt.user_id
+           FROM password_reset_tokens prt
+           WHERE prt.token=?
+             AND prt.created_at >= datetime('now', '-1 hour')""",
+        (token,)
+    )
+    if not rows:
+        return render_template("reset_password.html", invalid=True, token=token)
+
+    if request.method == "POST":
+        password  = request.form.get("password", "")
+        password2 = request.form.get("password2", "")
+        if len(password) < 8:
+            return render_template("reset_password.html", invalid=False, token=token,
+                                   error="Password must be at least 8 characters.")
+        if password != password2:
+            return render_template("reset_password.html", invalid=False, token=token,
+                                   error="Passwords don't match.")
+
+        user_id = rows[0]["user_id"]
+        db.execute(
+            "UPDATE users SET password_hash=? WHERE id=?",
+            (generate_password_hash(password), user_id)
+        )
+        db.execute("DELETE FROM password_reset_tokens WHERE token=?", (token,))
+        flash("Password updated. Sign in with your new password.", "success")
+        return redirect(url_for("login"))
+
+    return render_template("reset_password.html", invalid=False, token=token)
 
 
 # ── Chat ─────────────────────────────────────────────────────────────────────
