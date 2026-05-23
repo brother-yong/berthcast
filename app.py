@@ -174,6 +174,93 @@ def logout():
 
 # ── Password reset ────────────────────────────────────────────────────────────
 
+def _send_critical_alert(user_id: int, upload_session_id: int, new_critical: list,
+                          base_url: str = "") -> None:
+    """Email the user when items newly enter CRITICAL status versus the previous run."""
+    users = db.query("SELECT email FROM users WHERE id=?", (user_id,))
+    if not users:
+        return
+    to_email = users[0]["email"]
+
+    sender   = os.environ.get("MAIL_SENDER", "")
+    password = os.environ.get("MAIL_APP_PASSWORD", "")
+    if not sender or not password:
+        return
+
+    count   = len(new_critical)
+    subject = f"⚠ {count} item{'s' if count != 1 else ''} hit critical stock — BerthAI"
+
+    results_path = f"{base_url}/results/{upload_session_id}"
+
+    rows_text = "\n".join(
+        f"  • {i.get('item','')}  ({i.get('days_of_supply','?')} days of supply remaining)"
+        for i in new_critical
+    )
+    rows_html = "".join(
+        f"""<tr>
+              <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-weight:500;">{i.get('item','')}</td>
+              <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;color:#c0392b;">{i.get('days_of_supply','—')} days</td>
+              <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;color:#6b7280;font-size:13px;">{i.get('observation','')}</td>
+            </tr>"""
+        for i in new_critical
+    )
+
+    text = (
+        f"BerthAI stock alert\n\n"
+        f"{count} item{'s' if count != 1 else ''} moved to CRITICAL stock level since your last analysis:\n\n"
+        f"{rows_text}\n\n"
+        f"View the full report: {results_path}\n\n"
+        f"— BerthAI"
+    )
+    html = f"""
+    <div style="font-family:'Segoe UI',sans-serif;max-width:560px;margin:0 auto;color:#1a2a3a;">
+      <div style="background:#fef2f2;border-left:4px solid #c0392b;
+                  padding:16px 20px;border-radius:6px;margin-bottom:24px;">
+        <div style="font-size:14px;font-weight:700;color:#c0392b;text-transform:uppercase;
+                    letter-spacing:0.05em;margin-bottom:4px;">Stock alert</div>
+        <div style="font-size:17px;font-weight:600;color:#1a2a3a;">
+          {count} item{'s' if count != 1 else ''} moved to critical since your last run
+        </div>
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:24px;">
+        <thead>
+          <tr style="background:#f9fafb;">
+            <th style="padding:8px 12px;text-align:left;font-size:11px;text-transform:uppercase;
+                       letter-spacing:0.06em;color:#6b7280;border-bottom:2px solid #e5e7eb;">Item</th>
+            <th style="padding:8px 12px;text-align:left;font-size:11px;text-transform:uppercase;
+                       letter-spacing:0.06em;color:#6b7280;border-bottom:2px solid #e5e7eb;">Stock runway</th>
+            <th style="padding:8px 12px;text-align:left;font-size:11px;text-transform:uppercase;
+                       letter-spacing:0.06em;color:#6b7280;border-bottom:2px solid #e5e7eb;">Note</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows_html}
+        </tbody>
+      </table>
+      <a href="{results_path}"
+         style="display:inline-block;padding:11px 24px;background:#c8924c;color:#fff;
+                text-decoration:none;border-radius:8px;font-weight:600;font-size:14px;">
+        View full report →
+      </a>
+      <p style="font-size:12px;color:#9ca3af;margin-top:24px;">— BerthAI</p>
+    </div>
+    """
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"]    = sender
+    msg["To"]      = to_email
+    msg.attach(MIMEText(text, "plain"))
+    msg.attach(MIMEText(html, "html"))
+
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as smtp:
+            smtp.login(sender, password)
+            smtp.sendmail(sender, to_email, msg.as_string())
+    except Exception:
+        pass
+
+
 def _send_reset_email(to_email: str, reset_url: str) -> None:
     """Send a password reset link via Gmail SMTP. Fails silently if not configured."""
     sender   = os.environ.get("MAIL_SENDER", "")
@@ -1211,7 +1298,8 @@ def run_analysis(upload_session_id):
         return render_template("analysis_progress.html", upload_session_id=upload_session_id)
 
     # Otherwise kick off a new run in the background.
-    model = session["model"]
+    model    = session["model"]
+    base_url = request.host_url.rstrip("/")  # e.g. "https://berthai.onrender.com"
     with analysis_progress_lock:
         analysis_progress[upload_session_id] = {
             "started_at": time.time(),
@@ -1261,6 +1349,48 @@ def run_analysis(upload_session_id):
                 (json.dumps(inventory_report), json.dumps(recommendations), upload_session_id)
             )
             db.execute("UPDATE upload_sessions SET status='complete' WHERE id=?", (upload_session_id,))
+
+            # ── Critical stock alert ─────────────────────────────────────────
+            # Compare against the previous completed session for this user.
+            # If any items are newly CRITICAL (weren't critical before), email the user.
+            try:
+                sess_meta = db.query("SELECT user_id FROM upload_sessions WHERE id=?", (upload_session_id,))
+                if sess_meta:
+                    uid = sess_meta[0]["user_id"]
+                    prev = db.query(
+                        "SELECT id FROM upload_sessions "
+                        "WHERE user_id=? AND status='complete' AND id!=? "
+                        "ORDER BY created_at DESC LIMIT 1",
+                        (uid, upload_session_id)
+                    )
+                    if prev:
+                        prev_ar = db.query(
+                            "SELECT inventory_report FROM analysis_results WHERE session_id=?",
+                            (prev[0]["id"],)
+                        )
+                        if prev_ar and prev_ar[0]["inventory_report"]:
+                            prev_inv = json.loads(prev_ar[0]["inventory_report"] or "[]")
+                            if isinstance(prev_inv, dict):
+                                prev_inv = []
+                            prev_critical = {
+                                str(i.get("item", "")).strip()
+                                for i in prev_inv
+                                if isinstance(i, dict) and i.get("status") == "CRITICAL"
+                            }
+                            newly_critical = [
+                                i for i in inventory_report
+                                if isinstance(i, dict)
+                                and i.get("status") == "CRITICAL"
+                                and str(i.get("item", "")).strip() not in prev_critical
+                            ]
+                            if newly_critical:
+                                threading.Thread(
+                                    target=_send_critical_alert,
+                                    args=(uid, upload_session_id, newly_critical, base_url),
+                                    daemon=True,
+                                ).start()
+            except Exception:
+                pass  # Never let alert logic break the analysis
 
             _emit("Saving results and redirecting...")
             with analysis_progress_lock:
