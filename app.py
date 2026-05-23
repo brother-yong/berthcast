@@ -1491,6 +1491,196 @@ def print_results(upload_session_id):
     return render_template("print_order.html", recommendations=approved, org_name=session["org_name"])
 
 
+@app.route("/results/<int:upload_session_id>/export.csv")
+@login_required
+def export_csv(upload_session_id):
+    """Download approved recommendations as a CSV file."""
+    import csv, io
+    _verify_session_owner(upload_session_id)
+    ar = db.query("SELECT recommendations_json FROM analysis_results WHERE session_id=?", (upload_session_id,))
+    if not ar:
+        flash("No results found.", "error")
+        return redirect(url_for("dashboard"))
+    try:
+        recommendations = json.loads(ar[0]["recommendations_json"] or "[]")
+    except Exception:
+        recommendations = []
+    approved = [r for r in recommendations if r.get("approved") and not r.get("error")]
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow([
+        "Item", "Supplier", "Supplier Type", "Suggested Quantity",
+        "Days of Supply", "Stock Runway (months)", "Confidence", "Reason", "Note"
+    ])
+    for r in approved:
+        dos = r.get("days_of_supply")
+        runway = round(dos / 30, 1) if dos else ""
+        writer.writerow([
+            r.get("item", ""),
+            r.get("supplier", ""),
+            r.get("supplier_type", ""),
+            r.get("suggested_quantity", ""),
+            dos or "",
+            runway,
+            r.get("confidence", ""),
+            r.get("reason", ""),
+            r.get("note", ""),
+        ])
+
+    org_slug = session["org_name"].replace(" ", "_").lower()
+    filename = f"berthai_orders_{org_slug}_{upload_session_id}.csv"
+    return Response(
+        buf.getvalue(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
+
+
+@app.route("/results/<int:upload_session_id>/export.pdf")
+@login_required
+def export_pdf(upload_session_id):
+    """Download approved recommendations as a formatted PDF."""
+    import io
+    from datetime import datetime
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import mm
+    from reportlab.lib import colors
+    from reportlab.platypus import (
+        SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    )
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.enums import TA_LEFT, TA_CENTER
+
+    _verify_session_owner(upload_session_id)
+    ar = db.query(
+        "SELECT recommendations_json, created_at FROM analysis_results WHERE session_id=?",
+        (upload_session_id,)
+    )
+    if not ar:
+        flash("No results found.", "error")
+        return redirect(url_for("dashboard"))
+    try:
+        recommendations = json.loads(ar[0]["recommendations_json"] or "[]")
+        generated_at = (ar[0].get("created_at") or "")[:10]
+    except Exception:
+        recommendations = []
+        generated_at = ""
+    approved = [r for r in recommendations if r.get("approved") and not r.get("error")]
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buf, pagesize=A4,
+        leftMargin=18*mm, rightMargin=18*mm,
+        topMargin=18*mm, bottomMargin=18*mm,
+    )
+
+    styles = getSampleStyleSheet()
+    BRASS  = colors.HexColor("#c8924c")
+    NAVY   = colors.HexColor("#0f1b2d")
+    LIGHT  = colors.HexColor("#f9fafb")
+    BORDER = colors.HexColor("#e5e7eb")
+    MUTED  = colors.HexColor("#6b7280")
+
+    title_style = ParagraphStyle(
+        "Title", fontName="Helvetica-Bold", fontSize=18,
+        textColor=NAVY, spaceAfter=2
+    )
+    sub_style = ParagraphStyle(
+        "Sub", fontName="Helvetica", fontSize=10,
+        textColor=MUTED, spaceAfter=12
+    )
+    cell_style = ParagraphStyle(
+        "Cell", fontName="Helvetica", fontSize=9,
+        textColor=NAVY, leading=12
+    )
+    cell_muted = ParagraphStyle(
+        "CellMuted", fontName="Helvetica", fontSize=8,
+        textColor=MUTED, leading=11
+    )
+
+    today = datetime.utcnow().strftime("%d %b %Y")
+    story = [
+        Paragraph("BerthAI — Purchase Order Sheet", title_style),
+        Paragraph(
+            f"{session['org_name']}  ·  Prepared: {today}  ·  "
+            f"Analysis date: {generated_at}  ·  {len(approved)} item(s) approved",
+            sub_style
+        ),
+        Spacer(1, 4*mm),
+    ]
+
+    if approved:
+        header = ["#", "Item", "Supplier", "Qty", "Runway", "Confidence", "Reason / Note"]
+        rows = [header]
+        for i, r in enumerate(approved, 1):
+            dos = r.get("days_of_supply")
+            runway = f"{round(dos/30,1)} mo" if dos else "—"
+            reason = r.get("reason", "")
+            note   = r.get("note", "")
+            reason_cell = Paragraph(
+                reason + (f'<br/><font color="#9ca3af"><i>Note: {note}</i></font>' if note else ""),
+                cell_style
+            )
+            rows.append([
+                str(i),
+                Paragraph(f"<b>{r.get('item','')}</b>", cell_style),
+                Paragraph(
+                    f"{r.get('supplier','')}<br/>"
+                    f"<font color='#6b7280'>{r.get('supplier_type','')}</font>",
+                    cell_style
+                ),
+                Paragraph(str(r.get("suggested_quantity", "—")), cell_style),
+                runway,
+                r.get("confidence", "—"),
+                reason_cell,
+            ])
+
+        col_widths = [8*mm, 38*mm, 32*mm, 18*mm, 16*mm, 20*mm, None]
+        tbl = Table(rows, colWidths=col_widths, repeatRows=1)
+        tbl.setStyle(TableStyle([
+            # Header row
+            ("BACKGROUND",   (0,0), (-1,0), BRASS),
+            ("TEXTCOLOR",    (0,0), (-1,0), colors.white),
+            ("FONTNAME",     (0,0), (-1,0), "Helvetica-Bold"),
+            ("FONTSIZE",     (0,0), (-1,0), 8),
+            ("TOPPADDING",   (0,0), (-1,0), 6),
+            ("BOTTOMPADDING",(0,0), (-1,0), 6),
+            # Body rows
+            ("FONTNAME",     (0,1), (-1,-1), "Helvetica"),
+            ("FONTSIZE",     (0,1), (-1,-1), 9),
+            ("TOPPADDING",   (0,1), (-1,-1), 6),
+            ("BOTTOMPADDING",(0,1), (-1,-1), 6),
+            ("ROWBACKGROUNDS",(0,1), (-1,-1), [colors.white, LIGHT]),
+            ("GRID",         (0,0), (-1,-1), 0.5, BORDER),
+            ("VALIGN",       (0,0), (-1,-1), "TOP"),
+            ("ALIGN",        (0,0), (0,-1), "CENTER"),
+        ]))
+        story.append(tbl)
+    else:
+        story.append(Paragraph(
+            "No approved orders to export. Go back and approve recommendations first.",
+            sub_style
+        ))
+
+    story.append(Spacer(1, 8*mm))
+    story.append(Paragraph(
+        "Generated by BerthAI · For internal purchasing use only",
+        ParagraphStyle("Footer", fontName="Helvetica", fontSize=8, textColor=MUTED)
+    ))
+
+    doc.build(story)
+    buf.seek(0)
+
+    org_slug = session["org_name"].replace(" ", "_").lower()
+    filename = f"berthai_orders_{org_slug}_{upload_session_id}.pdf"
+    return Response(
+        buf.read(),
+        mimetype="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
+
+
 @app.route("/diff/<int:session_a_id>/<int:session_b_id>")
 @login_required
 def diff_view(session_a_id, session_b_id):
