@@ -38,7 +38,7 @@
 
     {% for slot, slotId, iconKey, doneKey, title, badge, desc in slots %}
     {% set uploaded = tables[slot] %}
-    <div class="upload-slot {% if uploaded %}done{% endif %}" id="{{ slotId }}" data-icon="{{ icons[iconKey] }}">
+    <div class="upload-slot {% if uploaded %}done{% endif %}" id="{{ slotId }}" data-slot="{{ slot }}" data-icon="{{ icons[iconKey] }}">
       <div class="upload-slot-icon">{{ icons[doneKey] if uploaded else icons[iconKey] }}</div>
       <div class="upload-slot-info">
         <strong>{{ title }}{% if badge %} <span style="font-weight:400;color:var(--muted);font-size:13px;">{{ badge }}</span>{% endif %}</strong>
@@ -279,9 +279,12 @@ function cancelUpload(slot, slotId) {
   _updateContinueBtn();
 }
 
-async function uploadFile(input, slot, slotId) {
+function uploadFile(input, slot, slotId) {
   if (!input.files[0]) return;
-  const file   = input.files[0];
+  _doUpload(input.files[0], slot, slotId);
+}
+
+async function _doUpload(file, slot, slotId) {
   const slotEl = document.getElementById(slotId);
 
   if (file.size > MAX_SIZE_MB * 1024 * 1024) {
@@ -462,5 +465,41 @@ function removeFile(slot, slotId) {
     _updateContinueBtn();
   }, { label: 'Remove' });
 }
+
+// ── Drag and drop ─────────────────────────────────────────────────────────
+function initDragDrop() {
+  document.querySelectorAll('.upload-slot').forEach(slotEl => {
+    const slot   = slotEl.dataset.slot;
+    const slotId = slotEl.id;
+
+    slotEl.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+      slotEl.classList.add('drag-over');
+    });
+
+    slotEl.addEventListener('dragleave', (e) => {
+      // Only remove highlight when cursor truly leaves the slot
+      if (!slotEl.contains(e.relatedTarget)) {
+        slotEl.classList.remove('drag-over');
+      }
+    });
+
+    slotEl.addEventListener('drop', (e) => {
+      e.preventDefault();
+      slotEl.classList.remove('drag-over');
+      const file = e.dataTransfer.files[0];
+      if (!file) return;
+      const ext = file.name.split('.').pop().toLowerCase();
+      if (!['xlsx','csv'].includes(ext)) {
+        showToast('Only .xlsx and .csv files are accepted.', 'info');
+        return;
+      }
+      _doUpload(file, slot, slotId);
+    });
+  });
+}
+
+document.addEventListener('DOMContentLoaded', initDragDrop);
 </script>
 {% endblock %}

@@ -250,6 +250,13 @@ textarea { resize: vertical; min-height: 96px; line-height: 1.55; }
 .upload-slot.done:hover{ box-shadow: 0 4px 16px rgba(45,106,79,0.12); }
 .upload-slot.error     { border-color: var(--danger); background: #fef2f2; }
 .upload-slot.uploading { border-color: var(--brass); background: var(--paper); }
+.upload-slot.drag-over {
+  border-color: var(--brass);
+  background: rgba(200,155,92,0.07);
+  box-shadow: 0 0 0 3px rgba(200,155,92,0.18);
+  cursor: copy;
+}
+.upload-slot.drag-over .upload-slot-icon { background: rgba(200,155,92,0.18); }
 
 .upload-slot .slot-progress-bar {
   position: absolute;
