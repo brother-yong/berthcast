@@ -58,7 +58,7 @@
               Edit
             </button>
             <form method="POST" action="{{ url_for('user_settings') }}"
-                  onsubmit="return confirm('Delete {{ p.supplier_name }}?')">
+                  data-confirm="Delete {{ p.supplier_name }}?" data-confirm-label="Delete">
               <input type="hidden" name="action" value="delete_supplier">
               <input type="hidden" name="supplier_name" value="{{ p.supplier_name }}">
               <button type="submit" class="btn btn-danger btn-sm">Delete</button>

@@ -386,14 +386,13 @@ function applyFilters() {
 let _lastBulkApprovedItems = [];
 let _undoTimer = null;
 
-async function approveAll() {
+function approveAll() {
   const btn = document.getElementById('approve-all-btn');
   const dismissedCount = document.querySelectorAll('.rec-card.dismissed').length;
   const msg = dismissedCount > 0
     ? `Approve all recommendations except the ${dismissedCount} you already dismissed?`
     : 'Approve all recommendations?';
-  if (!confirm(msg)) return;
-
+  showConfirm(msg, async () => {
   btn.disabled = true;
   btn.textContent = 'Approving...';
   try {
@@ -446,15 +445,16 @@ async function approveAll() {
         }, 15000);
       }
     } else {
-      alert('Could not approve all: ' + (data.error || 'Unknown error'));
+      showToast('Could not approve all: ' + (data.error || 'Unknown error'));
       btn.disabled = false;
       btn.textContent = '✓ Approve all';
     }
   } catch (e) {
-    alert('Network error. Please try again.');
+    showToast('Network error. Please try again.');
     btn.disabled = false;
     btn.textContent = '✓ Approve all';
   }
+  }, { label: 'Approve all' });
 }
 
 async function undoApproveAll() {
@@ -490,7 +490,7 @@ async function undoApproveAll() {
     undoBtn.disabled = false;
     undoBtn.textContent = 'Undo';
   } catch (e) {
-    alert('Network error. Please try again.');
+    showToast('Network error. Please try again.');
     undoBtn.disabled = false;
     undoBtn.textContent = 'Undo';
   }

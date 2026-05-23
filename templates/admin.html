@@ -39,7 +39,7 @@
         </form>
         {% endif %}
         <form method="POST" action="{{ url_for('admin_panel') }}" style="display:inline;"
-              onsubmit="return confirm('Delete this contact request?');">
+              data-confirm="Delete this contact request?" data-confirm-label="Delete">
           <input type="hidden" name="action" value="delete_contact">
           <input type="hidden" name="contact_id" value="{{ c.id }}">
           <button type="submit" class="btn btn-danger btn-sm">Delete</button>
@@ -292,7 +292,7 @@
           <td style="font-size:13px; color:var(--muted);">{{ u.created_at[:10] }}</td>
           <td>
             <form method="POST" action="{{ url_for('admin_panel') }}"
-                  onsubmit="return confirm('Remove this account? This cannot be undone.')">
+                  data-confirm="Remove this account? This cannot be undone." data-confirm-label="Remove">
               <input type="hidden" name="action" value="delete_user">
               <input type="hidden" name="user_id" value="{{ u.id }}">
               <button type="submit" class="btn btn-danger btn-sm">Remove</button>
