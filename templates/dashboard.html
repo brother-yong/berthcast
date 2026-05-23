@@ -119,9 +119,13 @@
                   <span style="color:var(--muted);">—</span>
                   {% endif %}
                 </td>
-                <td>
+                <td style="white-space:nowrap; display:flex; gap:6px; align-items:center;">
                   <a href="{{ url_for('results', upload_session_id=s.id) }}"
                      class="btn btn-outline btn-sm">View</a>
+                  {% if loop.index > 1 %}
+                  <a href="{{ url_for('diff_view', session_a_id=past_sessions[0].id, session_b_id=s.id) }}"
+                     class="btn btn-ghost btn-sm">vs latest</a>
+                  {% endif %}
                 </td>
               </tr>
               {% endfor %}
@@ -252,6 +256,20 @@
   margin-top: 2px;
 }
 .dash-right { min-width: 0; }
+.btn-ghost {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 12px;
+  padding: 3px 9px;
+  border-radius: 6px;
+  text-decoration: none;
+  transition: color 150ms, border-color 150ms;
+}
+.btn-ghost:hover {
+  color: var(--text);
+  border-color: var(--brass);
+}
 @media (max-width: 680px) {
   .dash-split { grid-template-columns: 1fr; }
 }
