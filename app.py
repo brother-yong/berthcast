@@ -1487,21 +1487,96 @@ def run_analysis(upload_session_id):
     base_url    = request.host_url.rstrip("/")  # e.g. "https://berthai.onrender.com"
     with analysis_progress_lock:
         analysis_progress[upload_session_id] = {
-            "started_at": time.time(),
-            "log":        [],
-            "status":     "running",
-            "error":      None,
+            "started_at":    time.time(),
+            "log":           [],
+            "status":        "running",
+            "error":         None,
+            "current_agent": None,
+            "agents": {
+                # Normalisation runs earlier in the dedup step. Mark it done
+                # so the progress page can show all three stages truthfully.
+                "normalization": {
+                    "status":  "done",
+                    "summary": "Item names mapped, duplicates merged",
+                    "started_at": None,
+                    "ended_at":   None,
+                },
+                "inventory": {
+                    "status":  "pending",
+                    "summary": "",
+                    "started_at": None,
+                    "ended_at":   None,
+                },
+                "recommendation": {
+                    "status":  "pending",
+                    "summary": "",
+                    "started_at": None,
+                    "ended_at":   None,
+                },
+            },
         }
 
-    def _emit(msg: str):
+    def _emit(msg: str, agent: str = None):
         with analysis_progress_lock:
             entry = analysis_progress.get(upload_session_id)
             if not entry:
                 return
+            a = agent or entry.get("current_agent")
             entry["log"].append({
-                "t":   round(time.time() - entry["started_at"], 1),
-                "msg": msg,
+                "t":     round(time.time() - entry["started_at"], 1),
+                "msg":   msg,
+                "agent": a,
             })
+
+    def _mark_agent(name: str, status: str, summary: str = None):
+        """Update one agent's lifecycle state. Called when an agent starts,
+        finishes, or errors."""
+        with analysis_progress_lock:
+            entry = analysis_progress.get(upload_session_id)
+            if not entry:
+                return
+            now_rel = round(time.time() - entry["started_at"], 1)
+            ag = entry["agents"].get(name)
+            if not ag:
+                return
+            ag["status"] = status
+            if status == "running":
+                ag["started_at"] = now_rel
+                entry["current_agent"] = name
+            elif status in ("done", "error"):
+                ag["ended_at"] = now_rel
+                if entry.get("current_agent") == name:
+                    entry["current_agent"] = None
+            if summary is not None:
+                ag["summary"] = summary
+
+    def _summarise_inventory(report):
+        """One-line summary for the inventory agent's collapsed card."""
+        if not isinstance(report, list):
+            return "Inventory classified"
+        total    = len(report)
+        critical = sum(1 for r in report if isinstance(r, dict) and r.get("status") == "CRITICAL")
+        low      = sum(1 for r in report if isinstance(r, dict) and r.get("status") == "LOW")
+        dead     = sum(1 for r in report if isinstance(r, dict) and r.get("status") == "DEAD")
+        parts = [f"{total} items reviewed"]
+        if critical: parts.append(f"{critical} critical")
+        if low:      parts.append(f"{low} low")
+        if dead:     parts.append(f"{dead} dead")
+        return " · ".join(parts)
+
+    def _summarise_recommendations(recs):
+        """One-line summary for the recommendation agent's collapsed card."""
+        if not isinstance(recs, list):
+            return "Recommendations generated"
+        valid    = [r for r in recs if isinstance(r, dict) and not r.get("error")]
+        total    = len(valid)
+        flagged  = sum(1 for r in valid if r.get("supplier_risk") == "HIGH" or r.get("flags"))
+        if total == 0:
+            return "No reorder recommendations needed"
+        s = f"{total} reorder recommendation" + ("s" if total != 1 else "")
+        if flagged:
+            s += f" · {flagged} flagged"
+        return s
 
     def _run():
         try:
@@ -1516,18 +1591,25 @@ def run_analysis(upload_session_id):
                 except Exception:
                     pass
 
+            # ── Agent 2: Inventory health ────────────────────────────────────
+            _mark_agent("inventory", "running")
             _emit("Starting inventory health agent")
             inv_result = run_inventory_agent(upload_session_id, model, confirmed_groups, context, progress_emit=_emit)
             if "error" in inv_result:
+                _mark_agent("inventory", "error", summary="Failed — see error below")
                 with analysis_progress_lock:
                     analysis_progress[upload_session_id]["status"] = "error"
                     analysis_progress[upload_session_id]["error"]  = inv_result["error"]
                 return
 
             inventory_report = inv_result["report"]
+            _mark_agent("inventory", "done", summary=_summarise_inventory(inventory_report))
 
+            # ── Agent 3: Purchase recommendations ────────────────────────────
+            _mark_agent("recommendation", "running")
             _emit("Starting purchase recommendation agent")
             recommendations = run_recommendation_agent(upload_session_id, model, inventory_report, context, progress_emit=_emit)
+            _mark_agent("recommendation", "done", summary=_summarise_recommendations(recommendations))
 
             db.execute(
                 "UPDATE analysis_results SET inventory_report=?, recommendations_json=? WHERE session_id=?",
@@ -1606,10 +1688,12 @@ def analysis_status(upload_session_id):
         if entry is not None:
             # Snapshot what we need so we don't hold the lock during jsonify
             payload = {
-                "status":  entry["status"],
-                "log":     list(entry["log"]),
-                "elapsed": round(time.time() - entry["started_at"], 1),
-                "error":   entry.get("error"),
+                "status":        entry["status"],
+                "log":           list(entry["log"]),
+                "elapsed":       round(time.time() - entry["started_at"], 1),
+                "error":         entry.get("error"),
+                "current_agent": entry.get("current_agent"),
+                "agents":        {k: dict(v) for k, v in entry.get("agents", {}).items()},
             }
         else:
             payload = None
@@ -1621,8 +1705,14 @@ def analysis_status(upload_session_id):
     # completed before this session started polling.
     rows = db.query("SELECT status FROM upload_sessions WHERE id=?", (upload_session_id,))
     if rows and rows[0]["status"] == "complete":
-        return jsonify({"status": "done", "log": [], "elapsed": 0})
-    return jsonify({"status": "not_found", "log": [], "elapsed": 0})
+        # All three agents must already be done if the session is complete.
+        all_done = {
+            "normalization":  {"status":"done","summary":"Item names mapped, duplicates merged","started_at":None,"ended_at":None},
+            "inventory":      {"status":"done","summary":"Completed","started_at":None,"ended_at":None},
+            "recommendation": {"status":"done","summary":"Completed","started_at":None,"ended_at":None},
+        }
+        return jsonify({"status": "done", "log": [], "elapsed": 0, "agents": all_done, "current_agent": None})
+    return jsonify({"status": "not_found", "log": [], "elapsed": 0, "agents": {}, "current_agent": None})
 
 
 @app.route("/results/<int:upload_session_id>")

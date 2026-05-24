@@ -5,7 +5,7 @@
 <div class="page-wrap">
   <div class="page-header">
     <h1>Step 4 — Running analysis</h1>
-    <p>The AI is reading your data and writing recommendations. Usually takes 30 seconds to 2 minutes depending on file size and model.</p>
+    <p>Three specialised agents work your data step by step. You can watch each one as it runs.</p>
   </div>
 
   <!-- Steps indicator -->
@@ -16,22 +16,66 @@
     <div class="step active"><div class="step-num">4</div><span class="step-label">Results</span></div>
   </div>
 
-  <div class="card stream-card">
-    <div class="stream-header">
-      <div class="stream-status">
-        <span class="stream-live" id="stream-live"></span>
-        <span class="stream-label" id="stream-label">Analysis running</span>
+  <!-- Top-level timer + overall status -->
+  <div class="overall-bar">
+    <div class="overall-status">
+      <span class="overall-dot" id="overall-dot"></span>
+      <span id="overall-label">Analysis running</span>
+    </div>
+    <div class="overall-timer" id="overall-timer">00:00</div>
+  </div>
+
+  <!-- Three agent cards -->
+  <div class="agent-stack" id="agent-stack">
+
+    <div class="agent-card status-done" data-agent="normalization" id="agent-normalization">
+      <div class="agent-card-head">
+        <div class="agent-num">1</div>
+        <div class="agent-name">Normalisation</div>
+        <div class="agent-status-pill">
+          <span class="agent-status-dot"></span>
+          <span class="agent-status-text">Done</span>
+        </div>
+        <div class="agent-elapsed" id="elapsed-normalization">Completed in step 3</div>
       </div>
-      <div class="stream-timer" id="stream-timer">00:00</div>
+      <div class="agent-summary" id="summary-normalization">
+        Item names mapped, duplicates merged
+      </div>
+      <div class="agent-log" id="log-normalization"></div>
     </div>
 
-    <div class="stream-log" id="stream-log">
-      <div class="stream-line">
-        <span class="stream-time">00:00</span>
-        <span class="stream-arrow">→</span>
-        Waking up the AI<span class="stream-cursor"></span>
+    <div class="agent-card status-pending" data-agent="inventory" id="agent-inventory">
+      <div class="agent-card-head">
+        <div class="agent-num">2</div>
+        <div class="agent-name">Inventory health</div>
+        <div class="agent-status-pill">
+          <span class="agent-status-dot"></span>
+          <span class="agent-status-text">Pending</span>
+        </div>
+        <div class="agent-elapsed" id="elapsed-inventory"></div>
       </div>
+      <div class="agent-summary" id="summary-inventory">
+        Classifies every SKU by stock-on-hand against demand and lead time.
+      </div>
+      <div class="agent-log" id="log-inventory"></div>
     </div>
+
+    <div class="agent-card status-pending" data-agent="recommendation" id="agent-recommendation">
+      <div class="agent-card-head">
+        <div class="agent-num">3</div>
+        <div class="agent-name">Purchase recommendations</div>
+        <div class="agent-status-pill">
+          <span class="agent-status-dot"></span>
+          <span class="agent-status-text">Pending</span>
+        </div>
+        <div class="agent-elapsed" id="elapsed-recommendation"></div>
+      </div>
+      <div class="agent-summary" id="summary-recommendation">
+        Computes reorder quantities, supplier choice, and confidence per item.
+      </div>
+      <div class="agent-log" id="log-recommendation"></div>
+    </div>
+
   </div>
 
   <p style="text-align:center; color:var(--muted); font-size:13px; margin-top:18px;">
@@ -39,108 +83,182 @@
   </p>
 </div>
 
+<style>
+.overall-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 18px 0 14px;
+  padding: 12px 18px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+.overall-status { display: flex; align-items: center; gap: 10px; font-size: 14px; font-weight: 500; color: var(--text); }
+.overall-dot {
+  width: 10px; height: 10px; border-radius: 50%;
+  background: var(--brass);
+  box-shadow: 0 0 0 0 rgba(200,146,76,0.6);
+  animation: pulseDot 1.4s ease-out infinite;
+}
+.overall-dot.done  { background: var(--success); animation: none; }
+.overall-dot.error { background: var(--danger);  animation: none; }
+.overall-timer {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 14px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+@keyframes pulseDot {
+  0%   { box-shadow: 0 0 0 0 rgba(200,146,76,0.45); }
+  70%  { box-shadow: 0 0 0 8px rgba(200,146,76,0); }
+  100% { box-shadow: 0 0 0 0 rgba(200,146,76,0); }
+}
+
+.agent-stack { display: flex; flex-direction: column; gap: 12px; }
+
+.agent-card {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 18px 22px;
+  background: var(--surface);
+  transition: border-color 220ms var(--ease-out), background 220ms var(--ease-out), opacity 220ms var(--ease-out);
+}
+.agent-card.status-pending { opacity: 0.55; }
+.agent-card.status-running {
+  border-color: var(--brass);
+  box-shadow: 0 0 0 3px rgba(200,146,76,0.12);
+}
+.agent-card.status-done { border-color: rgba(45,106,79,0.5); }
+.agent-card.status-error { border-color: var(--danger); background: #fef2f2; }
+
+.agent-card-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.agent-num {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border);
+  background: var(--paper);
+  display: flex; align-items: center; justify-content: center;
+  font-family: 'Aptos', 'Segoe UI', sans-serif;
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--navy-800);
+  flex-shrink: 0;
+}
+.status-running .agent-num { background: var(--brass); border-color: var(--brass); color: #fff; }
+.status-done    .agent-num { background: var(--success); border-color: var(--success); color: #fff; }
+.status-error   .agent-num { background: var(--danger); border-color: var(--danger); color: #fff; }
+
+.agent-name {
+  font-family: 'Aptos', 'Segoe UI', sans-serif;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--navy-900);
+  letter-spacing: -0.01em;
+  flex: 1;
+  min-width: 0;
+}
+
+.agent-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--muted);
+  padding: 3px 10px;
+  border-radius: 100px;
+  background: var(--paper);
+  border: 1px solid var(--border);
+}
+.agent-status-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+.status-running .agent-status-pill { background: rgba(200,146,76,0.1); border-color: rgba(200,146,76,0.3); color: var(--brass-3); }
+.status-running .agent-status-dot  { background: var(--brass); animation: pulseDot 1.4s ease-out infinite; }
+.status-done    .agent-status-pill { background: rgba(45,106,79,0.08); border-color: rgba(45,106,79,0.25); color: var(--success); }
+.status-done    .agent-status-dot  { background: var(--success); }
+.status-error   .agent-status-pill { background: rgba(192,57,43,0.1); border-color: rgba(192,57,43,0.3); color: var(--danger); }
+.status-error   .agent-status-dot  { background: var(--danger); }
+
+.agent-elapsed {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.agent-summary {
+  margin-top: 10px;
+  font-size: 13.5px;
+  color: var(--muted);
+  line-height: 1.55;
+}
+.status-done .agent-summary { color: var(--text); font-weight: 500; }
+
+.agent-log {
+  margin-top: 12px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--text);
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 360ms var(--ease-out), opacity 240ms;
+  opacity: 0;
+}
+.agent-card.status-running .agent-log { max-height: 260px; opacity: 1; overflow-y: auto; }
+
+.agent-log-line {
+  display: flex;
+  gap: 10px;
+  padding: 2px 0;
+}
+.agent-log-time   { color: var(--muted); flex-shrink: 0; min-width: 44px; }
+.agent-log-arrow  { color: var(--brass); flex-shrink: 0; }
+.agent-log-msg    { flex: 1; word-break: break-word; }
+.agent-log-cursor {
+  display: inline-block;
+  width: 7px; height: 13px;
+  background: var(--brass);
+  margin-left: 4px;
+  animation: blink 1s steps(2) infinite;
+  vertical-align: middle;
+}
+@keyframes blink { 50% { opacity: 0; } }
+</style>
+
 <script>
 const sessionId    = {{ upload_session_id }};
-const logEl        = document.getElementById('stream-log');
-const timerEl      = document.getElementById('stream-timer');
-const labelEl      = document.getElementById('stream-label');
-const liveEl       = document.getElementById('stream-live');
-let seenLines      = 0;
-let polling        = true;
 const startTimeMs  = Date.now();
 
+// Track the latest known status per agent so we can transition CSS classes
+// only when something actually changes.
+const agentState = {
+  normalization:  { status: 'done',    seenLines: 0, doneShownAt: null },
+  inventory:      { status: 'pending', seenLines: 0, doneShownAt: null },
+  recommendation: { status: 'pending', seenLines: 0, doneShownAt: null },
+};
+
+const MIN_DISPLAY_MS = 3000;   // hold a finished card visible for at least 3s
+let polling = true;
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
 function fmtTime(seconds) {
   const m = Math.floor(seconds / 60).toString().padStart(2, '0');
   const s = Math.floor(seconds % 60).toString().padStart(2, '0');
   return m + ':' + s;
-}
-
-// Local timer ticks every 250ms for smoothness.
-setInterval(() => {
-  if (!polling) return;
-  const elapsed = (Date.now() - startTimeMs) / 1000;
-  timerEl.textContent = fmtTime(elapsed);
-}, 250);
-
-function removeCursor() {
-  document.querySelectorAll('.stream-cursor').forEach(c => c.remove());
-}
-
-function appendCursorTo(lineEl) {
-  if (!lineEl) return;
-  if (lineEl.querySelector('.stream-cursor')) return;
-  const c = document.createElement('span');
-  c.className = 'stream-cursor';
-  lineEl.appendChild(c);
-}
-
-async function poll() {
-  if (!polling) return;
-  try {
-    const res  = await fetch('/analysis_status/' + sessionId, { cache: 'no-store' });
-    const data = await res.json();
-
-    if (data.status === 'not_found') {
-      // Worker restarted or progress lost. Retry a few times before giving up.
-      setTimeout(poll, 1500);
-      return;
-    }
-
-    // Append new log lines.
-    if (data.log && data.log.length > seenLines) {
-      // Clear the placeholder "Waking up" line when first real line arrives.
-      if (seenLines === 0) {
-        logEl.innerHTML = '';
-      }
-      removeCursor();
-      for (let i = seenLines; i < data.log.length; i++) {
-        const line = data.log[i];
-        const div  = document.createElement('div');
-        div.className = 'stream-line';
-        div.innerHTML =
-          '<span class="stream-time">' + fmtTime(line.t) + '</span> ' +
-          '<span class="stream-arrow">→</span> ' +
-          escapeHtml(line.msg);
-        logEl.appendChild(div);
-      }
-      seenLines = data.log.length;
-      appendCursorTo(logEl.lastElementChild);
-      logEl.scrollTop = logEl.scrollHeight;
-    } else if (seenLines > 0) {
-      appendCursorTo(logEl.lastElementChild);
-    }
-
-    if (data.status === 'done') {
-      polling = false;
-      removeCursor();
-      labelEl.textContent = 'Analysis complete';
-      liveEl.classList.add('done');
-      // Final flash, then redirect.
-      setTimeout(() => {
-        window.location.href = '/results/' + sessionId;
-      }, 700);
-      return;
-    }
-
-    if (data.status === 'error') {
-      polling = false;
-      removeCursor();
-      const err = document.createElement('div');
-      err.className = 'stream-line stream-error';
-      err.innerHTML =
-        '<span class="stream-time">' + fmtTime((Date.now() - startTimeMs) / 1000) + '</span> ' +
-        '<span class="stream-arrow">✗</span> ' +
-        'Error: ' + escapeHtml(data.error || 'Unknown error');
-      logEl.appendChild(err);
-      labelEl.textContent = 'Analysis failed';
-      liveEl.classList.add('error');
-      return;
-    }
-
-    setTimeout(poll, 1200);
-  } catch (e) {
-    setTimeout(poll, 2000);
-  }
 }
 
 function escapeHtml(s) {
@@ -149,7 +267,172 @@ function escapeHtml(s) {
   }[c]));
 }
 
-// Start polling shortly after page load (give the thread a moment to emit first line).
+function setCardStatus(name, status) {
+  const card = document.getElementById('agent-' + name);
+  if (!card) return;
+  card.classList.remove('status-pending', 'status-running', 'status-done', 'status-error');
+  card.classList.add('status-' + status);
+  const pillText = card.querySelector('.agent-status-text');
+  if (pillText) {
+    pillText.textContent = (
+      status === 'running' ? 'Running' :
+      status === 'done'    ? 'Done'    :
+      status === 'error'   ? 'Failed'  :
+                             'Pending'
+    );
+  }
+  const num = card.querySelector('.agent-num');
+  if (num && status === 'done') num.textContent = '✓';
+}
+
+function setElapsed(name, secs) {
+  const el = document.getElementById('elapsed-' + name);
+  if (!el) return;
+  el.textContent = fmtTime(secs);
+}
+
+function setSummary(name, text) {
+  const el = document.getElementById('summary-' + name);
+  if (el && text) el.textContent = text;
+}
+
+function appendLogLine(name, t, msg) {
+  const log = document.getElementById('log-' + name);
+  if (!log) return;
+  // Remove any existing cursor before adding new line
+  log.querySelectorAll('.agent-log-cursor').forEach(c => c.remove());
+
+  const line = document.createElement('div');
+  line.className = 'agent-log-line';
+  line.innerHTML =
+    '<span class="agent-log-time">' + fmtTime(t) + '</span>' +
+    '<span class="agent-log-arrow">→</span>' +
+    '<span class="agent-log-msg">' + escapeHtml(msg) + '</span>';
+  log.appendChild(line);
+
+  // Add cursor to the latest line
+  const cursor = document.createElement('span');
+  cursor.className = 'agent-log-cursor';
+  line.querySelector('.agent-log-msg').appendChild(cursor);
+
+  log.scrollTop = log.scrollHeight;
+}
+
+// ── Local timer ─────────────────────────────────────────────────────────────
+setInterval(() => {
+  if (!polling) return;
+  const elapsed = (Date.now() - startTimeMs) / 1000;
+  document.getElementById('overall-timer').textContent = fmtTime(elapsed);
+
+  // For the currently running agent, tick its elapsed counter too.
+  for (const [name, st] of Object.entries(agentState)) {
+    if (st.status === 'running' && st.startedAt != null) {
+      setElapsed(name, elapsed - st.startedAt);
+    }
+  }
+}, 250);
+
+// ── Polling ─────────────────────────────────────────────────────────────────
+async function poll() {
+  if (!polling) return;
+
+  try {
+    const res  = await fetch('/analysis_status/' + sessionId, { cache: 'no-store' });
+    const data = await res.json();
+
+    if (data.status === 'not_found') {
+      setTimeout(poll, 1500);
+      return;
+    }
+
+    // Apply per-agent state from server.
+    const agents = data.agents || {};
+    for (const [name, info] of Object.entries(agents)) {
+      const st = agentState[name];
+      if (!st) continue;
+      if (info.status && info.status !== st.status) {
+        // Transition. If we're collapsing a card that JUST finished,
+        // hold the previous state briefly so the user can register it.
+        if (info.status === 'done' && st.status === 'running') {
+          const now = Date.now();
+          if (!st.doneShownAt) st.doneShownAt = now;
+          // Delay the visual transition if too little time passed.
+          const visibleFor = now - (st.startedAtMs || now);
+          if (visibleFor < MIN_DISPLAY_MS) {
+            setTimeout(() => {
+              setCardStatus(name, 'done');
+              setSummary(name, info.summary);
+              if (info.ended_at != null && info.started_at != null) {
+                setElapsed(name, info.ended_at - info.started_at);
+              }
+              st.status = 'done';
+            }, MIN_DISPLAY_MS - visibleFor);
+            continue;
+          }
+        }
+        setCardStatus(name, info.status);
+        st.status = info.status;
+        if (info.status === 'running') {
+          st.startedAtMs = Date.now();
+          st.startedAt   = info.started_at;
+        }
+        if (info.status === 'done' && info.ended_at != null && info.started_at != null) {
+          setElapsed(name, info.ended_at - info.started_at);
+        }
+      }
+      if (info.summary) setSummary(name, info.summary);
+    }
+
+    // Append new log lines, grouped by agent.
+    if (data.log && data.log.length) {
+      // We track a single counter per agent so we don't replay old lines.
+      const counts = { normalization: 0, inventory: 0, recommendation: 0 };
+      for (const line of data.log) {
+        const a = line.agent || data.current_agent || 'inventory';
+        if (!agentState[a]) continue;
+        counts[a] = (counts[a] || 0) + 1;
+        if (counts[a] > agentState[a].seenLines) {
+          appendLogLine(a, line.t, line.msg);
+          agentState[a].seenLines = counts[a];
+        }
+      }
+    }
+
+    if (data.status === 'done') {
+      polling = false;
+      // Make sure all cards are marked done before redirecting.
+      for (const name of ['normalization','inventory','recommendation']) {
+        if (agentState[name].status !== 'done') setCardStatus(name, 'done');
+      }
+      document.getElementById('overall-dot').classList.add('done');
+      document.getElementById('overall-label').textContent = 'Analysis complete';
+      setTimeout(() => {
+        window.location.href = '/results/' + sessionId;
+      }, 900);
+      return;
+    }
+
+    if (data.status === 'error') {
+      polling = false;
+      // Whatever agent was running, mark it as errored.
+      const active = data.current_agent;
+      if (active && agentState[active]) {
+        setCardStatus(active, 'error');
+        setSummary(active, 'Error: ' + (data.error || 'Unknown error'));
+      }
+      document.getElementById('overall-dot').classList.add('error');
+      document.getElementById('overall-label').textContent = 'Analysis failed';
+      return;
+    }
+
+    setTimeout(poll, 1200);
+
+  } catch (e) {
+    setTimeout(poll, 2000);
+  }
+}
+
+// Start polling shortly after page load.
 setTimeout(poll, 400);
 </script>
 {% endblock %}
