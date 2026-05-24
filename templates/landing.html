@@ -202,6 +202,82 @@
       text-transform: uppercase;
       color: var(--muted);
       margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .hero-card-sample {
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: 0.04em;
+      text-transform: none;
+      color: rgba(15,27,45,0.4);
+      font-style: italic;
+    }
+
+    /* ── Pilot strip (social proof) ── */
+    .pilot-strip {
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 0 40px 56px;
+    }
+    .pilot-strip-inner {
+      display: flex;
+      align-items: center;
+      gap: 24px;
+      padding: 18px 24px;
+      background: var(--paper);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      flex-wrap: wrap;
+    }
+    .pilot-strip-label {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      flex-shrink: 0;
+    }
+    .pilot-strip-name {
+      font-family: var(--font-display);
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--navy-900);
+      line-height: 1.3;
+    }
+    .pilot-strip-desc {
+      font-size: 13.5px;
+      color: var(--muted);
+      line-height: 1.5;
+      flex: 1;
+      min-width: 200px;
+    }
+    .pilot-strip-stat {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      padding-left: 24px;
+      border-left: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .pilot-strip-stat-value {
+      font-family: var(--font-display);
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--brass-3);
+      line-height: 1;
+      letter-spacing: -0.01em;
+    }
+    .pilot-strip-stat-label {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 4px;
+    }
+    @media (max-width: 640px) {
+      .pilot-strip { padding: 0 24px 40px; }
+      .pilot-strip-inner { flex-direction: column; align-items: flex-start; gap: 14px; }
+      .pilot-strip-stat { padding-left: 0; border-left: none; align-items: flex-start; }
     }
     .hero-metric-row {
       display: flex;
@@ -573,22 +649,25 @@
   </div>
   <div class="hero-visual">
     <div class="hero-card">
-      <div class="hero-card-label">Inventory snapshot — last analysis</div>
+      <div class="hero-card-label">
+        Sample dashboard view
+        <span class="hero-card-sample">representative output</span>
+      </div>
       <div class="hero-metric-row">
         <div class="hero-metric">
-          <div class="hero-metric-value" id="hero-skus">248</div>
+          <div class="hero-metric-value">412</div>
           <div class="hero-metric-sub">SKUs tracked</div>
         </div>
         <div class="hero-metric">
-          <div class="hero-metric-value is-danger" id="hero-critical">14</div>
+          <div class="hero-metric-value is-danger">23</div>
           <div class="hero-metric-sub">Critical</div>
         </div>
         <div class="hero-metric">
-          <div class="hero-metric-value is-success" id="hero-recs">31</div>
+          <div class="hero-metric-value is-success">47</div>
           <div class="hero-metric-sub">Recommendations</div>
         </div>
       </div>
-      <div class="hero-bar-row" id="hero-bars">
+      <div class="hero-bar-row">
         <div class="hero-bar hi" style="height:30px;"></div>
         <div class="hero-bar hi" style="height:36px;"></div>
         <div class="hero-bar md" style="height:24px;"></div>
@@ -606,9 +685,9 @@
     <div class="hero-card">
       <div class="hero-card-label" style="display:flex;align-items:center;justify-content:space-between;">
         Top reorder recommendations
-        <span class="hero-badge" id="hero-ready">31 ready</span>
+        <span class="hero-badge">47 ready</span>
       </div>
-      <div class="hero-rec-row" id="hero-rec-list">
+      <div class="hero-rec-row">
         <div class="hero-rec-item">
           <span class="hero-rec-item-name">Bottled Water 1.5L (case)</span>
           <div style="display:flex;align-items:center;gap:8px;">
@@ -635,6 +714,21 @@
   </div>
 </section>
 
+
+<!-- ── Pilot / social proof ── -->
+<section class="pilot-strip" aria-label="Pilot customer">
+  <div class="pilot-strip-inner">
+    <div class="pilot-strip-label">Pilot customer</div>
+    <div>
+      <div class="pilot-strip-name">a regional food distributor</div>
+      <div class="pilot-strip-desc">established food distributor &middot; food distribution across the region</div>
+    </div>
+    <div class="pilot-strip-stat">
+      <div class="pilot-strip-stat-value">SGD 100K</div>
+      <div class="pilot-strip-stat-label">monthly stockout losses identified</div>
+    </div>
+  </div>
+</section>
 
 <!-- ── Features ── -->
 <section class="features" id="features">
@@ -683,21 +777,21 @@
 <div style="padding-top:80px; background:var(--paper);">
   <div class="stat-callout">
     <div class="stat-callout-copy">
-      <h2>Marine supply businesses lose tens of thousands a month to stockouts.</h2>
-      <p>When customers need restocking, delays aren't just lost sales — they're broken contracts, damaged relationships, and reputational risk. BerthAI keeps your shelves ahead of demand.</p>
+      <h2>From the a regional food distributor pilot</h2>
+      <p>a regional food distributor supplies customers across the region with food and provisions on lead times that range from three weeks (local) to sixteen weeks (import). Stockouts on critical SKUs were costing them six figures a month before BerthAI surfaced the items at risk.</p>
     </div>
     <div class="stat-callout-numbers">
       <div class="stat-item">
         <div class="stat-value">SGD 100K</div>
-        <div class="stat-label">monthly stockout losses identified in pilot</div>
+        <div class="stat-label">monthly stockout losses identified</div>
       </div>
       <div class="stat-item">
-        <div class="stat-value">3 agents</div>
-        <div class="stat-label">running in parallel on every analysis</div>
+        <div class="stat-value">16 weeks</div>
+        <div class="stat-label">longest import lead time, now factored into every reorder</div>
       </div>
       <div class="stat-item">
-        <div class="stat-value">&lt; 5 min</div>
-        <div class="stat-label">from file upload to full recommendations</div>
+        <div class="stat-value">400+ SKUs</div>
+        <div class="stat-label">ranked by revenue, reviewed every analysis</div>
       </div>
     </div>
   </div>
@@ -760,118 +854,6 @@
     </div>
   </div>
 </footer>
-
-<script>
-(function () {
-  // ── Data pool ────────────────────────────────────────────────────────────
-  const SNAPSHOTS = [
-    { skus: 248, critical: 14, recs: 31 },
-    { skus: 193, critical:  9, recs: 22 },
-    { skus: 312, critical: 18, recs: 44 },
-    { skus: 227, critical: 11, recs: 28 },
-    { skus: 276, critical: 16, recs: 38 },
-  ];
-
-  const ITEMS = [
-    { name: 'Bottled Water 1.5L (case)',   status: 'CRITICAL', qty: 'Order 120 cs'   },
-    { name: 'Long-grain Rice (50kg)',       status: 'LOW',      qty: 'Order 15 bags'  },
-    { name: 'Cooking Oil 5L',              status: 'NORMAL',   qty: 'Order 40 btl'   },
-    { name: 'Frozen Chicken Breast (1kg)', status: 'CRITICAL', qty: 'Order 60 kg'    },
-    { name: 'UHT Milk 1L (case)',          status: 'LOW',      qty: 'Order 50 cs'    },
-    { name: 'Canned Tuna (case)',          status: 'NORMAL',   qty: 'Order 30 cs'    },
-    { name: 'Instant Coffee (case)',       status: 'LOW',      qty: 'Order 12 cs'    },
-    { name: 'Bread Flour (25kg)',          status: 'CRITICAL', qty: 'Order 8 bags'   },
-    { name: 'Deck Wash Concentrate',       status: 'NORMAL',   qty: 'Order 20 L'     },
-    { name: 'Disposable Gloves (box)',     status: 'LOW',      qty: 'Order 25 bx'    },
-    { name: 'Canned Vegetables (case)',    status: 'NORMAL',   qty: 'Order 24 cs'    },
-    { name: 'Engine Cleaning Fluid',       status: 'LOW',      qty: 'Order 15 L'     },
-  ];
-
-  const BAR_CLASSES = ['hi', 'hi', 'md', 'lo'];
-
-  // ── Helpers ───────────────────────────────────────────────────────────────
-  function animateNum(el, from, to) {
-    const dur = 700, start = performance.now();
-    function tick(now) {
-      const t = Math.min(1, (now - start) / dur);
-      const e = 1 - Math.pow(1 - t, 3);
-      el.textContent = Math.round(from + (to - from) * e);
-      if (t < 1) requestAnimationFrame(tick);
-    }
-    requestAnimationFrame(tick);
-  }
-
-  function statusClass(s) {
-    if (s === 'CRITICAL') return 'danger';
-    if (s === 'LOW')      return 'warn';
-    return '';
-  }
-
-  function shuffle(arr) {
-    const a = arr.slice();
-    for (let i = a.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [a[i], a[j]] = [a[j], a[i]];
-    }
-    return a;
-  }
-
-  // ── Update ────────────────────────────────────────────────────────────────
-  let snapIdx  = 0;
-  let prevSnap = SNAPSHOTS[0];
-
-  function update() {
-    snapIdx = (snapIdx + 1) % SNAPSHOTS.length;
-    const snap = SNAPSHOTS[snapIdx];
-
-    // Animate numbers
-    animateNum(document.getElementById('hero-skus'),      prevSnap.skus,     snap.skus);
-    animateNum(document.getElementById('hero-critical'),  prevSnap.critical,  snap.critical);
-    animateNum(document.getElementById('hero-recs'),      prevSnap.recs,      snap.recs);
-    document.getElementById('hero-ready').textContent = snap.recs + ' ready';
-
-    // Shuffle bars
-    const bars = document.querySelectorAll('#hero-bars .hero-bar');
-    bars.forEach(bar => {
-      const cls  = BAR_CLASSES[Math.floor(Math.random() * BAR_CLASSES.length)];
-      const h    = Math.floor(Math.random() * 30) + 10;
-      bar.className = 'hero-bar ' + cls;
-      bar.style.height = h + 'px';
-    });
-
-    // Swap recommendation items with fade
-    const list    = document.getElementById('hero-rec-list');
-    const picked  = shuffle(ITEMS).slice(0, 3);
-    list.style.opacity = '0';
-    list.style.transform = 'translateY(4px)';
-    setTimeout(() => {
-      list.innerHTML = picked.map(item => `
-        <div class="hero-rec-item">
-          <span class="hero-rec-item-name">${item.name}</span>
-          <div style="display:flex;align-items:center;gap:8px;">
-            <span class="hero-badge ${statusClass(item.status)}">${item.status}</span>
-            <span class="hero-rec-item-qty">${item.qty}</span>
-          </div>
-        </div>
-      `).join('');
-      list.style.transition = 'opacity 400ms ease, transform 400ms ease';
-      list.style.opacity = '1';
-      list.style.transform = 'translateY(0)';
-    }, 250);
-
-    prevSnap = snap;
-  }
-
-  // ── Init ──────────────────────────────────────────────────────────────────
-  // Add transition to bars for smooth height changes
-  document.querySelectorAll('#hero-bars .hero-bar').forEach(b => {
-    b.style.transition = 'height 600ms ease, background 600ms ease';
-  });
-  document.getElementById('hero-rec-list').style.transition = 'opacity 400ms ease, transform 400ms ease';
-
-  setInterval(update, 4000);
-})();
-</script>
 
 </body>
 </html>
