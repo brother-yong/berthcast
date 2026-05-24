@@ -167,8 +167,11 @@
                data-item="{{ rec.item }}">
 
             <div class="rec-card-header">
-              <div class="confidence-ring confidence-{{ conf_class }}"
-                   title="{{ rec.confidence }} confidence">
+              <button type="button"
+                      class="confidence-ring confidence-{{ conf_class }} conf-ring-btn"
+                      onclick="toggleConfidencePopover({{ loop.index0 }})"
+                      aria-label="Why this confidence level"
+                      title="Click to see why">
                 <svg viewBox="0 0 36 36">
                   <circle cx="18" cy="18" r="15.5" class="ring-bg"/>
                   <circle cx="18" cy="18" r="15.5" class="ring-fill"
@@ -177,22 +180,93 @@
                 <div class="confidence-label">
                   <span class="lbl">{{ 'N/A' if rec.confidence == 'INSUFFICIENT_DATA' else rec.confidence | lower }}</span>
                 </div>
-              </div>
+              </button>
               <div class="rec-card-title">{{ rec.item }}</div>
               {% if rec.approved %}
                 <span class="badge badge-healthy">✓ Approved</span>
               {% elif rec.dismissed %}
                 <span class="badge badge-dead">Dismissed</span>
               {% endif %}
+
+              <div class="conf-popover" id="conf-pop-{{ loop.index0 }}">
+                <div class="conf-pop-title">
+                  Why {{ 'N/A' if rec.confidence == 'INSUFFICIENT_DATA' else rec.confidence | lower }} confidence?
+                </div>
+                <ul class="conf-pop-list">
+                  {% for reason in rec._conf_reasons or [] %}
+                  <li>{{ reason }}</li>
+                  {% endfor %}
+                  {% if not rec._conf_reasons %}
+                  <li>No additional context available.</li>
+                  {% endif %}
+                </ul>
+              </div>
             </div>
 
             <div class="rec-card-body">
-              <p>
-                <strong>Supplier:</strong> {{ rec.supplier }} ({{ rec.supplier_type }})
+              {% if rec._order_by and rec._order_by.order_by_date %}
+              <p class="rec-order-by rec-order-by-{{ rec._order_by.status }}">
+                <strong>Order by:</strong> {{ rec._order_by.order_by_date }}
+                <span class="rec-order-by-meta">
+                  {% if rec._order_by.status == 'overdue' %}
+                    — already overdue by {{ rec._order_by.buffer_days | abs }} day{{ 's' if rec._order_by.buffer_days|abs != 1 }}
+                  {% elif rec._order_by.status == 'urgent' %}
+                    — only {{ rec._order_by.buffer_days }} day{{ 's' if rec._order_by.buffer_days != 1 }} of buffer
+                  {% else %}
+                    — {{ rec._order_by.buffer_days }} day{{ 's' if rec._order_by.buffer_days != 1 }} of buffer
+                  {% endif %}
+                </span>
               </p>
-              <p style="margin-top:6px;"><strong>Suggested order:</strong> {{ rec.suggested_quantity }}</p>
+              {% endif %}
+
+              <div class="rec-edit-grid">
+                <div class="rec-edit-field">
+                  <label for="qty-{{ loop.index0 }}">Quantity to order</label>
+                  <input type="text"
+                         class="rec-edit-input"
+                         id="qty-{{ loop.index0 }}"
+                         data-original="{{ rec.suggested_quantity or '' }}"
+                         data-field="quantity"
+                         data-item="{{ rec.item }}"
+                         value="{{ rec.edited_quantity or rec.suggested_quantity or '' }}">
+                  {% if rec.edited_quantity and rec.edited_quantity != rec.suggested_quantity %}
+                  <span class="rec-edit-hint" id="qty-hint-{{ loop.index0 }}">
+                    AI suggested: {{ rec.suggested_quantity }}
+                    <button type="button" class="rec-edit-revert"
+                            onclick="revertField({{ loop.index0 }}, 'quantity')">revert</button>
+                  </span>
+                  {% else %}
+                  <span class="rec-edit-hint rec-edit-hint-muted" id="qty-hint-{{ loop.index0 }}">
+                    AI suggestion — adjust if you want to order more or less.
+                  </span>
+                  {% endif %}
+                </div>
+
+                <div class="rec-edit-field">
+                  <label for="sup-{{ loop.index0 }}">Supplier</label>
+                  <input type="text"
+                         class="rec-edit-input"
+                         id="sup-{{ loop.index0 }}"
+                         data-original="{{ rec.supplier or '' }}"
+                         data-field="supplier"
+                         data-item="{{ rec.item }}"
+                         value="{{ rec.edited_supplier or rec.supplier or '' }}">
+                  {% if rec.edited_supplier and rec.edited_supplier != rec.supplier %}
+                  <span class="rec-edit-hint" id="sup-hint-{{ loop.index0 }}">
+                    AI suggested: {{ rec.supplier }} ({{ rec.supplier_type }})
+                    <button type="button" class="rec-edit-revert"
+                            onclick="revertField({{ loop.index0 }}, 'supplier')">revert</button>
+                  </span>
+                  {% else %}
+                  <span class="rec-edit-hint rec-edit-hint-muted" id="sup-hint-{{ loop.index0 }}">
+                    {{ rec.supplier_type }} supplier on file.
+                  </span>
+                  {% endif %}
+                </div>
+              </div>
+
               {% if rec.days_of_supply %}
-              <p style="margin-top:6px; color:var(--muted);">
+              <p style="margin-top:10px; color:var(--muted);">
                 <strong>Stock runway:</strong> {{ (rec.days_of_supply / 30) | round(1) }} months remaining
               </p>
               {% endif %}
@@ -665,13 +739,132 @@ applyFilters = function() {
   }
 };
 
+// ── Inline edit helpers (quantity + supplier) ──
+function _getEditValues(idx) {
+  const qtyEl = document.getElementById('qty-' + idx);
+  const supEl = document.getElementById('sup-' + idx);
+  return {
+    edited_quantity: qtyEl ? qtyEl.value.trim() : null,
+    edited_supplier: supEl ? supEl.value.trim() : null,
+  };
+}
+
+function _hintForField(idx, field, originalValue) {
+  const hintEl = document.getElementById(
+    (field === 'quantity' ? 'qty-hint-' : 'sup-hint-') + idx
+  );
+  if (!hintEl) return;
+  const inputEl = document.getElementById(
+    (field === 'quantity' ? 'qty-' : 'sup-') + idx
+  );
+  if (!inputEl) return;
+  const current = inputEl.value.trim();
+  const original = (inputEl.dataset.original || '').trim();
+
+  if (current && current !== original) {
+    // Show "AI suggested: X · revert" with revert button.
+    hintEl.classList.remove('rec-edit-hint-muted');
+    const label = field === 'quantity' ? 'AI suggested: ' : 'AI suggested: ';
+    hintEl.innerHTML =
+      label + escapeHtmlForHint(original) +
+      ' <button type="button" class="rec-edit-revert"' +
+      ' onclick="revertField(' + idx + ', \'' + field + '\')">revert</button>';
+  } else {
+    // Default hint.
+    hintEl.classList.add('rec-edit-hint-muted');
+    if (field === 'quantity') {
+      hintEl.textContent = 'AI suggestion — adjust if you want to order more or less.';
+    } else {
+      // Try to preserve the supplier-type text from the original render.
+      // If we can't, just show a generic line.
+      hintEl.textContent = 'Edit if a different supplier is taking this order.';
+    }
+  }
+}
+
+function escapeHtmlForHint(s) {
+  return String(s).replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+
+async function _saveEdit(item, payload) {
+  try {
+    await fetch('/recommend/edit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: sessionId, item, ...payload })
+    });
+  } catch (e) { /* network blip — next blur or approve will retry */ }
+}
+
+function revertField(idx, field) {
+  const inputId = (field === 'quantity' ? 'qty-' : 'sup-') + idx;
+  const input = document.getElementById(inputId);
+  if (!input) return;
+  const original = input.dataset.original || '';
+  input.value = original;
+  const item = input.dataset.item;
+  _hintForField(idx, field, original);
+  // Persist the revert.
+  const payload = field === 'quantity'
+    ? { edited_quantity: '', edited_supplier: null }
+    : { edited_quantity: null, edited_supplier: '' };
+  _saveEdit(item, payload);
+}
+
+// Wire up auto-save on blur for every edit input.
+document.querySelectorAll('.rec-edit-input').forEach(input => {
+  const idx = parseInt(input.closest('.rec-card').id.replace('rec-', ''), 10);
+  const field = input.dataset.field;
+
+  input.addEventListener('input', () => _hintForField(idx, field));
+  input.addEventListener('blur', () => {
+    const item = input.dataset.item;
+    const current = input.value.trim();
+    const original = (input.dataset.original || '').trim();
+    // Only save if user actually changed something or cleared an edit.
+    const payload = field === 'quantity'
+      ? { edited_quantity: current === original ? '' : current, edited_supplier: null }
+      : { edited_quantity: null, edited_supplier: current === original ? '' : current };
+    _saveEdit(item, payload);
+  });
+});
+
+// ── Confidence popover ──
+let _activeConfPopover = null;
+function toggleConfidencePopover(idx) {
+  const pop = document.getElementById('conf-pop-' + idx);
+  if (!pop) return;
+  if (_activeConfPopover && _activeConfPopover !== pop) {
+    _activeConfPopover.classList.remove('open');
+  }
+  pop.classList.toggle('open');
+  _activeConfPopover = pop.classList.contains('open') ? pop : null;
+}
+document.addEventListener('click', e => {
+  if (!_activeConfPopover) return;
+  if (e.target.closest('.conf-popover')) return;
+  if (e.target.closest('.conf-ring-btn')) return;
+  _activeConfPopover.classList.remove('open');
+  _activeConfPopover = null;
+});
+
 // ── Approve / dismiss single ──
 async function takeAction(idx, item, action) {
   const note = document.getElementById('note-' + idx)?.value || '';
+  const edits = _getEditValues(idx);
   const res  = await fetch('/recommend/action', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ session_id: sessionId, item, action, note })
+    body: JSON.stringify({
+      session_id: sessionId,
+      item,
+      action,
+      note,
+      edited_quantity: edits.edited_quantity,
+      edited_supplier: edits.edited_supplier,
+    })
   });
   const data = await res.json();
   if (data.ok) {
