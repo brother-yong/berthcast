@@ -492,6 +492,136 @@ textarea { resize: vertical; min-height: 96px; line-height: 1.55; }
   font-size: 14px !important;
 }
 
+/* ── Editable quantity + supplier ── */
+.rec-edit-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-top: 12px;
+}
+@media (max-width: 640px) {
+  .rec-edit-grid { grid-template-columns: 1fr; }
+}
+.rec-edit-field { display: flex; flex-direction: column; gap: 4px; }
+.rec-edit-field label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.rec-edit-input {
+  padding: 9px 12px;
+  border: 1.5px solid var(--border);
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: inherit;
+  color: var(--text);
+  background: var(--surface);
+  outline: none;
+  transition: border-color 140ms, box-shadow 140ms;
+}
+.rec-edit-input:hover  { border-color: #cdc4ad; }
+.rec-edit-input:focus  { border-color: var(--brass); box-shadow: 0 0 0 3px rgba(200,146,76,0.15); }
+.rec-edit-hint {
+  font-size: 12px;
+  color: var(--brass-3, var(--brass));
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 16px;
+}
+.rec-edit-hint-muted { color: var(--muted); }
+.rec-edit-revert {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+  font-family: inherit;
+}
+.rec-edit-revert:hover { color: var(--text); }
+
+/* ── Order-by line ── */
+.rec-order-by {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 13.5px;
+  background: var(--paper-2, var(--paper));
+  border: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+.rec-order-by strong { color: var(--navy-800); font-weight: 600; }
+.rec-order-by-meta { color: var(--muted); font-size: 12.5px; }
+.rec-order-by-urgent {
+  background: #fff7ed;
+  border-color: #fed7aa;
+  color: #9a3412;
+}
+.rec-order-by-urgent .rec-order-by-meta { color: #c2410c; }
+.rec-order-by-overdue {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #991b1b;
+}
+.rec-order-by-overdue .rec-order-by-meta { color: #b91c1c; }
+
+/* ── Confidence ring as button + popover ── */
+.conf-ring-btn {
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-family: inherit;
+}
+.conf-ring-btn:hover { transform: scale(1.05); }
+.conf-ring-btn:focus { outline: 2px solid var(--brass); outline-offset: 2px; border-radius: 50%; }
+
+.rec-card-header { position: relative; }
+
+.conf-popover {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 8px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 28px rgba(15,27,45,0.12);
+  padding: 14px 16px;
+  max-width: 320px;
+  z-index: 30;
+  font-size: 13px;
+  line-height: 1.55;
+  opacity: 0;
+  transform: translateY(-4px);
+  pointer-events: none;
+  transition: opacity 160ms var(--ease-out), transform 160ms var(--ease-out);
+}
+.conf-popover.open {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+.conf-pop-title {
+  font-weight: 600;
+  color: var(--navy-800);
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+.conf-pop-list {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--text);
+}
+.conf-pop-list li { margin-bottom: 4px; }
+.conf-pop-list li:last-child { margin-bottom: 0; }
+
 /* ─────────────────── Steps indicator ─────────────────── */
 .steps {
   display: flex;

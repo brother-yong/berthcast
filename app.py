@@ -4,6 +4,7 @@ import secrets
 import threading
 import time
 import smtplib
+from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from functools import wraps
@@ -1654,6 +1655,16 @@ def results(upload_session_id):
         for item in inventory
     }
 
+    # Enrich each recommendation with order-by date and confidence reasons
+    # so the template can render them without computing inline.
+    for rec in recommendations:
+        if not isinstance(rec, dict) or rec.get("error"):
+            continue
+        rec["_order_by"]      = _compute_order_by(rec)
+        rec["_conf_reasons"]  = _confidence_reasons(rec)
+        rec["_effective_qty"]      = _effective_qty(rec)
+        rec["_effective_supplier"] = _effective_supplier(rec)
+
     return render_template(
         "results.html",
         recommendations=recommendations,
@@ -1680,6 +1691,11 @@ def print_results(upload_session_id):
     except Exception:
         recommendations = []
     approved = [r for r in recommendations if r.get("approved") and not r.get("error")]
+    # Enrich with effective values + order-by so the print template can stay simple.
+    for r in approved:
+        r["_effective_qty"]      = _effective_qty(r)
+        r["_effective_supplier"] = _effective_supplier(r)
+        r["_order_by"]           = _compute_order_by(r)
     return render_template("print_order.html", recommendations=approved, org_name=session["org_name"])
 
 
@@ -1705,17 +1721,20 @@ def export_csv(upload_session_id):
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow([
-        "Item", "Supplier", "Supplier Type", "Suggested Quantity",
-        "Days of Supply", "Stock Runway (months)", "Confidence", "Reason", "Note"
+        "Item", "Supplier", "Supplier Type", "Order Quantity", "AI Suggested Qty",
+        "Order By", "Days of Supply", "Stock Runway (months)", "Confidence", "Reason", "Note"
     ])
     for r in approved:
         dos = r.get("days_of_supply")
         runway = round(dos / 30, 1) if dos else ""
+        order_by = _compute_order_by(r).get("order_by_date") or ""
         writer.writerow([
             r.get("item", ""),
-            r.get("supplier", ""),
+            _effective_supplier(r),
             r.get("supplier_type", ""),
+            _effective_qty(r),
             r.get("suggested_quantity", ""),
+            order_by,
             dos or "",
             runway,
             ("N/A" if r.get("confidence") == "INSUFFICIENT_DATA" else r.get("confidence", "")),
@@ -1809,7 +1828,7 @@ def export_pdf(upload_session_id):
     ]
 
     if approved:
-        header = ["#", "Item", "Supplier", "Qty", "Runway", "Confidence", "Reason / Note"]
+        header = ["#", "Item", "Supplier", "Qty", "Order by", "Runway", "Confidence", "Reason / Note"]
         rows = [header]
         for i, r in enumerate(approved, 1):
             dos = r.get("days_of_supply")
@@ -1820,21 +1839,34 @@ def export_pdf(upload_session_id):
                 reason + (f'<br/><font color="#9ca3af"><i>Note: {note}</i></font>' if note else ""),
                 cell_style
             )
+
+            eff_qty = _effective_qty(r) or "—"
+            sug_qty = r.get("suggested_quantity", "")
+            qty_html = str(eff_qty)
+            if str(eff_qty).strip() and str(sug_qty).strip() and str(eff_qty) != str(sug_qty):
+                qty_html = (
+                    f"<b>{eff_qty}</b><br/>"
+                    f"<font color='#9ca3af' size='7'>AI: {sug_qty}</font>"
+                )
+
+            order_by_str = _compute_order_by(r).get("order_by_date") or "—"
+
             rows.append([
                 str(i),
                 Paragraph(f"<b>{r.get('item','')}</b>", cell_style),
                 Paragraph(
-                    f"{r.get('supplier','')}<br/>"
+                    f"{_effective_supplier(r)}<br/>"
                     f"<font color='#6b7280'>{r.get('supplier_type','')}</font>",
                     cell_style
                 ),
-                Paragraph(str(r.get("suggested_quantity", "—")), cell_style),
+                Paragraph(qty_html, cell_style),
+                Paragraph(order_by_str, cell_style),
                 runway,
                 ("N/A" if r.get("confidence") == "INSUFFICIENT_DATA" else r.get("confidence", "—")),
                 reason_cell,
             ])
 
-        col_widths = [8*mm, 38*mm, 32*mm, 18*mm, 16*mm, 20*mm, None]
+        col_widths = [7*mm, 34*mm, 28*mm, 18*mm, 20*mm, 14*mm, 18*mm, None]
         tbl = Table(rows, colWidths=col_widths, repeatRows=1)
         tbl.setStyle(TableStyle([
             # Header row
@@ -1961,17 +1993,131 @@ def diff_view(session_a_id, session_b_id):
 
 
 
+# ── Recommendation helpers ───────────────────────────────────────────────────
+
+def _effective_qty(rec):
+    """Return the quantity to display/export: edited value if user adjusted it,
+    otherwise the AI's suggested quantity."""
+    if not isinstance(rec, dict):
+        return ""
+    edited = rec.get("edited_quantity")
+    if edited not in (None, "", "null"):
+        return edited
+    return rec.get("suggested_quantity", "")
+
+
+def _effective_supplier(rec):
+    """Return the supplier to display/export: edited value if user adjusted it,
+    otherwise the AI's suggested supplier."""
+    if not isinstance(rec, dict):
+        return ""
+    edited = rec.get("edited_supplier")
+    if edited not in (None, "", "null"):
+        return edited
+    return rec.get("supplier", "")
+
+
+def _compute_order_by(rec):
+    """Compute when the user must place this order to avoid a stockout.
+
+    Returns a dict with:
+      order_by_date: human-readable string like "12 Jun 2026", or None
+      buffer_days:   int (negative = already overdue), or None
+      status:        'overdue' | 'urgent' | 'ok' | 'unknown'
+    """
+    if not isinstance(rec, dict):
+        return {"order_by_date": None, "buffer_days": None, "status": "unknown"}
+    dos = rec.get("days_of_supply")
+    lt  = rec.get("lead_time_days")
+    try:
+        dos = float(dos) if dos not in (None, "", "null") else None
+        lt  = float(lt)  if lt  not in (None, "", "null") else None
+    except (TypeError, ValueError):
+        return {"order_by_date": None, "buffer_days": None, "status": "unknown"}
+
+    if dos is None or lt is None:
+        return {"order_by_date": None, "buffer_days": None, "status": "unknown"}
+
+    buffer_days = int(round(dos - lt))
+    order_by = datetime.utcnow() + timedelta(days=buffer_days)
+    order_by_date = order_by.strftime("%d %b %Y")
+
+    if buffer_days < 0:
+        status = "overdue"
+    elif buffer_days <= 7:
+        status = "urgent"
+    else:
+        status = "ok"
+
+    return {
+        "order_by_date": order_by_date,
+        "buffer_days":   buffer_days,
+        "status":        status,
+    }
+
+
+def _confidence_reasons(rec):
+    """Build a short, plain-English list of reasons explaining why the AI
+    settled on this confidence level. Used in the confidence-ring popover."""
+    if not isinstance(rec, dict):
+        return []
+    reasons = []
+    conf = (rec.get("confidence") or "").upper()
+    if conf == "INSUFFICIENT_DATA":
+        reasons.append("Supplier or sales history not in system.")
+
+    if not rec.get("supplier") or rec.get("supplier") in ("Unknown", "unknown", "—"):
+        reasons.append("Supplier not on file.")
+
+    lt = rec.get("lead_time_days")
+    if lt in (None, "", "null"):
+        reasons.append("Lead time unknown — buffer based on supplier type.")
+    else:
+        try:
+            lt_f = float(lt)
+            reasons.append(f"Lead time on file: {int(lt_f)} days.")
+        except (TypeError, ValueError):
+            pass
+
+    dos = rec.get("days_of_supply")
+    if dos in (None, "", "null"):
+        reasons.append("Stock runway unknown — limited sales history.")
+
+    risk = rec.get("supplier_risk")
+    if risk == "HIGH":
+        reasons.append("Supplier flagged as high-risk (delays or unreliable).")
+
+    flags = rec.get("flags") or []
+    if isinstance(flags, list) and flags:
+        for f in flags[:3]:
+            if f:
+                reasons.append(str(f))
+
+    if not reasons:
+        if conf == "HIGH":
+            reasons.append("Strong sales history, known supplier, lead time on file.")
+        elif conf in ("MED", "MEDIUM"):
+            reasons.append("Some data missing — recommendation is solid but not certain.")
+        elif conf == "LOW":
+            reasons.append("Limited data — review before approving.")
+    return reasons
+
+
 # ── Recommendation approve / dismiss routes ──────────────────────────────────
 
 @app.route("/recommend/action", methods=["POST"])
 @login_required
 def recommend_action():
-    """Approve or dismiss a single recommendation and persist the note."""
-    data       = request.get_json(force=True, silent=True) or {}
-    session_id = data.get("session_id")
-    item       = data.get("item", "").strip()
-    action     = data.get("action", "")   # "approve" | "dismiss"
-    note       = data.get("note", "").strip()
+    """Approve or dismiss a single recommendation. Optionally accepts
+    edited_quantity and edited_supplier so the user's adjustments are saved
+    in the same call."""
+    data            = request.get_json(force=True, silent=True) or {}
+    session_id      = data.get("session_id")
+    item            = data.get("item", "").strip()
+    action          = data.get("action", "")   # "approve" | "dismiss"
+    note            = data.get("note", "").strip()
+    edited_qty      = data.get("edited_quantity", None)
+    edited_supplier = data.get("edited_supplier", None)
 
     if not session_id or not item or action not in ("approve", "dismiss"):
         return jsonify({"ok": False, "error": "Invalid parameters"}), 400
@@ -1997,11 +2143,80 @@ def recommend_action():
             rec["dismissed"] = (action == "dismiss")
             if note:
                 rec["note"] = note
+            # Save edits if they differ from the original suggestion.
+            if edited_qty is not None:
+                eq = str(edited_qty).strip()
+                if eq and eq != str(rec.get("suggested_quantity", "")).strip():
+                    rec["edited_quantity"] = eq
+                elif not eq:
+                    rec.pop("edited_quantity", None)
+            if edited_supplier is not None:
+                es = str(edited_supplier).strip()
+                if es and es != str(rec.get("supplier", "")).strip():
+                    rec["edited_supplier"] = es
+                elif not es:
+                    rec.pop("edited_supplier", None)
             updated = True
             break
 
     if not updated:
         return jsonify({"ok": False, "error": "Item not found in recommendations"}), 404
+
+    db.execute(
+        "UPDATE analysis_results SET recommendations_json=? WHERE session_id=?",
+        (json.dumps(recs), session_id)
+    )
+    return jsonify({"ok": True})
+
+
+@app.route("/recommend/edit", methods=["POST"])
+@login_required
+def recommend_edit():
+    """Save the user's edited quantity and/or supplier without changing the
+    approve/dismiss state. Called on blur from the inline edit inputs so the
+    latest values are persisted before any approve_all is fired."""
+    data            = request.get_json(force=True, silent=True) or {}
+    session_id      = data.get("session_id")
+    item            = data.get("item", "").strip()
+    edited_qty      = data.get("edited_quantity", None)
+    edited_supplier = data.get("edited_supplier", None)
+
+    if not session_id or not item:
+        return jsonify({"ok": False, "error": "Invalid parameters"}), 400
+
+    rows = db.query("SELECT user_id FROM upload_sessions WHERE id=?", (session_id,))
+    if not rows or rows[0]["user_id"] != session.get("user_id"):
+        return jsonify({"ok": False, "error": "Forbidden"}), 403
+
+    ar = db.query("SELECT recommendations_json FROM analysis_results WHERE session_id=?", (session_id,))
+    if not ar:
+        return jsonify({"ok": False, "error": "No results for this session"}), 404
+
+    try:
+        recs = json.loads(ar[0]["recommendations_json"] or "[]")
+    except Exception:
+        return jsonify({"ok": False, "error": "Corrupt data"}), 500
+
+    updated = False
+    for rec in recs:
+        if isinstance(rec, dict) and rec.get("item", "").strip() == item:
+            if edited_qty is not None:
+                eq = str(edited_qty).strip()
+                if eq and eq != str(rec.get("suggested_quantity", "")).strip():
+                    rec["edited_quantity"] = eq
+                else:
+                    rec.pop("edited_quantity", None)
+            if edited_supplier is not None:
+                es = str(edited_supplier).strip()
+                if es and es != str(rec.get("supplier", "")).strip():
+                    rec["edited_supplier"] = es
+                else:
+                    rec.pop("edited_supplier", None)
+            updated = True
+            break
+
+    if not updated:
+        return jsonify({"ok": False, "error": "Item not found"}), 404
 
     db.execute(
         "UPDATE analysis_results SET recommendations_json=? WHERE session_id=?",

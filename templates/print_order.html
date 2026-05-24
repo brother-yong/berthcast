@@ -33,8 +33,9 @@
         <th>#</th>
         <th>Item</th>
         <th>Supplier</th>
+        <th>Quantity</th>
+        <th>Order by</th>
         <th>Stock runway</th>
-        <th>Suggested qty</th>
         <th>Notes</th>
       </tr>
     </thead>
@@ -43,7 +44,21 @@
       <tr>
         <td>{{ loop.index }}</td>
         <td><strong>{{ r.item }}</strong></td>
-        <td>{{ r.supplier }}</td>
+        <td>{{ r._effective_supplier or r.supplier }}</td>
+        <td>
+          <strong>{{ r._effective_qty or r.suggested_quantity }}</strong>
+          {% if r.edited_quantity and r.edited_quantity != r.suggested_quantity %}
+            <div class="note">AI suggested: {{ r.suggested_quantity }}</div>
+          {% endif %}
+        </td>
+        <td>
+          {%- if r._order_by and r._order_by.order_by_date -%}
+            {{ r._order_by.order_by_date }}
+            {%- if r._order_by.status == 'overdue' %} <span style="color:#b91c1c;">(overdue)</span>{% endif -%}
+          {%- else -%}
+            —
+          {%- endif -%}
+        </td>
         <td>
           {%- if r.days_of_supply -%}
             {{ (r.days_of_supply / 30) | round(1) }} months
@@ -51,7 +66,6 @@
             —
           {%- endif -%}
         </td>
-        <td>{{ r.suggested_quantity }}</td>
         <td>
           {{ r.reason }}
           {% if r.note %}
