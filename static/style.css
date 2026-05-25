@@ -32,8 +32,13 @@
   --warning:   #B85C00;
   --danger:    #8B2C2C;
 
-  /* Display font */
-  --font-display: 'Aptos Display', 'Aptos', 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+  /* Typography system. Inter is the workhorse, Inter Tight for big editorial
+     headings and tabular numbers, Instrument Serif for italic accents, and
+     JetBrains Mono for code/timestamps. Loaded in base.html. */
+  --font-body:    'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-display: 'Inter Tight', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-serif:   'Instrument Serif', Georgia, 'Times New Roman', serif;
+  --font-mono:    'JetBrains Mono', 'SF Mono', 'Fira Code', Menlo, monospace;
 
   /* Geometry */
   --radius:    14px;
@@ -49,7 +54,7 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
-  font-family: 'Aptos', 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: var(--font-body);
   background: var(--paper);
   color: var(--text);
   font-size: 16px;
@@ -58,6 +63,16 @@ body {
   background-size: 24px 24px;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* Editorial italic accents inside big headings (the landing hero "stockouts"
+   word, the dedup loading h1, the results h1). Renders Instrument Serif so
+   the accent reads as a magazine pull-quote, not a plain italic. */
+h1 em, h2 em {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-weight: 400;
+  letter-spacing: 0;
 }
 
 /* ─────────────────── Layout ─────────────────── */
@@ -108,7 +123,7 @@ nav {
 /* ─────────────────── Page header ─────────────────── */
 .page-header { padding: 48px 0 28px; }
 .page-header h1 {
-  font-family: 'Aptos', 'Segoe UI', sans-serif;
+  font-family: var(--font-display);
   font-size: 32px;
   font-weight: 700;
   letter-spacing: -0.025em;
@@ -137,7 +152,7 @@ nav {
 }
 .card + .card { margin-top: 20px; }
 .card-title {
-  font-family: 'Aptos', 'Segoe UI', sans-serif;
+  font-family: var(--font-display);
   font-size: 18px;
   font-weight: 600;
   letter-spacing: -0.01em;
@@ -286,7 +301,7 @@ textarea { resize: vertical; min-height: 96px; line-height: 1.55; }
 .upload-slot-info { flex: 1; min-width: 0; }
 .upload-slot-info strong {
   display: block;
-  font-family: 'Aptos', 'Segoe UI', sans-serif;
+  font-family: var(--font-display);
   font-size: 16px;
   font-weight: 600;
   color: var(--navy-800);
@@ -309,7 +324,7 @@ textarea { resize: vertical; min-height: 96px; line-height: 1.55; }
 }
 .upload-slot-status .pct {
   color: var(--brass-3);
-  font-family: 'Aptos', 'Segoe UI', sans-serif;
+  font-family: var(--font-display);
   font-size: 12px;
 }
 .upload-slot-status .fname {
@@ -360,7 +375,7 @@ textarea { resize: vertical; min-height: 96px; line-height: 1.55; }
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  font-family: 'Aptos', 'Segoe UI', sans-serif;
+  font-family: var(--font-display);
 }
 .badge-healthy  { background: #dcfce7; color: #166534; }
 .badge-low      { background: #fef9c3; color: #854d0e; }
@@ -384,7 +399,7 @@ textarea { resize: vertical; min-height: 96px; line-height: 1.55; }
 }
 .dedup-group:hover { border-color: var(--brass); background: var(--paper); }
 .dedup-group .canonical {
-  font-family: 'Aptos', 'Segoe UI', sans-serif;
+  font-family: var(--font-display);
   font-weight: 600;
   font-size: 15px;
   color: var(--navy-800);
@@ -437,7 +452,7 @@ textarea { resize: vertical; min-height: 96px; line-height: 1.55; }
   border-bottom-width: 2px;
   border-radius: 4px;
   font-size: 11px;
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-family: var(--font-mono);
   color: var(--text);
   font-weight: 500;
   line-height: 1;
@@ -450,7 +465,7 @@ textarea { resize: vertical; min-height: 96px; line-height: 1.55; }
   margin-bottom: 12px;
 }
 .rec-card-title {
-  font-family: 'Aptos', 'Segoe UI', sans-serif;
+  font-family: var(--font-display);
   font-size: 17px;
   font-weight: 700;
   flex: 1;
@@ -648,7 +663,7 @@ textarea { resize: vertical; min-height: 96px; line-height: 1.55; }
   margin: 0 auto 8px;
   font-weight: 700;
   font-size: 14px;
-  font-family: 'Aptos', 'Segoe UI', sans-serif;
+  font-family: var(--font-display);
   color: var(--muted);
   transition: background 220ms var(--ease-out), border-color 220ms var(--ease-out), color 220ms var(--ease-out), box-shadow 220ms var(--ease-out);
 }
@@ -682,7 +697,7 @@ th {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  font-family: 'Aptos', 'Segoe UI', sans-serif;
+  font-family: var(--font-display);
   border-bottom: 1px solid var(--border);
 }
 td {
@@ -738,7 +753,7 @@ tbody tr:hover td { background: var(--paper); }
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 .loading-text {
-  font-family: 'Aptos', 'Segoe UI', sans-serif;
+  font-family: var(--font-display);
   font-size: 18px;
   font-weight: 600;
   letter-spacing: -0.01em;
@@ -787,7 +802,7 @@ tbody tr:hover td { background: var(--paper); }
   border-radius: 0 0 2px 2px;
 }
 .dash-stat-label {
-  font-family: 'Aptos', 'Segoe UI', sans-serif;
+  font-family: var(--font-display);
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.12em;
@@ -796,7 +811,7 @@ tbody tr:hover td { background: var(--paper); }
   margin-top: 6px;
 }
 .dash-stat-value {
-  font-family: 'Aptos', 'Segoe UI', sans-serif;
+  font-family: var(--font-display);
   font-size: 32px;
   font-weight: 700;
   color: var(--navy-800);
@@ -807,7 +822,7 @@ tbody tr:hover td { background: var(--paper); }
   font-size: 11px;
   color: var(--muted);
   margin-top: 6px;
-  font-family: 'Aptos', 'Segoe UI', sans-serif;
+  font-family: var(--font-display);
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
@@ -835,7 +850,7 @@ tbody tr:hover td { background: var(--paper); }
   50%      { transform: translateY(-4px); }
 }
 .dash-cta-title {
-  font-family: 'Aptos', 'Segoe UI', sans-serif;
+  font-family: var(--font-display);
   font-size: 22px;
   font-weight: 700;
   letter-spacing: -0.02em;
@@ -882,14 +897,14 @@ tbody tr:hover td { background: var(--paper); }
   flex-shrink: 0;
 }
 .dash-last-label {
-  font-family: 'Aptos', 'Segoe UI', sans-serif;
+  font-family: var(--font-display);
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.12em;
   color: var(--brass-3);
 }
 .dash-last-date {
-  font-family: 'Aptos', 'Segoe UI', sans-serif;
+  font-family: var(--font-display);
   font-size: 17px;
   font-weight: 600;
   color: var(--navy-800);
@@ -909,7 +924,7 @@ tbody tr:hover td { background: var(--paper); }
 }
 .dash-last-summary strong {
   color: var(--navy-800);
-  font-family: 'Aptos', 'Segoe UI', sans-serif;
+  font-family: var(--font-display);
   font-weight: 700;
   font-size: 18px;
   margin-right: 4px;
@@ -956,7 +971,7 @@ tbody tr:hover td { background: var(--paper); }
 }
 .choice-body { flex: 1; min-width: 0; }
 .choice-title {
-  font-family: 'Aptos', 'Segoe UI', sans-serif;
+  font-family: var(--font-display);
   font-size: 22px;
   font-weight: 700;
   letter-spacing: -0.02em;
@@ -964,7 +979,7 @@ tbody tr:hover td { background: var(--paper); }
   margin-bottom: 4px;
 }
 .choice-meta {
-  font-family: 'Aptos', 'Segoe UI', sans-serif;
+  font-family: var(--font-display);
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.1em;
@@ -990,7 +1005,7 @@ tbody tr:hover td { background: var(--paper); }
 }
 .choice-file-label { color: var(--navy-800); font-weight: 500; }
 .choice-file-rows {
-  font-family: 'Aptos', 'Segoe UI', sans-serif;
+  font-family: var(--font-display);
   font-size: 12px;
   color: var(--muted);
 }
@@ -1034,7 +1049,7 @@ tbody tr:hover td { background: var(--paper); }
   display: flex;
   align-items: center;
   gap: 12px;
-  font-family: 'Aptos', 'Segoe UI', sans-serif;
+  font-family: var(--font-display);
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.12em;
@@ -1063,7 +1078,7 @@ tbody tr:hover td { background: var(--paper); }
   100% { box-shadow: 0 0 0 14px rgba(200,155,92,0); }
 }
 .stream-timer {
-  font-family: 'Aptos', 'Segoe UI', sans-serif;
+  font-family: var(--font-display);
   font-size: 22px;
   font-weight: 600;
   color: var(--brass-2);
@@ -1073,7 +1088,7 @@ tbody tr:hover td { background: var(--paper); }
 .stream-log {
   background: var(--navy-900);
   padding: 22px 24px;
-  font-family: 'Aptos', 'Segoe UI', sans-serif;
+  font-family: var(--font-display);
   font-size: 13px;
   line-height: 1.85;
   color: rgba(255,255,255,0.88);
@@ -1165,7 +1180,7 @@ tbody tr:hover td { background: var(--paper); }
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  font-family: 'Aptos', 'Segoe UI', sans-serif;
+  font-family: var(--font-display);
   line-height: 1;
 }
 .confidence-label .lbl {
@@ -1184,7 +1199,7 @@ tbody tr:hover td { background: var(--paper); }
   display: flex;
   align-items: center;
   gap: 18px;
-  font-family: 'Aptos', 'Segoe UI', sans-serif;
+  font-family: var(--font-display);
   font-size: 11px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -1243,7 +1258,7 @@ tbody tr:hover td { background: var(--paper); }
   box-shadow: var(--shadow);
 }
 .mc-side-title {
-  font-family: 'Aptos', 'Segoe UI', sans-serif;
+  font-family: var(--font-display);
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.14em;
@@ -1273,7 +1288,7 @@ tbody tr:hover td { background: var(--paper); }
   font-variant-numeric: tabular-nums;
 }
 .mc-side-stat .l {
-  font-family: 'Aptos', 'Segoe UI', sans-serif;
+  font-family: var(--font-display);
   font-size: 9px;
   text-transform: uppercase;
   letter-spacing: 0.1em;
@@ -1284,7 +1299,7 @@ tbody tr:hover td { background: var(--paper); }
 .mc-filter-group { margin-bottom: 18px; }
 .mc-filter-group:last-child { margin-bottom: 0; }
 .mc-filter-heading {
-  font-family: 'Aptos', 'Segoe UI', sans-serif;
+  font-family: var(--font-display);
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.12em;
@@ -1297,7 +1312,7 @@ tbody tr:hover td { background: var(--paper); }
   gap: 5px;
 }
 .mc-chip {
-  font-family: 'Aptos', 'Segoe UI', sans-serif;
+  font-family: var(--font-display);
   font-size: 11px;
   letter-spacing: 0.04em;
   padding: 5px 10px;
@@ -1334,7 +1349,7 @@ tbody tr:hover td { background: var(--paper); }
   font-size: 14px !important;
 }
 .mc-result-count {
-  font-family: 'Aptos', 'Segoe UI', sans-serif;
+  font-family: var(--font-display);
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.1em;
@@ -1350,7 +1365,7 @@ tbody tr:hover td { background: var(--paper); }
   border-radius: var(--radius);
 }
 .mc-empty .em-title {
-  font-family: 'Aptos', 'Segoe UI', sans-serif;
+  font-family: var(--font-display);
   font-size: 18px;
   font-weight: 600;
   color: var(--navy-800);
@@ -1402,13 +1417,13 @@ tbody tr:hover td { background: var(--paper); }
   margin-bottom: 8px;
 }
 .contact-name {
-  font-family: 'Aptos', 'Segoe UI', sans-serif;
+  font-family: var(--font-display);
   font-size: 15px;
   font-weight: 600;
   color: var(--navy-800);
 }
 .contact-email {
-  font-family: 'Aptos', 'Segoe UI', sans-serif;
+  font-family: var(--font-display);
   font-size: 12px;
   color: var(--brass-3);
   text-decoration: none;
@@ -1420,7 +1435,7 @@ tbody tr:hover td { background: var(--paper); }
   color: var(--muted);
 }
 .contact-date {
-  font-family: 'Aptos', 'Segoe UI', sans-serif;
+  font-family: var(--font-display);
   font-size: 11px;
   color: var(--muted-2, var(--muted));
   text-transform: uppercase;
@@ -1468,7 +1483,7 @@ tbody tr:hover td { background: var(--paper); }
   z-index: 1;
 }
 .hero-eyebrow {
-  font-family: 'Aptos', 'Segoe UI', sans-serif;
+  font-family: var(--font-display);
   font-size: 11px;
   letter-spacing: 0.22em;
   text-transform: uppercase;
@@ -1509,7 +1524,7 @@ tbody tr:hover td { background: var(--paper); }
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  font-family: 'Aptos', 'Segoe UI', sans-serif;
+  font-family: var(--font-display);
   font-size: 11px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -1550,7 +1565,7 @@ tbody tr:hover td { background: var(--paper); }
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font-family: 'Aptos', 'Segoe UI', sans-serif;
+  font-family: var(--font-display);
   font-size: 10px;
   letter-spacing: 0.16em;
   text-transform: uppercase;
