@@ -1609,6 +1609,12 @@ def run_analysis(upload_session_id):
             _mark_agent("recommendation", "running")
             _emit("Starting purchase recommendation agent")
             recommendations = run_recommendation_agent(upload_session_id, model, inventory_report, context, progress_emit=_emit)
+
+            # Defensive: normalise confidence values before persisting so the
+            # UI doesn't have to guess what "MED" or "high" means later.
+            for _rec in recommendations:
+                _normalise_confidence(_rec)
+
             _mark_agent("recommendation", "done", summary=_summarise_recommendations(recommendations))
 
             db.execute(
@@ -1746,10 +1752,13 @@ def results(upload_session_id):
     }
 
     # Enrich each recommendation with order-by date and confidence reasons
-    # so the template can render them without computing inline.
+    # so the template can render them without computing inline. Confidence
+    # is normalised first so old rows (with "MED") match the template's
+    # MEDIUM check and the ring renders the correct colour.
     for rec in recommendations:
         if not isinstance(rec, dict) or rec.get("error"):
             continue
+        _normalise_confidence(rec)
         rec["_order_by"]      = _compute_order_by(rec)
         rec["_conf_reasons"]  = _confidence_reasons(rec)
         rec["_effective_qty"]      = _effective_qty(rec)
@@ -1783,6 +1792,7 @@ def print_results(upload_session_id):
     approved = [r for r in recommendations if r.get("approved") and not r.get("error")]
     # Enrich with effective values + order-by so the print template can stay simple.
     for r in approved:
+        _normalise_confidence(r)
         r["_effective_qty"]      = _effective_qty(r)
         r["_effective_supplier"] = _effective_supplier(r)
         r["_order_by"]           = _compute_order_by(r)
@@ -1807,6 +1817,8 @@ def export_csv(upload_session_id):
     except Exception:
         recommendations = []
     approved = [r for r in recommendations if r.get("approved") and not r.get("error")]
+    for r in approved:
+        _normalise_confidence(r)
 
     buf = io.StringIO()
     writer = csv.writer(buf)
@@ -1874,6 +1886,8 @@ def export_pdf(upload_session_id):
         recommendations = []
         generated_at = ""
     approved = [r for r in recommendations if r.get("approved") and not r.get("error")]
+    for r in approved:
+        _normalise_confidence(r)
 
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -2084,6 +2098,32 @@ def diff_view(session_a_id, session_b_id):
 
 
 # ── Recommendation helpers ───────────────────────────────────────────────────
+
+# Confidence values the rest of the codebase (templates, CSV, PDF) expects.
+# Normalise on both save and read so old DB rows render correctly.
+_CONFIDENCE_ALIASES = {
+    "MED":          "MEDIUM",
+    "MID":          "MEDIUM",
+    "M":            "MEDIUM",
+    "H":            "HIGH",
+    "L":            "LOW",
+    "INSUFFICIENT": "INSUFFICIENT_DATA",
+    "UNKNOWN":      "INSUFFICIENT_DATA",
+    "N/A":          "INSUFFICIENT_DATA",
+}
+
+def _normalise_confidence(rec):
+    """Coerce rec['confidence'] to one of HIGH / MEDIUM / LOW / INSUFFICIENT_DATA."""
+    if not isinstance(rec, dict):
+        return
+    raw = (rec.get("confidence") or "").strip().upper()
+    if not raw:
+        return
+    if raw in ("HIGH", "MEDIUM", "LOW", "INSUFFICIENT_DATA"):
+        rec["confidence"] = raw
+        return
+    rec["confidence"] = _CONFIDENCE_ALIASES.get(raw, "INSUFFICIENT_DATA")
+
 
 def _effective_qty(rec):
     """Return the quantity to display/export: edited value if user adjusted it,
