@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Privacy Policy — BerthAI</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Inter+Tight:wght@500;600;700;800&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --navy-900: #0B1424; --navy-800: #0F1B2D; --navy-700: #1B2B4A;
+      --brass: #C89B5C; --brass-2: #E2B97A; --brass-3: #8B6B3D;
+      --paper: #FAF8F3; --paper-2: #F3EFE3; --border: #E5DFCF;
+      --muted: #6B7280; --text: #0F1B2D;
+      --font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      --font-display: 'Inter Tight', 'Inter', sans-serif;
+      --font-serif: 'Instrument Serif', Georgia, serif;
+    }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: var(--font-body);
+      background: var(--paper);
+      color: var(--text);
+      font-size: 16px;
+      line-height: 1.7;
+    }
+    .legal-nav {
+      position: sticky; top: 0; z-index: 100;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 40px; height: 64px;
+      background: rgba(250,248,243,0.92);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+    }
+    .legal-nav-logo img { height: 36px; width: auto; display: block; }
+    .legal-nav a {
+      font-size: 14px; font-weight: 500;
+      color: var(--navy-700); text-decoration: none;
+      margin-left: 22px;
+    }
+    .legal-nav a:hover { color: var(--brass); }
+
+    .legal-wrap {
+      max-width: 760px; margin: 0 auto;
+      padding: 56px 32px 96px;
+    }
+    .legal-eyebrow {
+      font-size: 12px; font-weight: 700;
+      letter-spacing: 0.1em; text-transform: uppercase;
+      color: var(--brass-3); margin-bottom: 12px;
+    }
+    .legal-title {
+      font-family: var(--font-display);
+      font-size: 44px; font-weight: 700;
+      letter-spacing: -0.02em; line-height: 1.1;
+      color: var(--navy-900); margin-bottom: 18px;
+    }
+    .legal-meta {
+      font-size: 14px; color: var(--muted);
+      margin-bottom: 28px; padding-bottom: 24px;
+      border-bottom: 1px solid var(--border);
+    }
+    .legal-disclaimer {
+      background: rgba(200,155,92,0.08);
+      border: 1px solid rgba(200,155,92,0.3);
+      border-radius: 12px; padding: 16px 20px;
+      margin: 0 0 36px; font-size: 14px;
+      color: var(--brass-3); line-height: 1.55;
+    }
+    .legal-disclaimer strong { color: var(--navy-900); }
+    .legal-wrap h2 {
+      font-family: var(--font-display);
+      font-size: 22px; font-weight: 700;
+      color: var(--navy-900); letter-spacing: -0.01em;
+      margin: 40px 0 14px;
+    }
+    .legal-wrap h2:first-of-type { margin-top: 0; }
+    .legal-wrap h3 {
+      font-family: var(--font-display);
+      font-size: 16px; font-weight: 600;
+      color: var(--navy-800); margin: 24px 0 8px;
+    }
+    .legal-wrap p { margin-bottom: 14px; color: var(--text); }
+    .legal-wrap ul { margin: 0 0 18px 22px; }
+    .legal-wrap ul li { margin-bottom: 6px; }
+    .legal-wrap a { color: var(--brass-3); text-decoration: underline; }
+    .legal-wrap a:hover { color: var(--navy-700); }
+
+    .legal-toc {
+      background: var(--paper-2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 18px 24px;
+      margin: 0 0 40px;
+      font-size: 14px;
+    }
+    .legal-toc-title {
+      font-weight: 600;
+      color: var(--navy-800);
+      margin-bottom: 10px;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    .legal-toc ol { margin: 0 0 0 22px; padding: 0; }
+    .legal-toc li { margin-bottom: 4px; }
+    .legal-toc a { color: var(--navy-700); text-decoration: none; }
+    .legal-toc a:hover { color: var(--brass); text-decoration: underline; }
+
+    .legal-footer {
+      margin-top: 80px; padding: 28px 32px;
+      border-top: 1px solid var(--border);
+      max-width: 760px; margin-left: auto; margin-right: auto;
+      display: flex; align-items: center; justify-content: space-between;
+      font-size: 13px; color: var(--muted);
+    }
+    .legal-footer a { color: var(--muted); text-decoration: none; margin-left: 22px; }
+    .legal-footer a:hover { color: var(--text); }
+
+    table.legal-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 16px 0 22px;
+      font-size: 14px;
+    }
+    table.legal-table th {
+      background: var(--paper-2);
+      text-align: left;
+      padding: 10px 14px;
+      border-bottom: 1.5px solid var(--border);
+      font-weight: 600;
+      color: var(--navy-800);
+    }
+    table.legal-table td {
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+      color: var(--text);
+    }
+
+    @media (max-width: 640px) {
+      .legal-nav { padding: 0 20px; }
+      .legal-wrap { padding: 40px 24px 72px; }
+      .legal-title { font-size: 32px; }
+      .legal-footer { flex-direction: column; gap: 14px; text-align: center; }
+      .legal-footer a { margin: 0 10px; }
+      table.legal-table { font-size: 13px; }
+      table.legal-table th, table.legal-table td { padding: 8px 10px; }
+    }
+  </style>
+</head>
+<body>
+
+<nav class="legal-nav">
+  <a class="legal-nav-logo" href="{{ url_for('landing') }}">
+    <img src="{{ url_for('static', filename='logo.png') }}" alt="BerthAI">
+  </a>
+  <div>
+    <a href="{{ url_for('pricing') }}">Pricing</a>
+    <a href="{{ url_for('contact') }}">Contact</a>
+    <a href="{{ url_for('login') }}">Sign in</a>
+  </div>
+</nav>
+
+<div class="legal-wrap">
+  <div class="legal-eyebrow">Legal</div>
+  <h1 class="legal-title">Privacy Policy</h1>
+  <div class="legal-meta">Last updated: 25 May 2026 &middot; Effective: 25 May 2026</div>
+
+  <div class="legal-disclaimer">
+    <strong>Heads up.</strong> This document is a starting template for a Singapore-based B2B SaaS service handling business operational data. Before you publish it, have a privacy lawyer review the specifics — particularly any cross-border transfers, retention periods, and the named sub-processors — to confirm fit with Singapore's Personal Data Protection Act (PDPA) and any other regimes your customers operate under (e.g. GDPR if you take EU customers).
+  </div>
+
+  <div class="legal-toc">
+    <div class="legal-toc-title">On this page</div>
+    <ol>
+      <li><a href="#intro">Who we are</a></li>
+      <li><a href="#data">Data we collect</a></li>
+      <li><a href="#use">How we use your data</a></li>
+      <li><a href="#sharing">Who we share data with</a></li>
+      <li><a href="#cross-border">Cross-border transfers</a></li>
+      <li><a href="#retention">How long we keep data</a></li>
+      <li><a href="#security">Security</a></li>
+      <li><a href="#rights">Your rights</a></li>
+      <li><a href="#cookies">Cookies and tracking</a></li>
+      <li><a href="#children">Children's data</a></li>
+      <li><a href="#changes">Changes to this policy</a></li>
+      <li><a href="#contact">Contact and Data Protection Officer</a></li>
+    </ol>
+  </div>
+
+  <h2 id="intro">1. Who we are</h2>
+  <p>BerthAI ("we", "us", "our") provides an inventory analysis service to marine supply, food distribution, and similar businesses. This Privacy Policy explains what personal data we collect when you use the Service, how we use it, who we share it with, and the rights you have over it.</p>
+  <p>This policy applies to personal data of users of the Service (account holders, employees of customer organisations) and of individuals whose data appears in customer-uploaded files (for example, contact persons in a supplier list).</p>
+
+  <h2 id="data">2. Data we collect</h2>
+  <h3>2.1 Account data</h3>
+  <ul>
+    <li>Email address (used to create your account and send verification, password resets, and service notifications)</li>
+    <li>Company name and role (so we can tailor the Service to your organisation)</li>
+    <li>Password (stored as a hashed value; we never see your plain password)</li>
+    <li>Plan tier and usage counters</li>
+  </ul>
+
+  <h3>2.2 Data you upload</h3>
+  <p>When you use the Service, you upload business data including:</p>
+  <ul>
+    <li>Inventory reports (SKUs, stock levels, units of measure)</li>
+    <li>Sales records (transaction history, quantities, revenue)</li>
+    <li>Purchase orders (supplier interactions, lead times)</li>
+    <li>Supplier listings (which may include supplier company names, contact persons, addresses, payment terms)</li>
+    <li>Customer listings, where you choose to provide them (which may include customer company names and contact persons)</li>
+  </ul>
+  <p>Some of this data may include personal data of third parties (for example, a supplier's contact email). By uploading it, you confirm that you have a lawful basis under the PDPA (or equivalent law applicable to you) to share that data with us for the purpose of running the Service.</p>
+
+  <h3>2.3 Usage and technical data</h3>
+  <ul>
+    <li>Pages visited within the Service and basic interaction events</li>
+    <li>Approval and dismissal actions on recommendations (so we can improve relevance over time)</li>
+    <li>IP address, browser type, device type, and similar diagnostic information</li>
+    <li>Server logs for error tracing and security monitoring</li>
+  </ul>
+
+  <h2 id="use">3. How we use your data</h2>
+  <p>We use your data to:</p>
+  <table class="legal-table">
+    <thead>
+      <tr><th style="width:38%;">Purpose</th><th>Examples</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Provide the Service</td>
+        <td>Authenticate you, run analyses on your uploaded data, generate recommendations, save your approvals.</td>
+      </tr>
+      <tr>
+        <td>Communicate with you</td>
+        <td>Send verification emails, password resets, critical-stock alerts, and (if you opt in) product updates.</td>
+      </tr>
+      <tr>
+        <td>Improve the Service</td>
+        <td>Aggregate, anonymised usage analytics. We do not use your uploaded business data to train publicly available AI models.</td>
+      </tr>
+      <tr>
+        <td>Keep the Service safe</td>
+        <td>Detect abuse, fraud, and security incidents.</td>
+      </tr>
+      <tr>
+        <td>Comply with the law</td>
+        <td>Respond to legitimate legal requests and meet our regulatory obligations under the PDPA and other applicable law.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="sharing">4. Who we share data with</h2>
+  <p>We share data only with sub-processors who help us run the Service. Each is contractually bound to confidentiality and limited use:</p>
+  <table class="legal-table">
+    <thead>
+      <tr><th>Sub-processor</th><th>Purpose</th><th>Location</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Anthropic, PBC</td>
+        <td>AI model inference (Claude) used to generate recommendations from your data.</td>
+        <td>United States</td>
+      </tr>
+      <tr>
+        <td>Render, Inc.</td>
+        <td>Application hosting, database storage, log retention.</td>
+        <td>United States (primary)</td>
+      </tr>
+      <tr>
+        <td>Google LLC (Gmail SMTP)</td>
+        <td>Outbound transactional email (verification, password reset, alerts).</td>
+        <td>Global</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>We do not sell your personal data. We do not share your data with advertisers, data brokers, or for any purpose unrelated to providing the Service.</p>
+  <p>We may share your data in response to a valid legal request (court order, regulator subpoena, law enforcement requirement) where we are legally obliged to do so. We will notify you where we are lawfully permitted.</p>
+
+  <h2 id="cross-border">5. Cross-border transfers</h2>
+  <p>The Service is operated from Singapore. Some of our sub-processors store and process data outside Singapore, primarily in the United States. Where data is transferred out of Singapore, we take reasonable steps under section 26 of the PDPA to ensure the recipient is bound by enforceable obligations to protect the data at a standard comparable to that under the PDPA.</p>
+
+  <h2 id="retention">6. How long we keep data</h2>
+  <p>We retain your data for as long as your account is active and for a reasonable period afterwards to meet legal, accounting, and dispute-resolution obligations. Specifically:</p>
+  <ul>
+    <li><strong>Account records:</strong> kept while the account is active and for up to 12 months after closure.</li>
+    <li><strong>Uploaded data and analyses:</strong> kept while you have a paid plan, and for 90 days after downgrade or closure unless you ask us to delete sooner.</li>
+    <li><strong>Server logs:</strong> retained for up to 90 days, then deleted or aggregated.</li>
+    <li><strong>Billing records:</strong> retained for 7 years to meet Singapore tax and accounting requirements.</li>
+  </ul>
+  <p>You may request earlier deletion by contacting us (see section 12). We will honour the request unless we are required by law to retain the data longer.</p>
+
+  <h2 id="security">7. Security</h2>
+  <p>We use commercially reasonable technical and organisational measures to protect your data, including:</p>
+  <ul>
+    <li>Encryption in transit (HTTPS/TLS) between your browser and our servers.</li>
+    <li>Encryption at rest for stored data on our hosting platform.</li>
+    <li>Hashed passwords (we never store or transmit plain passwords).</li>
+    <li>Access controls limiting which BerthAI personnel can access production data, and only for legitimate operational reasons.</li>
+    <li>Logging and monitoring of administrative actions.</li>
+  </ul>
+  <p>No online service is fully secure. If we become aware of a personal data breach that is likely to result in significant harm to you or to the individuals whose data you have uploaded, we will notify you and the Personal Data Protection Commission as required by Singapore law.</p>
+
+  <h2 id="rights">8. Your rights</h2>
+  <p>Under the PDPA, you have the right to:</p>
+  <ul>
+    <li><strong>Access</strong> the personal data we hold about you.</li>
+    <li><strong>Correct</strong> any personal data that is inaccurate or out of date.</li>
+    <li><strong>Withdraw consent</strong> to our processing of your personal data, subject to legal or contractual restrictions.</li>
+    <li><strong>Request deletion</strong> of personal data we no longer have a lawful basis to hold.</li>
+    <li><strong>Export</strong> your account data in a portable format on reasonable request.</li>
+  </ul>
+  <p>To exercise any of these rights, contact us using the details in section 12. We will respond within 30 days. Where we cannot honour a request (for example, because we are legally required to retain the data), we will explain why.</p>
+
+  <h2 id="cookies">9. Cookies and tracking</h2>
+  <p>The Service uses a small number of cookies that are strictly necessary for it to function (for example, to keep you logged in). We do not use advertising cookies, third-party analytics that profile you across the web, or tracking pixels in marketing emails. If we add optional analytics in future, we will update this policy and provide a clear opt-in.</p>
+
+  <h2 id="children">10. Children's data</h2>
+  <p>The Service is a B2B tool not directed at children. We do not knowingly collect personal data from anyone under 18. If you believe a child has provided us with personal data, contact us and we will delete it.</p>
+
+  <h2 id="changes">11. Changes to this policy</h2>
+  <p>We may update this Privacy Policy from time to time. When we make a material change, we will notify account holders by email or via the Service at least 14 days before the change takes effect. The "Last updated" date at the top of this page always reflects the current version.</p>
+
+  <h2 id="contact">12. Contact and Data Protection Officer</h2>
+  <p>Questions about this policy, or any request to exercise your rights under the PDPA, can be sent through our <a href="{{ url_for('contact') }}">contact page</a>. Mark your message "Privacy request" so we route it correctly.</p>
+  <p>Our designated Data Protection Officer can be reached at the same address.</p>
+</div>
+
+<footer class="legal-footer">
+  <div>© 2026 BerthAI · Inventory operations for marine supply</div>
+  <div>
+    <a href="{{ url_for('terms') }}">Terms</a>
+    <a href="{{ url_for('privacy') }}">Privacy</a>
+    <a href="{{ url_for('contact') }}">Contact</a>
+  </div>
+</footer>
+
+</body>
+</html>

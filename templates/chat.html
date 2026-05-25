@@ -608,6 +608,88 @@
     .chat-input-area { padding: 8px 12px 14px; }
     .welcome-starters { grid-template-columns: 1fr; }
   }
+
+  /* ── Perplexity-style empty state ── */
+  .chat-main.is-empty .chat-topbar {
+    background: transparent;
+    border-bottom: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  .chat-main.is-empty .chat-topbar-title { opacity: 0; pointer-events: none; }
+  .chat-main.is-empty .chat-topbar-analysis { opacity: 0.6; }
+
+  .chat-main.is-empty .chat-messages {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    padding-bottom: 0;
+    flex: 1;
+  }
+  .chat-main.is-empty .chat-welcome {
+    padding: 0 24px 24px;
+    max-width: 760px;
+    width: 100%;
+    text-align: center;
+  }
+
+  /* Big editorial wordmark, lowercase, like Perplexity but on-brand */
+  .welcome-wordmark {
+    font-family: var(--font-display, 'Inter Tight', 'Inter', sans-serif);
+    font-size: clamp(56px, 9vw, 96px);
+    font-weight: 500;
+    letter-spacing: -0.04em;
+    color: var(--navy-900);
+    line-height: 1;
+    margin-bottom: 18px;
+    text-transform: lowercase;
+  }
+  .welcome-tagline {
+    font-size: 15px;
+    color: var(--muted);
+    margin: 0 0 36px;
+    line-height: 1.55;
+  }
+
+  /* When the chat is empty, slide the input area up into the centre, make it
+     bigger and rounder, and hide the feature toggles by default. */
+  .chat-main.is-empty .chat-input-area {
+    border-top: none;
+    background: transparent;
+    padding-top: 0;
+    max-width: 760px;
+    margin: 0 auto 96px;
+    width: 100%;
+  }
+  .chat-main.is-empty .feature-toggles {
+    display: none;
+  }
+  .chat-main.is-empty .chat-input-box {
+    border-radius: 16px;
+    border-width: 1.5px;
+    background: #fff;
+    box-shadow: 0 4px 24px rgba(15,27,45,0.06);
+    transition: box-shadow 200ms var(--ease-out, ease), border-color 200ms ease;
+  }
+  .chat-main.is-empty .chat-input-box:focus-within {
+    box-shadow: 0 8px 32px rgba(15,27,45,0.1);
+    border-color: var(--brass);
+  }
+  .chat-main.is-empty .chat-textarea {
+    font-size: 16px;
+    padding: 8px 4px;
+  }
+  .chat-main.is-empty .chat-input-row {
+    padding: 16px 18px;
+  }
+  .chat-main.is-empty .input-footer-row {
+    justify-content: center;
+    color: var(--muted);
+    opacity: 0.6;
+    font-size: 12px;
+  }
+
 </style>
 {% endblock %}
 
@@ -636,11 +718,11 @@
   </aside>
 
   <!-- Main -->
-  <main class="chat-main">
+  <main class="chat-main is-empty" id="chatMain">
 
-    <!-- Topbar -->
+    <!-- Topbar (collapses to a small toggle in empty state) -->
     <div class="chat-topbar">
-      <button class="chat-topbar-toggle" id="sidebarToggle" title="Toggle sidebar">☰</button>
+      <button class="chat-topbar-toggle" id="sidebarToggle" title="Show past conversations">☰</button>
       <div class="chat-topbar-title" id="chatTitle">New conversation</div>
       <a href="{{ url_for('upload_start') }}" class="chat-topbar-analysis">
         📊 New analysis
@@ -650,14 +732,8 @@
     <!-- Messages -->
     <div class="chat-messages" id="chatMessages">
       <div class="chat-welcome" id="chatWelcome">
-        <h2 class="welcome-title" id="welcomeTitle">What are we solving today?</h2>
-        <p class="welcome-sub">Ask anything about your inventory, suppliers, or procurement.</p>
-        <div class="welcome-starters">
-          <button class="starter-btn" onclick="sendStarter(this)">What are the most common reasons for marine stockouts?</button>
-          <button class="starter-btn" onclick="sendStarter(this)">How do I calculate reorder points for perishable goods?</button>
-          <button class="starter-btn" onclick="sendStarter(this)">How should I think about lead time buffers for import suppliers?</button>
-          <button class="starter-btn" onclick="sendStarter(this)">What's the best way to structure a purchase order for food distribution?</button>
-        </div>
+        <div class="welcome-wordmark">BerthAI</div>
+        <p class="welcome-tagline">Ask anything about your inventory, suppliers, or procurement.</p>
       </div>
     </div>
 
@@ -1139,18 +1215,18 @@ function clearMessages() {
   const messages = document.getElementById('chatMessages');
   messages.innerHTML = `
     <div class="chat-welcome" id="chatWelcome">
-      <h2 class="welcome-title">${WELCOME_TITLES[Math.floor(Math.random() * WELCOME_TITLES.length)]}</h2>
-      <p class="welcome-sub">Ask anything about your inventory, suppliers, or procurement.</p>
-      <div class="welcome-starters">
-        <button class="starter-btn" onclick="sendStarter(this)">What are the most common reasons for marine stockouts?</button>
-        <button class="starter-btn" onclick="sendStarter(this)">How do I calculate reorder points for perishable goods?</button>
-        <button class="starter-btn" onclick="sendStarter(this)">How should I think about lead time buffers for import suppliers?</button>
-        <button class="starter-btn" onclick="sendStarter(this)">What's the best way to structure a purchase order for food distribution?</button>
-      </div>
+      <div class="welcome-wordmark">BerthAI</div>
+      <p class="welcome-tagline">Ask anything about your inventory, suppliers, or procurement.</p>
     </div>
   `;
+  // Re-enter empty state when the user starts a new chat
+  const main = document.getElementById('chatMain');
+  if (main) main.classList.add('is-empty');
 }
-function hideWelcome() { const el = document.getElementById('chatWelcome'); if (el) el.remove(); }
+function hideWelcome() {
+  const el = document.getElementById('chatWelcome'); if (el) el.remove();
+  const main = document.getElementById('chatMain'); if (main) main.classList.remove('is-empty');
+}
 function scrollToBottom() {
   const msgs = document.getElementById('chatMessages');
   msgs.scrollTop = msgs.scrollHeight;
@@ -1193,3 +1269,4 @@ function escHtml(str) {
 }
 </script>
 {% endblock %}
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            

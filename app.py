@@ -157,6 +157,16 @@ def pricing():
     return render_template("pricing.html")
 
 
+@app.route("/terms")
+def terms():
+    return render_template("terms.html")
+
+
+@app.route("/privacy")
+def privacy():
+    return render_template("privacy.html")
+
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if "user_id" in session:
@@ -2502,7 +2512,6 @@ def _allowed(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
 
 
-def _verify_session_owner(upload_session_id):
     rows = db.query("SELECT user_id FROM upload_sessions WHERE id=?", (upload_session_id,))
     if not rows or rows[0]["user_id"] != session.get("user_id"):
         from flask import abort

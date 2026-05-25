@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Terms of Service — BerthAI</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Inter+Tight:wght@500;600;700;800&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --navy-900: #0B1424; --navy-800: #0F1B2D; --navy-700: #1B2B4A;
+      --brass: #C89B5C; --brass-2: #E2B97A; --brass-3: #8B6B3D;
+      --paper: #FAF8F3; --paper-2: #F3EFE3; --border: #E5DFCF;
+      --muted: #6B7280; --text: #0F1B2D;
+      --font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      --font-display: 'Inter Tight', 'Inter', sans-serif;
+      --font-serif: 'Instrument Serif', Georgia, serif;
+    }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: var(--font-body);
+      background: var(--paper);
+      color: var(--text);
+      font-size: 16px;
+      line-height: 1.7;
+    }
+    .legal-nav {
+      position: sticky; top: 0; z-index: 100;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 40px; height: 64px;
+      background: rgba(250,248,243,0.92);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+    }
+    .legal-nav-logo img { height: 36px; width: auto; display: block; }
+    .legal-nav a {
+      font-size: 14px; font-weight: 500;
+      color: var(--navy-700); text-decoration: none;
+      margin-left: 22px;
+    }
+    .legal-nav a:hover { color: var(--brass); }
+
+    .legal-wrap {
+      max-width: 760px;
+      margin: 0 auto;
+      padding: 56px 32px 96px;
+    }
+    .legal-eyebrow {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--brass-3);
+      margin-bottom: 12px;
+    }
+    .legal-title {
+      font-family: var(--font-display);
+      font-size: 44px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      line-height: 1.1;
+      color: var(--navy-900);
+      margin-bottom: 18px;
+    }
+    .legal-meta {
+      font-size: 14px;
+      color: var(--muted);
+      margin-bottom: 28px;
+      padding-bottom: 24px;
+      border-bottom: 1px solid var(--border);
+    }
+    .legal-disclaimer {
+      background: rgba(200,155,92,0.08);
+      border: 1px solid rgba(200,155,92,0.3);
+      border-radius: 12px;
+      padding: 16px 20px;
+      margin: 0 0 36px;
+      font-size: 14px;
+      color: var(--brass-3);
+      line-height: 1.55;
+    }
+    .legal-disclaimer strong { color: var(--navy-900); }
+    .legal-wrap h2 {
+      font-family: var(--font-display);
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--navy-900);
+      letter-spacing: -0.01em;
+      margin: 40px 0 14px;
+    }
+    .legal-wrap h2:first-of-type { margin-top: 0; }
+    .legal-wrap h3 {
+      font-family: var(--font-display);
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--navy-800);
+      margin: 24px 0 8px;
+    }
+    .legal-wrap p { margin-bottom: 14px; color: var(--text); }
+    .legal-wrap ul { margin: 0 0 18px 22px; }
+    .legal-wrap ul li { margin-bottom: 6px; }
+    .legal-wrap a { color: var(--brass-3); text-decoration: underline; }
+    .legal-wrap a:hover { color: var(--navy-700); }
+
+    .legal-toc {
+      background: var(--paper-2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 18px 24px;
+      margin: 0 0 40px;
+      font-size: 14px;
+    }
+    .legal-toc-title {
+      font-weight: 600;
+      color: var(--navy-800);
+      margin-bottom: 10px;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    .legal-toc ol { margin: 0 0 0 22px; padding: 0; }
+    .legal-toc li { margin-bottom: 4px; }
+    .legal-toc a {
+      color: var(--navy-700);
+      text-decoration: none;
+    }
+    .legal-toc a:hover { color: var(--brass); text-decoration: underline; }
+
+    .legal-footer {
+      margin-top: 80px;
+      padding: 28px 32px;
+      border-top: 1px solid var(--border);
+      max-width: 760px;
+      margin-left: auto;
+      margin-right: auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 13px;
+      color: var(--muted);
+    }
+    .legal-footer a { color: var(--muted); text-decoration: none; margin-left: 22px; }
+    .legal-footer a:hover { color: var(--text); }
+
+    @media (max-width: 640px) {
+      .legal-nav { padding: 0 20px; }
+      .legal-wrap { padding: 40px 24px 72px; }
+      .legal-title { font-size: 32px; }
+      .legal-footer { flex-direction: column; gap: 14px; text-align: center; }
+      .legal-footer a { margin: 0 10px; }
+    }
+  </style>
+</head>
+<body>
+
+<nav class="legal-nav">
+  <a class="legal-nav-logo" href="{{ url_for('landing') }}">
+    <img src="{{ url_for('static', filename='logo.png') }}" alt="BerthAI">
+  </a>
+  <div>
+    <a href="{{ url_for('pricing') }}">Pricing</a>
+    <a href="{{ url_for('contact') }}">Contact</a>
+    <a href="{{ url_for('login') }}">Sign in</a>
+  </div>
+</nav>
+
+<div class="legal-wrap">
+  <div class="legal-eyebrow">Legal</div>
+  <h1 class="legal-title">Terms of Service</h1>
+  <div class="legal-meta">Last updated: 25 May 2026 &middot; Effective: 25 May 2026</div>
+
+  <div class="legal-disclaimer">
+    <strong>Heads up.</strong> This document is a starting template for a Singapore-based B2B SaaS service. Before you rely on it for any real contract, dispute, or commercial relationship, have it reviewed by a qualified lawyer admitted to practice in Singapore. Specific terms (fees, refund policy, SLA, indemnity limits) may need to be tightened or adjusted based on your actual customer arrangements.
+  </div>
+
+  <div class="legal-toc">
+    <div class="legal-toc-title">On this page</div>
+    <ol>
+      <li><a href="#acceptance">Acceptance of these terms</a></li>
+      <li><a href="#service">Description of the service</a></li>
+      <li><a href="#accounts">Accounts and registration</a></li>
+      <li><a href="#use">Acceptable use</a></li>
+      <li><a href="#customer-data">Your data and confidentiality</a></li>
+      <li><a href="#ip">Intellectual property</a></li>
+      <li><a href="#fees">Fees and payment</a></li>
+      <li><a href="#ai">AI-generated output and decision-making</a></li>
+      <li><a href="#warranties">Warranties and disclaimers</a></li>
+      <li><a href="#liability">Limitation of liability</a></li>
+      <li><a href="#indemnity">Indemnity</a></li>
+      <li><a href="#termination">Termination</a></li>
+      <li><a href="#changes">Changes to these terms</a></li>
+      <li><a href="#law">Governing law and jurisdiction</a></li>
+      <li><a href="#contact">Contact</a></li>
+    </ol>
+  </div>
+
+  <h2 id="acceptance">1. Acceptance of these terms</h2>
+  <p>These Terms of Service (the "Terms") govern your access to and use of the BerthAI website, application, and related services (collectively, the "Service") provided by BerthAI ("we", "us", or "our"). By creating an account, uploading data, or otherwise using the Service, you agree to be bound by these Terms. If you do not agree, do not use the Service.</p>
+  <p>You confirm that you have authority to bind the company or entity on whose behalf you are using the Service. References to "you" mean both you personally and the entity you represent.</p>
+
+  <h2 id="service">2. Description of the service</h2>
+  <p>BerthAI is an inventory analysis tool aimed at marine supply, food distribution, and similar businesses. The Service ingests data exports you provide (inventory reports, sales records, purchase orders, supplier lists) and uses artificial intelligence to generate observations, classifications, and reorder recommendations.</p>
+  <p>The Service is provided as a software-as-a-service offering. We may add, modify, or remove features at any time. We will not materially reduce the core functionality available on your active paid plan without reasonable notice.</p>
+
+  <h2 id="accounts">3. Accounts and registration</h2>
+  <p>To use the Service you must create an account with a valid email address. You are responsible for:</p>
+  <ul>
+    <li>Keeping your password and login credentials confidential.</li>
+    <li>All activity that occurs under your account, whether or not authorised by you.</li>
+    <li>Notifying us promptly if you suspect any unauthorised use of your account.</li>
+    <li>Providing accurate information and keeping it up to date.</li>
+  </ul>
+  <p>You must be at least 18 years old, or the age of legal majority in your jurisdiction, to create an account. We may suspend or close accounts that we reasonably believe to be fraudulent, abusive, or in breach of these Terms.</p>
+
+  <h2 id="use">4. Acceptable use</h2>
+  <p>You agree not to use the Service to:</p>
+  <ul>
+    <li>Violate any law, regulation, or third-party right.</li>
+    <li>Upload data you do not have the right to share, including personal data of third parties without a lawful basis.</li>
+    <li>Attempt to reverse-engineer, decompile, scrape, or extract the underlying models or source code.</li>
+    <li>Use the Service to build a competing product or train a competing model.</li>
+    <li>Interfere with the operation of the Service, including by sending high volumes of automated requests outside our published API limits.</li>
+    <li>Resell or sublicense access to the Service without our written consent.</li>
+  </ul>
+
+  <h2 id="customer-data">5. Your data and confidentiality</h2>
+  <p>The data you upload to the Service (inventory exports, sales records, supplier lists, and related operational data) remains your property. You grant us a non-exclusive, limited licence to process that data solely for the purpose of providing the Service to you and improving the Service.</p>
+  <p>We will not sell your data, share it with advertisers, or use it to train publicly available AI models. We may pass your data to our infrastructure providers and AI model providers (currently Anthropic, used to generate recommendations) under written confidentiality terms.</p>
+  <p>For information on how we collect, store, and protect personal data, see our <a href="{{ url_for('privacy') }}">Privacy Policy</a>.</p>
+  <p>We use commercially reasonable technical and organisational measures to protect your data, but no system is fully secure. You acknowledge that uploading data to any online service carries inherent risk, and you agree to maintain your own backups of any critical operational data.</p>
+
+  <h2 id="ip">6. Intellectual property</h2>
+  <p>The Service, including its software, design, branding, and documentation, is owned by us and protected by intellectual property laws. Nothing in these Terms transfers ownership of the Service to you.</p>
+  <p>Recommendations and outputs generated by the Service from your data are licensed to you for your internal business use. You may share them with your suppliers, employees, and advisors as needed to operate your business.</p>
+  <p>Feedback you provide about the Service (suggestions, bug reports, feature requests) may be used by us without restriction or obligation to you.</p>
+
+  <h2 id="fees">7. Fees and payment</h2>
+  <p>Free plan accounts are provided at no cost, subject to usage limits described on the <a href="{{ url_for('pricing') }}">Pricing</a> page. Paid plans are billed monthly in advance unless otherwise agreed in writing.</p>
+  <p>All fees are stated in Singapore Dollars unless otherwise specified and exclude applicable taxes, which are your responsibility. We may change pricing for new billing periods on 30 days' notice.</p>
+  <p>Refunds: paid plan fees are non-refundable except where required by law or expressly agreed in writing. If you cancel a paid plan mid-cycle, access continues until the end of the current billing period.</p>
+
+  <h2 id="ai">8. AI-generated output and decision-making</h2>
+  <p>The Service uses large language models to generate inventory classifications, reorder recommendations, and other observations. These outputs are <strong>aids to your decision-making, not substitutes for it</strong>.</p>
+  <p>You acknowledge that AI-generated output:</p>
+  <ul>
+    <li>May contain errors, omissions, or inaccuracies, including in calculations, dates, and quantities.</li>
+    <li>Depends on the quality and completeness of the data you provide.</li>
+    <li>Should be reviewed by a qualified person before you act on it for any commercial decision involving meaningful cost, risk, or third-party impact.</li>
+  </ul>
+  <p>You are solely responsible for any purchase order, supplier communication, or operational decision you make on the basis of the Service's output.</p>
+
+  <h2 id="warranties">9. Warranties and disclaimers</h2>
+  <p>The Service is provided "as is" and "as available". To the maximum extent permitted by law, we disclaim all warranties, whether express, implied, statutory, or otherwise, including warranties of merchantability, fitness for a particular purpose, accuracy, non-infringement, and uninterrupted availability.</p>
+  <p>We do not warrant that the Service will be error-free, that defects will be corrected, or that the Service or the servers that make it available are free of viruses or other harmful components.</p>
+
+  <h2 id="liability">10. Limitation of liability</h2>
+  <p>To the maximum extent permitted by law, our total aggregate liability to you under or in connection with these Terms (whether in contract, tort, or otherwise) shall not exceed the fees actually paid by you to us in the twelve (12) months immediately preceding the event giving rise to the claim, or SGD 100, whichever is greater.</p>
+  <p>In no event will we be liable for any indirect, incidental, consequential, special, or punitive damages, including lost profits, lost revenue, loss of business, loss of data, or cost of substitute services, even if we have been advised of the possibility of such damages.</p>
+  <p>Nothing in these Terms excludes or limits liability that cannot lawfully be excluded or limited, including liability for fraud or for death or personal injury caused by negligence.</p>
+
+  <h2 id="indemnity">11. Indemnity</h2>
+  <p>You agree to indemnify and hold us harmless from any claims, damages, losses, liabilities, and reasonable legal fees arising out of: (a) your breach of these Terms; (b) your misuse of the Service; (c) your violation of any law or third-party right; or (d) any data you upload to the Service that you did not have the right to share.</p>
+
+  <h2 id="termination">12. Termination</h2>
+  <p>You may close your account at any time by contacting us. We may suspend or terminate your access if you breach these Terms, fail to pay fees when due, or use the Service in a manner that exposes us to legal or reputational risk.</p>
+  <p>On termination, your right to use the Service ends immediately. We will retain your data for a reasonable period to allow for export and as required for our legitimate business and legal purposes, after which it may be deleted in accordance with our data retention practices.</p>
+
+  <h2 id="changes">13. Changes to these terms</h2>
+  <p>We may amend these Terms from time to time. If we make a material change, we will notify you by email or through the Service before the change takes effect. Continued use of the Service after the effective date constitutes acceptance of the updated Terms. If you do not accept the changes, your only remedy is to stop using the Service and close your account.</p>
+
+  <h2 id="law">14. Governing law and jurisdiction</h2>
+  <p>These Terms are governed by the laws of Singapore. Any dispute arising out of or in connection with these Terms shall be referred to and finally resolved by the Singapore International Arbitration Centre in accordance with its rules. The seat of arbitration shall be Singapore. The language of the arbitration shall be English. Each party shall bear its own costs.</p>
+
+  <h2 id="contact">15. Contact</h2>
+  <p>Questions about these Terms can be sent through our <a href="{{ url_for('contact') }}">contact page</a>.</p>
+</div>
+
+<footer class="legal-footer">
+  <div>© 2026 BerthAI · Inventory operations for marine supply</div>
+  <div>
+    <a href="{{ url_for('terms') }}">Terms</a>
+    <a href="{{ url_for('privacy') }}">Privacy</a>
+    <a href="{{ url_for('contact') }}">Contact</a>
+  </div>
+</footer>
+
+</body>
+</html>
