@@ -811,4 +811,3 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
     except Exception as e:
         _emit(progress_emit, f"Recommendation agent error: {str(e)}")
         return [{"error": str(e)}]
-}]
