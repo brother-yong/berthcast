@@ -634,23 +634,51 @@
     text-align: center;
   }
 
-  /* Big editorial wordmark, lowercase, like Perplexity but on-brand */
-  .welcome-wordmark {
+  /* Centred heading above the input — replaces the big wordmark. */
+  .welcome-headline {
     font-family: var(--font-display, 'Inter Tight', 'Inter', sans-serif);
-    font-size: clamp(56px, 9vw, 96px);
+    font-size: clamp(26px, 3.5vw, 34px);
     font-weight: 500;
-    letter-spacing: -0.04em;
-    color: var(--navy-900);
-    line-height: 1;
-    margin-bottom: 18px;
-    text-transform: lowercase;
-  }
-  .welcome-tagline {
-    font-size: 15px;
-    color: var(--muted);
+    letter-spacing: -0.01em;
+    color: var(--text);
+    line-height: 1.2;
     margin: 0 0 36px;
-    line-height: 1.55;
+    text-align: center;
   }
+
+  /* Quick-action chips below the input, only visible in empty state. */
+  .empty-actions {
+    display: none;
+    justify-content: center;
+    gap: 12px;
+    margin-top: 18px;
+    flex-wrap: wrap;
+  }
+  .chat-main.is-empty .empty-actions { display: flex; }
+  .empty-action-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 18px;
+    background: #fff;
+    border: 1.5px solid var(--border);
+    border-radius: 100px;
+    color: var(--text);
+    font-size: 14px;
+    font-weight: 500;
+    font-family: inherit;
+    text-decoration: none;
+    cursor: pointer;
+    transition: border-color 160ms var(--ease-out, ease), background 160ms ease, transform 160ms ease, color 160ms ease;
+  }
+  .empty-action-chip:hover {
+    border-color: var(--brass);
+    background: var(--paper);
+    transform: translateY(-1px);
+    color: var(--navy-900);
+  }
+  .empty-action-chip svg { color: var(--muted); flex-shrink: 0; }
+  .empty-action-chip:hover svg { color: var(--brass-3); }
 
   /* When the chat is empty, slide the input area up into the centre, make it
      bigger and rounder, and hide the feature toggles by default. */
@@ -732,8 +760,7 @@
     <!-- Messages -->
     <div class="chat-messages" id="chatMessages">
       <div class="chat-welcome" id="chatWelcome">
-        <div class="welcome-wordmark">BerthAI</div>
-        <p class="welcome-tagline">Ask anything about your inventory, suppliers, or procurement.</p>
+        <h1 class="welcome-headline">What are you working on?</h1>
       </div>
     </div>
 
@@ -791,6 +818,30 @@
 
       <div class="input-footer-row">
         <span class="input-hint-key">Enter to send · Shift+Enter for new line</span>
+      </div>
+
+      <!-- Quick-action chips, only shown in the empty state -->
+      <div class="empty-actions" id="emptyActions">
+        <a href="{{ url_for('upload_start') }}" class="empty-action-chip">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 2h6l4 4v8a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z"/>
+            <path d="M9 2v4h4"/>
+          </svg>
+          Start new analysis
+        </a>
+        <button type="button" class="empty-action-chip" onclick="sendStarter(this)">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="8" cy="8" r="6"/>
+            <path d="M8 4v4l2.5 1.5"/>
+          </svg>
+          What's critical right now?
+        </button>
+        <a href="{{ url_for('dashboard') }}" class="empty-action-chip">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M2 8h3l2-5 2 10 2-5h3"/>
+          </svg>
+          Open last results
+        </a>
       </div>
     </div>
 
@@ -1215,8 +1266,7 @@ function clearMessages() {
   const messages = document.getElementById('chatMessages');
   messages.innerHTML = `
     <div class="chat-welcome" id="chatWelcome">
-      <div class="welcome-wordmark">BerthAI</div>
-      <p class="welcome-tagline">Ask anything about your inventory, suppliers, or procurement.</p>
+      <h1 class="welcome-headline">What are you working on?</h1>
     </div>
   `;
   // Re-enter empty state when the user starts a new chat
@@ -1265,8 +1315,9 @@ function renderMarkdown(text) {
 }
 function escHtml(str) {
   if (!str) return '';
-  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  return String(str).replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
 }
 </script>
 {% endblock %}
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            
