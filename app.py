@@ -334,6 +334,77 @@ def _send_reset_email(to_email: str, reset_url: str) -> None:
         pass
 
 
+def _send_analysis_ready_email(user_id: int, upload_session_id: int,
+                                summary: dict, base_url: str = "") -> None:
+    """Email the user when their analysis has finished. summary is a small dict
+    with: total_items, critical, low, rec_count, flagged."""
+    users = db.query("SELECT email FROM users WHERE id=?", (user_id,))
+    if not users:
+        return
+    to_email = users[0]["email"]
+
+    sender   = os.environ.get("MAIL_SENDER", "")
+    password = os.environ.get("MAIL_APP_PASSWORD", "")
+    if not sender or not password:
+        return
+
+    results_path = f"{base_url}/results/{upload_session_id}"
+    total    = summary.get("total_items", 0)
+    critical = summary.get("critical", 0)
+    low      = summary.get("low", 0)
+    recs     = summary.get("rec_count", 0)
+    flagged  = summary.get("flagged", 0)
+
+    subject = "Your BerthAI analysis is ready"
+
+    text = (
+        f"Your BerthAI analysis is ready.\n\n"
+        f"{total} items reviewed.\n"
+        f"{critical} flagged as critical, {low} low.\n"
+        f"{recs} reorder recommendations ({flagged} flagged for attention).\n\n"
+        f"Open it here: {results_path}\n\n"
+        f"— BerthAI"
+    )
+    html = f"""
+    <div style="font-family:'Inter','Segoe UI',sans-serif;max-width:560px;margin:0 auto;color:#0F1B2D;">
+      <div style="font-size:11px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;
+                  color:#8B6B3D;margin-bottom:8px;">Analysis ready</div>
+      <div style="font-family:'Inter Tight','Inter',sans-serif;font-size:24px;font-weight:600;
+                  letter-spacing:-0.01em;color:#0B1424;margin-bottom:16px;">
+        Your BerthAI analysis is ready
+      </div>
+      <p style="font-size:14.5px;line-height:1.6;color:#0F1B2D;margin:0 0 14px;">
+        {total} items reviewed · <strong style="color:#8B2C2C;">{critical} critical</strong> · {low} low ·
+        {recs} reorder recommendation{'s' if recs != 1 else ''}{' · ' + str(flagged) + ' flagged' if flagged else ''}.
+      </p>
+      <a href="{results_path}"
+         style="display:inline-block;margin:18px 0;padding:12px 28px;
+                background:#0F1B2D;color:#fff;text-decoration:none;
+                border-radius:10px;font-weight:600;font-size:14px;">
+        Open the analysis →
+      </a>
+      <p style="font-size:13px;color:#6B7280;line-height:1.5;margin-top:24px;">
+        Tip: edit any recommendation before approving — quantity, supplier, and notes all save automatically.
+      </p>
+      <p style="font-size:12px;color:#9ca3af;margin-top:18px;">— BerthAI</p>
+    </div>
+    """
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"]    = sender
+    msg["To"]      = to_email
+    msg.attach(MIMEText(text, "plain"))
+    msg.attach(MIMEText(html, "html"))
+
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as smtp:
+            smtp.login(sender, password)
+            smtp.sendmail(sender, to_email, msg.as_string())
+    except Exception:
+        pass
+
+
 def _send_verification_email(to_email: str, verify_url: str) -> None:
     """Send an email verification link via Gmail SMTP. Fails silently if not configured."""
     sender   = os.environ.get("MAIL_SENDER", "")
@@ -1682,6 +1753,24 @@ def run_analysis(upload_session_id):
             except Exception:
                 pass  # Never let alert logic break the analysis
 
+            # ── Analysis-ready notification ─────────────────────────────────
+            # Always email when an analysis completes so users can close the tab.
+            try:
+                summary_dict = {
+                    "total_items": len([i for i in inventory_report if isinstance(i, dict)]),
+                    "critical":    sum(1 for i in inventory_report if isinstance(i, dict) and i.get("status") == "CRITICAL"),
+                    "low":         sum(1 for i in inventory_report if isinstance(i, dict) and i.get("status") == "LOW"),
+                    "rec_count":   len([r for r in recommendations if isinstance(r, dict) and not r.get("error")]),
+                    "flagged":     sum(1 for r in recommendations if isinstance(r, dict) and (r.get("supplier_risk") == "HIGH" or r.get("flags"))),
+                }
+                threading.Thread(
+                    target=_send_analysis_ready_email,
+                    args=(_user_id, upload_session_id, summary_dict, base_url),
+                    daemon=True,
+                ).start()
+            except Exception:
+                pass  # Email failure must not block the analysis
+
             _emit("Saving results and redirecting...")
             with analysis_progress_lock:
                 analysis_progress[upload_session_id]["status"] = "done"
@@ -2482,35 +2571,6 @@ def recommend_undo_approve_all():
 
     if not session_id:
         return jsonify({"ok": False, "error": "Missing session_id"}), 400
-
-    rows = db.query("SELECT user_id FROM upload_sessions WHERE id=?", (session_id,))
-    if not rows or rows[0]["user_id"] != session.get("user_id"):
-        return jsonify({"ok": False, "error": "Forbidden"}), 403
-
-    ar = db.query("SELECT recommendations_json FROM analysis_results WHERE session_id=?", (session_id,))
-    if not ar:
-        return jsonify({"ok": False, "error": "No results for this session"}), 404
-
-    try:
-        recs = json.loads(ar[0]["recommendations_json"] or "[]")
-    except Exception:
-        return jsonify({"ok": False, "error": "Corrupt data"}), 500
-
-    item_set = set(items)
-    for rec in recs:
-        if isinstance(rec, dict) and rec.get("item", "") in item_set:
-            rec["approved"] = False
-
-    db.execute(
-        "UPDATE analysis_results SET recommendations_json=? WHERE session_id=?",
-        (json.dumps(recs), session_id)
-    )
-    return jsonify({"ok": True})
-
-
-def _allowed(filename):
-    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
-
 
     rows = db.query("SELECT user_id FROM upload_sessions WHERE id=?", (upload_session_id,))
     if not rows or rows[0]["user_id"] != session.get("user_id"):

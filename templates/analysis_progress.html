@@ -5,7 +5,7 @@
 <div class="page-wrap">
   <div class="page-header">
     <h1>Step 4 — Running analysis</h1>
-    <p>Three specialised agents work your data step by step. You can watch each one as it runs.</p>
+    <p>Three specialised agents work your data step by step. You can watch them run below, or close this tab — we'll email you when the analysis is ready.</p>
   </div>
 
   <!-- Steps indicator -->
@@ -78,9 +78,14 @@
 
   </div>
 
-  <p style="text-align:center; color:var(--muted); font-size:13px; margin-top:18px;">
-    You can leave this page open. Don't close the tab while it's running.
-  </p>
+  <div style="display:flex; align-items:center; justify-content:center; gap:14px; margin-top:22px; flex-wrap:wrap;">
+    <a href="{{ url_for('dashboard') }}" class="btn btn-outline btn-sm">
+      ← Back to dashboard
+    </a>
+    <span style="color:var(--muted); font-size:13px;">
+      We'll email you the moment the analysis is ready.
+    </span>
+  </div>
 </div>
 
 <style>
@@ -421,7 +426,7 @@ async function poll() {
         setSummary(active, 'Error: ' + (data.error || 'Unknown error'));
       }
       document.getElementById('overall-dot').classList.add('error');
-      document.getElementById('overall-label').textContent = 'Analysis failed';
+el').textContent = 'Analysis failed';
       return;
     }
 
@@ -432,7 +437,6 @@ async function poll() {
   }
 }
 
-// Start polling shortly after page load.
 setTimeout(poll, 400);
 </script>
 {% endblock %}
