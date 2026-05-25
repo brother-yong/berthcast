@@ -1755,6 +1755,9 @@ def results(upload_session_id):
     # so the template can render them without computing inline. Confidence
     # is normalised first so old rows (with "MED") match the template's
     # MEDIUM check and the ring renders the correct colour.
+    # Stable global index per rec, used as DOM id so the grouped template
+    # keeps unique ids regardless of nesting.
+    _idx = 0
     for rec in recommendations:
         if not isinstance(rec, dict) or rec.get("error"):
             continue
@@ -1763,10 +1766,17 @@ def results(upload_session_id):
         rec["_conf_reasons"]  = _confidence_reasons(rec)
         rec["_effective_qty"]      = _effective_qty(rec)
         rec["_effective_supplier"] = _effective_supplier(rec)
+        rec["_card_idx"]      = _idx
+        _idx += 1
+
+    # Group recs by supplier so the template can render one section per
+    # supplier with bulk-approve. Most urgent supplier first.
+    rec_groups = _group_recs_by_supplier(recommendations, status_by_item)
 
     return render_template(
         "results.html",
         recommendations=recommendations,
+        rec_groups=rec_groups,
         inventory=inventory,
         upload_session_id=upload_session_id,
         org_name=session["org_name"],
@@ -2186,6 +2196,58 @@ def _compute_order_by(rec):
     }
 
 
+def _group_recs_by_supplier(recommendations, status_by_item):
+    """Group recommendations by their effective supplier (user-edited if present,
+    otherwise the AI's suggestion). Returns a list of dicts, ordered with the
+    most-urgent supplier first.
+
+    Each group dict:
+      - name:      supplier display name (or 'Unknown supplier' if blank)
+      - key:       slug used as DOM id
+      - count:     total recs in this group
+      - critical:  number of CRITICAL items
+      - low:       number of LOW items
+      - supplier_type: 'import' / 'local' / 'other' (taken from first rec)
+      - items:     list of item names (for the bulk-approve POST)
+      - recs:      list of the actual rec dicts
+
+    Groups are sorted: most critical first, then most items first, then name.
+    """
+    groups = {}
+    for rec in recommendations:
+        if not isinstance(rec, dict) or rec.get("error"):
+            continue
+        supplier = _effective_supplier(rec) or "Unknown supplier"
+        key = supplier.strip() or "Unknown supplier"
+        g = groups.get(key)
+        if g is None:
+            g = {
+                "name":          key,
+                "key":           "sg-" + "".join(c if c.isalnum() else "-" for c in key.lower())[:60],
+                "count":         0,
+                "critical":      0,
+                "low":           0,
+                "supplier_type": rec.get("supplier_type") or "other",
+                "item_names":    [],
+                "recs":          [],
+            }
+            groups[key] = g
+        g["count"] += 1
+        g["recs"].append(rec)
+        g["item_names"].append(rec.get("item", ""))
+        item_status = status_by_item.get(str(rec.get("item", "")), "")
+        if item_status == "CRITICAL":
+            g["critical"] += 1
+        elif item_status == "LOW":
+            g["low"] += 1
+
+    ordered = sorted(
+        groups.values(),
+        key=lambda g: (-g["critical"], -g["count"], g["name"].lower())
+    )
+    return ordered
+
+
 def _confidence_reasons(rec):
     """Build a short, plain-English list of reasons explaining why the AI
     settled on this confidence level. Used in the confidence-ring popover."""
@@ -2406,7 +2468,7 @@ def recommend_undo_approve_all():
     """Un-approve a specific list of items (the ones bulk-approved moments ago)."""
     data       = request.get_json(force=True, silent=True) or {}
     session_id = data.get("session_id")
-    items      = data.get("items", [])   # list of item names to un-approve
+    items      = data.get("items", [])
 
     if not session_id:
         return jsonify({"ok": False, "error": "Missing session_id"}), 400
@@ -2441,7 +2503,6 @@ def _allowed(filename):
 
 
 def _verify_session_owner(upload_session_id):
-    rows = db.query("SELECT user_id FROM upload_sessions WHERE id=?", (upload_session_id,))
     if not rows or rows[0]["user_id"] != session.get("user_id"):
         from flask import abort
         abort(403)
