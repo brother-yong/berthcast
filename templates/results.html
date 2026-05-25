@@ -153,13 +153,40 @@
         </div>
 
         <div id="recs-container">
-        {% for rec in recommendations %}
+        {% for group in rec_groups %}
+        <div class="rec-supplier-group" data-group="{{ group.key }}" id="grp-{{ group.key }}">
+          <div class="rec-supplier-head">
+            <div class="rec-supplier-head-left">
+              <div class="rec-supplier-name">{{ group.name }}</div>
+              <div class="rec-supplier-meta">
+                <span class="rec-supplier-type">{{ group.supplier_type }}</span>
+                <span class="rec-supplier-sep">·</span>
+                <span class="rec-supplier-count" id="cnt-{{ group.key }}">{{ group.count }} item{{ 's' if group.count != 1 }}</span>
+                {% if group.critical %}
+                <span class="rec-supplier-sep">·</span>
+                <span class="rec-supplier-critical">{{ group.critical }} critical</span>
+                {% endif %}
+                {% if group.low %}
+                <span class="rec-supplier-sep">·</span>
+                <span class="rec-supplier-low">{{ group.low }} low</span>
+                {% endif %}
+              </div>
+            </div>
+            <button type="button" class="btn btn-primary btn-sm no-print rec-supplier-approve"
+                    data-group-key="{{ group.key }}"
+                    data-items='{{ group.item_names | tojson }}'
+                    onclick="approveSupplier(this)">
+              ✓ Approve all {{ group.count }} from this supplier
+            </button>
+          </div>
+          <div class="rec-supplier-cards">
+        {% for rec in group.recs %}
         {% if not rec.error %}
           {% set conf_class = 'high' if rec.confidence == 'HIGH' else ('medium' if rec.confidence == 'MEDIUM' else ('low' if rec.confidence == 'LOW' else 'insufficient')) %}
           {% set offset = 0 if rec.confidence == 'HIGH' else (48.7 if rec.confidence == 'MEDIUM' else (73.05 if rec.confidence == 'LOW' else 97.4)) %}
           {% set item_status = status_by_item.get(rec.item, '') %}
           <div class="rec-card {% if rec.approved %}approved{% elif rec.dismissed %}dismissed{% endif %}"
-               id="rec-{{ loop.index0 }}"
+               id="rec-{{ rec._card_idx }}"
                data-status="{{ item_status }}"
                data-suptype="{{ rec.supplier_type or 'other' }}"
                data-confidence="{{ rec.confidence }}"
@@ -169,7 +196,7 @@
             <div class="rec-card-header">
               <button type="button"
                       class="confidence-ring confidence-{{ conf_class }} conf-ring-btn"
-                      onclick="toggleConfidencePopover({{ loop.index0 }})"
+                      onclick="toggleConfidencePopover({{ rec._card_idx }})"
                       aria-label="Why this confidence level"
                       title="Click to see why">
                 <svg viewBox="0 0 36 36">
@@ -188,7 +215,7 @@
                 <span class="badge badge-dead">Dismissed</span>
               {% endif %}
 
-              <div class="conf-popover" id="conf-pop-{{ loop.index0 }}">
+              <div class="conf-popover" id="conf-pop-{{ rec._card_idx }}">
                 <div class="conf-pop-title">
                   Why {{ 'N/A' if rec.confidence == 'INSUFFICIENT_DATA' else rec.confidence | lower }} confidence?
                 </div>
@@ -221,44 +248,44 @@
 
               <div class="rec-edit-grid">
                 <div class="rec-edit-field">
-                  <label for="qty-{{ loop.index0 }}">Quantity to order</label>
+                  <label for="qty-{{ rec._card_idx }}">Quantity to order</label>
                   <input type="text"
                          class="rec-edit-input"
-                         id="qty-{{ loop.index0 }}"
+                         id="qty-{{ rec._card_idx }}"
                          data-original="{{ rec.suggested_quantity or '' }}"
                          data-field="quantity"
                          data-item="{{ rec.item }}"
                          value="{{ rec.edited_quantity or rec.suggested_quantity or '' }}">
                   {% if rec.edited_quantity and rec.edited_quantity != rec.suggested_quantity %}
-                  <span class="rec-edit-hint" id="qty-hint-{{ loop.index0 }}">
+                  <span class="rec-edit-hint" id="qty-hint-{{ rec._card_idx }}">
                     AI suggested: {{ rec.suggested_quantity }}
                     <button type="button" class="rec-edit-revert"
-                            onclick="revertField({{ loop.index0 }}, 'quantity')">revert</button>
+                            onclick="revertField({{ rec._card_idx }}, 'quantity')">revert</button>
                   </span>
                   {% else %}
-                  <span class="rec-edit-hint rec-edit-hint-muted" id="qty-hint-{{ loop.index0 }}">
+                  <span class="rec-edit-hint rec-edit-hint-muted" id="qty-hint-{{ rec._card_idx }}">
                     AI suggestion — adjust if you want to order more or less.
                   </span>
                   {% endif %}
                 </div>
 
                 <div class="rec-edit-field">
-                  <label for="sup-{{ loop.index0 }}">Supplier</label>
+                  <label for="sup-{{ rec._card_idx }}">Supplier</label>
                   <input type="text"
                          class="rec-edit-input"
-                         id="sup-{{ loop.index0 }}"
+                         id="sup-{{ rec._card_idx }}"
                          data-original="{{ rec.supplier or '' }}"
                          data-field="supplier"
                          data-item="{{ rec.item }}"
                          value="{{ rec.edited_supplier or rec.supplier or '' }}">
                   {% if rec.edited_supplier and rec.edited_supplier != rec.supplier %}
-                  <span class="rec-edit-hint" id="sup-hint-{{ loop.index0 }}">
+                  <span class="rec-edit-hint" id="sup-hint-{{ rec._card_idx }}">
                     AI suggested: {{ rec.supplier }} ({{ rec.supplier_type }})
                     <button type="button" class="rec-edit-revert"
-                            onclick="revertField({{ loop.index0 }}, 'supplier')">revert</button>
+                            onclick="revertField({{ rec._card_idx }}, 'supplier')">revert</button>
                   </span>
                   {% else %}
-                  <span class="rec-edit-hint rec-edit-hint-muted" id="sup-hint-{{ loop.index0 }}">
+                  <span class="rec-edit-hint rec-edit-hint-muted" id="sup-hint-{{ rec._card_idx }}">
                     {{ rec.supplier_type }} supplier on file.
                   </span>
                   {% endif %}
@@ -275,20 +302,23 @@
 
             <div class="rec-card-actions">
               <input type="text" class="rec-note"
-                     id="note-{{ loop.index0 }}"
+                     id="note-{{ rec._card_idx }}"
                      placeholder="Add a note (e.g. called supplier, confirmed delivery)"
                      value="{{ rec.note or '' }}">
               <button class="btn btn-success btn-sm"
-                      onclick="takeAction({{ loop.index0 }}, '{{ rec.item | replace("'", "\\'") }}', 'approve')">
+                      onclick="takeAction({{ rec._card_idx }}, '{{ rec.item | replace("'", "\\'") }}', 'approve')">
                 ✓ Approve
               </button>
               <button class="btn btn-muted btn-sm"
-                      onclick="takeAction({{ loop.index0 }}, '{{ rec.item | replace("'", "\\'") }}', 'dismiss')">
+                      onclick="takeAction({{ rec._card_idx }}, '{{ rec.item | replace("'", "\\'") }}', 'dismiss')">
                 Dismiss
               </button>
             </div>
           </div>
         {% endif %}
+        {% endfor %}
+          </div>
+        </div>
         {% endfor %}
         </div>
 
@@ -481,8 +511,91 @@ function applyFilters() {
   const emptyEl = document.getElementById('mc-empty');
   if (emptyEl) emptyEl.style.display = (visible === 0 && total > 0) ? '' : 'none';
 
+  // Hide supplier groups that have no visible cards, and update each group's
+  // per-supplier count to reflect the visible subset.
+  document.querySelectorAll('.rec-supplier-group').forEach(group => {
+    const groupCards   = group.querySelectorAll('.rec-card');
+    const visibleHere  = Array.from(groupCards).filter(c => c.style.display !== 'none').length;
+    group.classList.toggle('is-empty', visibleHere === 0);
+    const countSpan = group.querySelector('.rec-supplier-count');
+    if (countSpan) {
+      const total = groupCards.length;
+      countSpan.textContent = visibleHere === total
+        ? (total + ' item' + (total !== 1 ? 's' : ''))
+        : (visibleHere + ' of ' + total + ' shown');
+    }
+    // Disable the per-supplier approve button if nothing's visible
+    const approveBtn = group.querySelector('.rec-supplier-approve');
+    if (approveBtn) {
+      const pendingVisible = Array.from(groupCards).filter(
+        c => c.style.display !== 'none' && !c.classList.contains('approved') && !c.classList.contains('dismissed')
+      ).length;
+      approveBtn.disabled = pendingVisible === 0;
+      approveBtn.style.opacity = pendingVisible === 0 ? '0.45' : '';
+      approveBtn.style.cursor  = pendingVisible === 0 ? 'not-allowed' : '';
+      approveBtn.textContent = pendingVisible === 0
+        ? '✓ All approved or dismissed'
+        : '✓ Approve all ' + pendingVisible + ' from this supplier';
+    }
+  });
+
   // Update approve-all button label to reflect filtered subset
   _updateApproveBtn(visible, total);
+}
+
+// Approve every visible, still-pending card in one supplier group.
+async function approveSupplier(btn) {
+  const group = btn.closest('.rec-supplier-group');
+  if (!group) return;
+  const items = Array.from(group.querySelectorAll('.rec-card'))
+    .filter(c => c.style.display !== 'none' && !c.classList.contains('approved') && !c.classList.contains('dismissed'))
+    .map(c => c.dataset.item);
+  if (items.length === 0) return;
+
+  const supplierName = group.querySelector('.rec-supplier-name')?.textContent.trim() || 'this supplier';
+  showConfirm('Approve ' + items.length + ' item' + (items.length !== 1 ? 's' : '') +
+              ' from ' + supplierName + '?', async () => {
+    btn.disabled = true;
+    const origText = btn.textContent;
+    btn.textContent = 'Approving...';
+    try {
+      const res = await fetch('/recommend/approve_all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: sessionId, items })
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        showToast('Could not approve: ' + (data.error || 'Unknown error'));
+        btn.disabled = false; btn.textContent = origText;
+        return;
+      }
+      const approvedSet = new Set(data.newly_approved_items || []);
+      group.querySelectorAll('.rec-card').forEach(card => {
+        if (approvedSet.has(card.dataset.item) && !card.classList.contains('approved')) {
+          card.classList.add('approved');
+          const badges = card.querySelectorAll('.badge-healthy, .badge-dead');
+          badges.forEach(b => {
+            if (b.textContent.includes('Approved') || b.textContent.includes('Dismissed')) b.remove();
+          });
+          const header = card.querySelector('.rec-card-header');
+          const nb = document.createElement('span');
+          nb.className = 'badge badge-healthy';
+          nb.textContent = '✓ Approved';
+          header.appendChild(nb);
+        }
+      });
+      // Bump the overall approved counter in the sidebar
+      const counter = document.getElementById('approved-counter');
+      if (counter) {
+        counter.textContent = document.querySelectorAll('.rec-card.approved').length;
+      }
+      applyFilters();   // recalc per-group counts and button states
+    } catch (e) {
+      showToast('Network error. Please try again.');
+      btn.disabled = false; btn.textContent = origText;
+    }
+  }, { label: 'Approve all' });
 }
 
 function _updateApproveBtn(visible, total) {
@@ -806,7 +919,6 @@ function revertField(idx, field) {
   input.value = original;
   const item = input.dataset.item;
   _hintForField(idx, field, original);
-  // Persist the revert.
   const payload = field === 'quantity'
     ? { edited_quantity: '', edited_supplier: null }
     : { edited_quantity: null, edited_supplier: '' };
@@ -817,13 +929,11 @@ function revertField(idx, field) {
 document.querySelectorAll('.rec-edit-input').forEach(input => {
   const idx = parseInt(input.closest('.rec-card').id.replace('rec-', ''), 10);
   const field = input.dataset.field;
-
   input.addEventListener('input', () => _hintForField(idx, field));
   input.addEventListener('blur', () => {
     const item = input.dataset.item;
     const current = input.value.trim();
     const original = (input.dataset.original || '').trim();
-    // Only save if user actually changed something or cleared an edit.
     const payload = field === 'quantity'
       ? { edited_quantity: current === original ? '' : current, edited_supplier: null }
       : { edited_quantity: null, edited_supplier: current === original ? '' : current };
@@ -871,8 +981,6 @@ async function takeAction(idx, item, action) {
     const card = document.getElementById('rec-' + idx);
     card.classList.remove('approved', 'dismissed');
     card.classList.add(action === 'approve' ? 'approved' : 'dismissed');
-
-    // Replace the action badge
     const badges = card.querySelectorAll('.badge-healthy, .badge-dead');
     badges.forEach(b => {
       if (b.textContent.includes('Approved') || b.textContent.includes('Dismissed')) b.remove();
@@ -882,8 +990,6 @@ async function takeAction(idx, item, action) {
     nb.className = action === 'approve' ? 'badge badge-healthy' : 'badge badge-dead';
     nb.textContent = action === 'approve' ? '✓ Approved' : 'Dismissed';
     header.appendChild(nb);
-
-    // Bump the approved counter in the sidebar (purely visual)
     const counter = document.getElementById('approved-counter');
     if (counter) {
       const approvedNow = document.querySelectorAll('.rec-card.approved').length;
@@ -895,8 +1001,6 @@ async function takeAction(idx, item, action) {
         counter.style.animation = 'numberFlash 600ms ease-out';
       }
     }
-
-    // Reapply filters in case "action state" filter is active
     applyFilters();
   }
 }

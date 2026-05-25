@@ -1606,3 +1606,72 @@ tbody tr:hover td { background: var(--paper); }
   body { background: #fff; }
   body { background-image: none; }
 }
+
+/* ─────────────────── Supplier groups on results page ─────────────────── */
+.rec-supplier-group {
+  margin-bottom: 32px;
+}
+.rec-supplier-group.is-empty { display: none; }
+
+.rec-supplier-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 18px;
+  background: var(--paper-2, var(--paper));
+  border: 1px solid var(--border);
+  border-radius: 12px 12px 0 0;
+  border-bottom: none;
+  margin-bottom: -1px;
+  flex-wrap: wrap;
+  position: sticky;
+  top: 80px;
+  z-index: 5;
+  backdrop-filter: blur(8px);
+  background: rgba(243, 239, 227, 0.92);
+}
+.rec-supplier-head-left { flex: 1; min-width: 200px; }
+.rec-supplier-name {
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--navy-900);
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+.rec-supplier-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.rec-supplier-type {
+  text-transform: capitalize;
+  font-weight: 500;
+  color: var(--navy-700);
+}
+.rec-supplier-sep { color: rgba(15,27,45,0.2); }
+.rec-supplier-count { font-variant-numeric: tabular-nums; }
+.rec-supplier-critical { color: var(--danger); font-weight: 600; }
+.rec-supplier-low      { color: var(--warning); font-weight: 600; }
+
+.rec-supplier-approve {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.rec-supplier-cards {
+  border: 1px solid var(--border);
+  border-radius: 0 0 12px 12px;
+  padding: 14px;
+  background: rgba(255,255,255,0.4);
+}
+.rec-supplier-cards > .rec-card {
+  margin-bottom: 12px;
+}
+.rec-supplier-cards > .rec-card:last-child {
+  margin-bottom: 0;
+}
