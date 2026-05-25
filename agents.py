@@ -753,7 +753,7 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
         '  "days_of_supply": <number or null — copy from input>,\n'
         '  "recommended_action": "<REORDER|HOLD|ESCALATE|MONITOR>",\n'
         '  "suggested_quantity": <use the pre-computed quantity from input; only override with a number if you have strong reason>,\n'
-        '  "confidence": "<HIGH|MED|LOW|INSUFFICIENT_DATA>",\n'
+        '  "confidence": "<HIGH|MEDIUM|LOW|INSUFFICIENT_DATA>",\n'
         '  "consequence_if_acting": "<1 plain sentence>",\n'
         '  "consequence_if_not_acting": "<1 plain sentence>",\n'
         '  "supplier_risk": "<None|LOW|HIGH>",\n'
@@ -811,3 +811,4 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
     except Exception as e:
         _emit(progress_emit, f"Recommendation agent error: {str(e)}")
         return [{"error": str(e)}]
+}]
