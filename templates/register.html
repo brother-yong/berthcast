@@ -58,7 +58,10 @@
       </button>
 
       <p style="font-size:12px; color:var(--muted); text-align:center; margin-top:14px; margin-bottom:0; line-height:1.5;">
-        By creating an account you agree to BerthAI's terms of service.<br>
+        By creating an account you agree to BerthAI's
+        <a href="{{ url_for('terms') }}" style="color:var(--brass-3); text-decoration:underline;">Terms of Service</a>
+        and
+        <a href="{{ url_for('privacy') }}" style="color:var(--brass-3); text-decoration:underline;">Privacy Policy</a>.<br>
         Your free account includes 1 analysis and 20 chat messages.
       </p>
     </form>

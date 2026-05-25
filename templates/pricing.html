@@ -300,6 +300,7 @@
       text-decoration: none;
     }
     .pricing-footer-links a:hover { color: var(--text); }
+    .pricing-footer-links { gap: 22px; }
 
     @media (max-width: 760px) {
       .pricing-grid { grid-template-columns: 1fr; }
@@ -522,6 +523,8 @@
   <div class="pricing-footer-links">
     <a href="{{ url_for('landing') }}">Home</a>
     <a href="{{ url_for('contact') }}">Contact</a>
+    <a href="{{ url_for('terms') }}">Terms</a>
+    <a href="{{ url_for('privacy') }}">Privacy</a>
     <a href="{{ url_for('login') }}">Sign in</a>
   </div>
 </footer>
