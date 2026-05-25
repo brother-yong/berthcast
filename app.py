@@ -2503,6 +2503,7 @@ def _allowed(filename):
 
 
 def _verify_session_owner(upload_session_id):
+    rows = db.query("SELECT user_id FROM upload_sessions WHERE id=?", (upload_session_id,))
     if not rows or rows[0]["user_id"] != session.get("user_id"):
         from flask import abort
         abort(403)
