@@ -667,19 +667,6 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
         if stype == "other" and supplier == "Unknown":
             stype = _infer_supplier_type(iname)
 
-        # Name-based override for known flagged suppliers
-        FLAGGED_SUPPLIER_PREFIXES = {
-            "OVERSEAS SUPPLIER": "an overseas supplier",
-            "ABD KHAN": "ABD Khan",
-            "NHAN TU": "Nhan Tu",
-        }
-        iname_upper = iname.upper()
-        for prefix, canonical_name in FLAGGED_SUPPLIER_PREFIXES.items():
-            if iname_upper.startswith(prefix):
-                supplier = canonical_name
-                stype = "import"
-                break
-
         sup_profile = get_supplier_profile(org_name, supplier)
         # Only apply a default lead time when the supplier is actually known
         if supplier == "Unknown":
