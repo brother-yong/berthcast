@@ -426,7 +426,18 @@ async function poll() {
         setSummary(active, 'Error: ' + (data.error || 'Unknown error'));
       }
       document.getElementById('overall-dot').classList.add('error');
-el').textContent = 'Analysis failed';
+      document.getElementById('overall-label').textContent = 'Analysis failed';
+      // Surface the error in a banner so the user actually sees it instead
+      // of having to spot a tiny pill on whichever card was running.
+      const banner = document.createElement('div');
+      banner.style.cssText =
+        'margin-top:16px;padding:14px 18px;border:1px solid var(--danger);' +
+        'background:#fef2f2;color:var(--danger);border-radius:12px;font-size:14px;line-height:1.5;';
+      banner.innerHTML =
+        '<strong>Analysis failed.</strong> ' + escapeHtml(data.error || 'Unknown error') +
+        '<br><a href="' + window.location.pathname + '" style="color:var(--danger);font-weight:600;">Try again</a>' +
+        ' or <a href="/dashboard" style="color:var(--danger);font-weight:600;">go back to dashboard</a>.';
+      document.querySelector('.page-wrap').appendChild(banner);
       return;
     }
 
