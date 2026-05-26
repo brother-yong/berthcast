@@ -139,6 +139,52 @@ def admin_required(f):
     return decorated
 
 
+def _allowed(filename: str) -> bool:
+    """True if filename has an accepted extension."""
+    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
+
+
+def _verify_session_owner(session_id):
+    """Guard for any session-scoped route. Aborts the request if the current
+    user is not the owner. Used at the top of every upload/analysis route.
+
+    Returns nothing on success. On failure raises a Flask abort:
+      - 404 if session_id is missing or not numeric
+      - 404 if no session with that id exists
+      - 403 if the session belongs to a different user
+
+    For JSON endpoints (anything that returned a body the frontend tried to
+    `.json()` parse), we return JSON instead of Flask's default HTML error
+    page so the browser console shows a clear message rather than a vague
+    "Network error".
+    """
+    from flask import abort, jsonify, make_response
+
+    wants_json = (
+        request.is_json
+        or request.path.startswith(("/api/", "/upload/", "/recommend/", "/analysis_status"))
+        or "application/json" in (request.headers.get("Accept", "") or "")
+    )
+
+    def _fail(code: int, msg: str):
+        # JSON endpoints need a JSON body so the frontend's `.json()` call
+        # succeeds and surfaces a real message instead of "Network error".
+        if wants_json:
+            abort(make_response(jsonify({"ok": False, "error": msg}), code))
+        abort(code)
+
+    try:
+        sid = int(session_id)
+    except (TypeError, ValueError):
+        _fail(404, "Session not found.")
+
+    rows = db.query("SELECT user_id FROM upload_sessions WHERE id=?", (sid,))
+    if not rows:
+        _fail(404, "Session not found.")
+    if rows[0]["user_id"] != session.get("user_id"):
+        _fail(403, "You don't have access to this session.")
+
+
 @app.route("/")
 def landing():
     if "user_id" in session:
@@ -1290,7 +1336,17 @@ def upload():
     tables    = db.get_session_tables(upload_session_id)
     names_row = db.query("SELECT file_names_json FROM upload_sessions WHERE id=?", (upload_session_id,))
     file_names = json.loads(names_row[0]["file_names_json"] or "{}") if names_row and names_row[0]["file_names_json"] else {}
-    return render_template("upload.html", tables=tables, session_id=upload_session_id, file_names=file_names)
+    # Conversion status — needed so the template can distinguish "fully done"
+    # from "still processing". Without it, a mid-conversion refresh would show
+    # the slot as uploaded just because the (partial) table exists.
+    conversion_status = db.get_conversion_status(upload_session_id)
+    return render_template(
+        "upload.html",
+        tables=tables,
+        session_id=upload_session_id,
+        file_names=file_names,
+        conversion_status=conversion_status,
+    )
 
 
 def _start_processing(filepath, table, session_id, slot, orig_name):
@@ -1339,21 +1395,50 @@ def upload_set_scope(upload_session_id):
 @app.route("/upload/remove", methods=["POST"])
 @login_required
 def remove_upload():
-    data       = request.get_json()
+    data       = request.get_json() or {}
     slot       = data.get("slot")
     session_id = data.get("session_id")
     if slot not in FILE_SLOTS:
         return jsonify({"ok": False, "error": "Unknown slot."})
     _verify_session_owner(session_id)
     try:
+        # 1. Drop the per-session table (partial or complete).
         db.execute(f'DROP TABLE IF EXISTS "{FILE_SLOTS[slot]}_{session_id}"')
-        # Clean up any leftover chunk temp files for this slot
-        for f in os.listdir(UPLOAD_FOLDER):
-            if f.startswith(f"{session_id}_{slot}_"):
-                try:
-                    os.remove(os.path.join(UPLOAD_FOLDER, f))
-                except Exception:
-                    pass
+
+        # 2. Forget this slot in conversion_status_json so a page refresh
+        #    no longer shows it as "done" or "converting".
+        conv = db.get_conversion_status(session_id)
+        if slot in conv:
+            del conv[slot]
+            db.execute(
+                "UPDATE upload_sessions SET conversion_status_json=? WHERE id=?",
+                (json.dumps(conv), session_id)
+            )
+
+        # 3. Forget the filename so the slot label resets.
+        names_row = db.query("SELECT file_names_json FROM upload_sessions WHERE id=?", (session_id,))
+        if names_row and names_row[0]["file_names_json"]:
+            try:
+                names = json.loads(names_row[0]["file_names_json"])
+                if slot in names:
+                    del names[slot]
+                    db.execute(
+                        "UPDATE upload_sessions SET file_names_json=? WHERE id=?",
+                        (json.dumps(names), session_id)
+                    )
+            except Exception:
+                pass
+
+        # 4. Remove any final files and stray chunk temp files for this slot.
+        try:
+            for f in os.listdir(UPLOAD_FOLDER):
+                if f.startswith(f"{session_id}_{slot}_") or f.startswith(f"tmp_{session_id}_{slot}_"):
+                    try:
+                        os.remove(os.path.join(UPLOAD_FOLDER, f))
+                    except Exception:
+                        pass
+        except FileNotFoundError:
+            pass
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
     return jsonify({"ok": True})
