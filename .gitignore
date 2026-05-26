@@ -21,6 +21,10 @@ __pycache__/
 venv/
 .venv/
 
+# Generated reports and output files
+*.pdf
+*.docx
+
 # OS
 .DS_Store
 Thumbs.db
