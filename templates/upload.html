@@ -36,9 +36,22 @@
     } %}
 
     {% for slot, slotId, iconKey, doneKey, title, badge, desc in slots %}
-    {% set uploaded = tables[slot] %}
-    <div class="upload-slot {% if uploaded %}done{% endif %}" id="{{ slotId }}" data-slot="{{ slot }}" data-icon="{{ icons[iconKey] }}">
-      <div class="upload-slot-icon">{{ icons[doneKey] if uploaded else icons[iconKey] }}</div>
+    {# A slot is truly "done" only when conversion finished successfully.
+       A partial table can exist on disk mid-conversion — we must NOT treat
+       that as uploaded, or refreshing the page lies to the user. #}
+    {% set conv        = (conversion_status or {}).get(slot, {}) %}
+    {% set conv_status = conv.get('status', '') %}
+    {% set uploaded    = (conv_status == 'done') %}
+    {% set processing  = (conv_status == 'converting') or (tables[slot] and not conv_status) %}
+    {% set errored     = (conv_status == 'error') %}
+    <div class="upload-slot {% if uploaded %}done{% elif processing %}uploading{% elif errored %}error{% endif %}"
+         id="{{ slotId }}" data-slot="{{ slot }}" data-icon="{{ icons[iconKey] }}">
+      <div class="upload-slot-icon">
+        {% if uploaded %}{{ icons[doneKey] }}
+        {% elif processing %}📤
+        {% elif errored %}❌
+        {% else %}{{ icons[iconKey] }}{% endif %}
+      </div>
       <div class="upload-slot-info">
         <strong>{{ title }}{% if badge %} <span style="font-weight:400;color:var(--muted);font-size:13px;">{{ badge }}</span>{% endif %}</strong>
         <span>{{ desc }}</span>
@@ -46,13 +59,20 @@
           {% if uploaded %}
             <span style="color:var(--success)">✓</span>
             <span class="fname">{{ file_names.get(slot, 'File uploaded') }}</span>
+            {% if conv.get('rows') %}&nbsp;·&nbsp;{{ "{:,}".format(conv.get('rows')) }} rows{% endif %}
             &nbsp;<button class="remove-link" onclick="removeFile('{{ slot }}','{{ slotId }}')">Remove</button>
+          {% elif processing %}
+            <span class="uploading-dot"></span>
+            <span class="pct">Still processing on the server…</span>
+            <span class="fname">{{ file_names.get(slot, '') }}</span>
+          {% elif errored %}
+            <span style="color:var(--danger)">Processing failed: {{ conv.get('error', 'Unknown error') }}</span>
           {% endif %}
         </div>
       </div>
       <div class="upload-slot-btn" style="display:flex; gap:8px; align-items:center;">
         <label class="btn btn-outline btn-sm" id="label-{{ slot }}" style="cursor:pointer;">
-          {{ 'Replace' if uploaded else 'Upload' }}
+          {% if uploaded %}Replace{% elif processing %}Uploading…{% else %}Upload{% endif %}
           <input type="file" accept=".xlsx,.csv" style="display:none;"
                  id="input-{{ slot }}"
                  onchange="uploadFile(this,'{{ slot }}','{{ slotId }}')">
@@ -64,7 +84,7 @@
           Cancel
         </button>
       </div>
-      <div class="slot-progress-bar"></div>
+      <div class="slot-progress-bar"{% if uploaded %} style="width:100%;"{% elif processing %} style="width:95%;"{% endif %}></div>
     </div>
     {% endfor %}
 
@@ -93,7 +113,11 @@
     <!-- ── Continue ── -->
     <div style="margin-top:4px;padding-top:20px;border-top:1px solid var(--border);">
       <p id="upload-status" style="color:var(--muted);font-size:15px;margin-bottom:16px;">
-        {% set required_done = tables.inventory and tables.sales %}
+        {# Use conversion_status so we don't claim "ready" when a file is
+           still processing in the background. #}
+        {% set inv_done   = (conversion_status or {}).get('inventory', {}).get('status') == 'done' %}
+        {% set sales_done = (conversion_status or {}).get('sales',     {}).get('status') == 'done' %}
+        {% set required_done = inv_done and sales_done %}
         {% if required_done %}All required files uploaded. You can continue.
         {% else %}Upload the Inventory Report and Sales Report to continue.{% endif %}
       </p>
@@ -131,12 +155,25 @@ const MAX_SIZE_MB    = 100;
 const required       = ["inventory","sales"];
 const contextUrl     = "{{ url_for('context_form', upload_session_id=session_id) }}";
 
+// Only "done" counts as uploaded. A partial table mid-conversion must NOT
+// flip the Continue button on, otherwise the next step would read half-data.
 let uploadedSlots = {
-  inventory:       {{ 'true' if tables.inventory else 'false' }},
-  purchase_orders: {{ 'true' if tables.purchase_orders else 'false' }},
-  sales:           {{ 'true' if tables.sales else 'false' }},
-  suppliers:       {{ 'true' if tables.suppliers else 'false' }},
+  inventory:       {{ 'true' if (conversion_status or {}).get('inventory',       {}).get('status') == 'done' else 'false' }},
+  purchase_orders: {{ 'true' if (conversion_status or {}).get('purchase_orders', {}).get('status') == 'done' else 'false' }},
+  sales:           {{ 'true' if (conversion_status or {}).get('sales',           {}).get('status') == 'done' else 'false' }},
+  suppliers:       {{ 'true' if (conversion_status or {}).get('suppliers',       {}).get('status') == 'done' else 'false' }},
 };
+
+// Slots that were mid-processing when the page rendered. Resume polling for
+// each so the user doesn't have to refresh manually to see them finish.
+const _resumeSlots = [
+  {% for slot in ['inventory','sales','purchase_orders','suppliers'] %}
+    {% set cs = (conversion_status or {}).get(slot, {}).get('status') %}
+    {% if cs == 'converting' or (tables.get(slot) and not cs) %}
+      ["{{ slot }}", "slot-{{ slot }}", "{{ file_names.get(slot, '') }}"],
+    {% endif %}
+  {% endfor %}
+];
 
 // AbortControllers keyed by slot — allow in-flight uploads to be cancelled
 const _abortControllers = {};
@@ -498,6 +535,12 @@ function initDragDrop() {
   });
 }
 
-document.addEventListener('DOMContentLoaded', initDragDrop);
+document.addEventListener('DOMContentLoaded', () => {
+  initDragDrop();
+  // Resume polling any slots that were still processing when we landed here.
+  for (const [slot, slotId, fname] of _resumeSlots) {
+    _pollConversionStatus(slot, slotId, fname || slot);
+  }
+});
 </script>
 {% endblock %}
