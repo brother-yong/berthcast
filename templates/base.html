@@ -8,6 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Inter+Tight:wght@500;600;700;800&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <meta name="csrf-token" content="{{ csrf_token() }}">
   {% block head %}{% endblock %}
 </head>
 <body>
@@ -137,6 +138,39 @@ function showConfirm(msg, onConfirm, opts = {}) {
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
   okBtn.focus();
 }
+
+// ── CSRF helper ───────────────────────────────────────────────────────────
+// Automatically protects all forms and fetch() calls with the CSRF token.
+(function() {
+  const meta = document.querySelector('meta[name="csrf-token"]');
+  if (!meta) return;
+  const csrfToken = meta.content;
+
+  // 1. Inject hidden input into every <form method="POST"> on the page.
+  document.querySelectorAll('form[method="POST"], form[method="post"]').forEach(function(form) {
+    if (form.querySelector('input[name="csrf_token"]')) return; // already has one
+    const input = document.createElement('input');
+    input.type = 'hidden';
+    input.name = 'csrf_token';
+    input.value = csrfToken;
+    form.prepend(input);
+  });
+
+  // 2. Monkey-patch fetch() so AJAX POST/PUT/DELETE/PATCH calls include the header.
+  const _origFetch = window.fetch;
+  window.fetch = function(url, opts) {
+    opts = opts || {};
+    if (opts.method && opts.method.toUpperCase() !== 'GET') {
+      opts.headers = opts.headers || {};
+      if (opts.headers instanceof Headers) {
+        if (!opts.headers.has('X-CSRFToken')) opts.headers.set('X-CSRFToken', csrfToken);
+      } else {
+        if (!opts.headers['X-CSRFToken']) opts.headers['X-CSRFToken'] = csrfToken;
+      }
+    }
+    return _origFetch.call(this, url, opts);
+  };
+})();
 
 // ── Intercept forms with data-confirm ─────────────────────────────────────
 document.addEventListener('submit', function(e) {

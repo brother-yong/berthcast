@@ -163,6 +163,16 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (user_id) REFERENCES users(id)
         )""",
+        # ── Performance indexes ──────────────────────────────────────────
+        "CREATE INDEX IF NOT EXISTS idx_upload_sessions_user_id ON upload_sessions(user_id)",
+        "CREATE INDEX IF NOT EXISTS idx_upload_sessions_status ON upload_sessions(user_id, status)",
+        "CREATE INDEX IF NOT EXISTS idx_analysis_results_session ON analysis_results(session_id)",
+        "CREATE INDEX IF NOT EXISTS idx_chat_conversations_user ON chat_conversations(user_id)",
+        "CREATE INDEX IF NOT EXISTS idx_chat_messages_conv ON chat_messages(conversation_id)",
+        "CREATE INDEX IF NOT EXISTS idx_contact_requests_status ON contact_requests(status)",
+        "CREATE INDEX IF NOT EXISTS idx_recommendation_outcomes_session ON recommendation_outcomes(session_id)",
+        "CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_token ON password_reset_tokens(token)",
+        "CREATE INDEX IF NOT EXISTS idx_email_verification_tokens_token ON email_verification_tokens(token)",
     ]:
         try:
             conn.execute(migration)

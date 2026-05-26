@@ -14,6 +14,7 @@ from flask import (
 )
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
+from flask_wtf.csrf import CSRFProtect
 import anthropic as _anthropic
 
 import database as db
@@ -24,7 +25,20 @@ from agents import (
 )
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", "berthai-dev-secret-change-in-prod")
+
+# SECRET_KEY must be set in production (Render env vars). In local dev,
+# a random key is generated per run — sessions won't survive restarts,
+# which is fine for testing.
+_secret = os.environ.get("SECRET_KEY")
+if not _secret and os.environ.get("RENDER"):
+    raise RuntimeError("SECRET_KEY environment variable is required in production. Set it in Render → Environment.")
+app.secret_key = _secret or secrets.token_hex(32)
+
+# CSRF protection — all POST/PUT/DELETE requests must include a valid token.
+# HTML forms get it via {{ csrf_token() }}. AJAX calls read it from the
+# <meta name="csrf-token"> tag in base.html and send it as X-CSRFToken header.
+csrf = CSRFProtect(app)
+
 app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024  # 100MB
 
 UPLOAD_FOLDER = os.environ.get("UPLOAD_FOLDER", "uploads")
@@ -62,7 +76,13 @@ db.init_db()
 
 def _ensure_admin():
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@berthai.com")
-    admin_pass  = os.environ.get("ADMIN_PASSWORD", "changeme123")
+    admin_pass  = os.environ.get("ADMIN_PASSWORD")
+    if not admin_pass:
+        # In production, refuse to create an admin with a guessable password.
+        if os.environ.get("RENDER"):
+            print("WARNING: ADMIN_PASSWORD not set. Skipping default admin creation.")
+            return
+        admin_pass = "changeme123"  # Local dev only
     existing = db.query("SELECT id FROM users WHERE is_admin=1")
     if not existing:
         db.execute(
@@ -2718,10 +2738,33 @@ def recommend_undo_approve_all():
     if not session_id:
         return jsonify({"ok": False, "error": "Missing session_id"}), 400
 
-    rows = db.query("SELECT user_id FROM upload_sessions WHERE id=?", (upload_session_id,))
+    rows = db.query("SELECT user_id FROM upload_sessions WHERE id=?", (session_id,))
     if not rows or rows[0]["user_id"] != session.get("user_id"):
-        from flask import abort
-        abort(403)
+        return jsonify({"ok": False, "error": "Forbidden"}), 403
+
+    ar = db.query("SELECT recommendations_json FROM analysis_results WHERE session_id=?", (session_id,))
+    if not ar:
+        return jsonify({"ok": False, "error": "No results for this session"}), 404
+
+    try:
+        recs = json.loads(ar[0]["recommendations_json"] or "[]")
+    except Exception:
+        return jsonify({"ok": False, "error": "Corrupt data"}), 500
+
+    items_set = set(items)
+    undone = []
+    for rec in recs:
+        if not isinstance(rec, dict) or rec.get("error"):
+            continue
+        if rec.get("item", "") in items_set and rec.get("approved"):
+            rec["approved"] = False
+            undone.append(rec.get("item", ""))
+
+    db.execute(
+        "UPDATE analysis_results SET recommendations_json=? WHERE session_id=?",
+        (json.dumps(recs), session_id)
+    )
+    return jsonify({"ok": True, "undone_items": undone})
 
 
 if __name__ == "__main__":

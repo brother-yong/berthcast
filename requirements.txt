@@ -1,5 +1,6 @@
 flask==3.0.3
 werkzeug==3.0.3
+flask-wtf>=1.2.0
 anthropic>=0.40.0
 gunicorn==22.0.0
 reportlab>=4.0.0
