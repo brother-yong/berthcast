@@ -83,85 +83,8 @@
     </form>
   </div>
 
-  <!-- Company consequence config -->
-  <div class="card">
-    <div class="card-title">Consequence engine — company config</div>
-    <p style="color:var(--muted); font-size:14px; margin-bottom:20px;">
-      These numbers drive the financial scenarios in every recommendation. Set them per organisation.
-    </p>
-
-    {% if orgs %}
-    <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:20px;">
-      {% for org in orgs %}
-      <button type="button" class="scope-pill {% if loop.first %}active{% endif %}"
-              onclick="showOrgConfig('{{ org }}', this)">{{ org }}</button>
-      {% endfor %}
-    </div>
-    {% endif %}
-
-    {% for org in orgs %}
-    {% set cfg = org_configs[org] %}
-    <div class="org-config-panel" id="cfg-{{ loop.index }}" style="{% if not loop.first %}display:none;{% endif %}">
-      <form method="POST" action="{{ url_for('admin_panel') }}">
-        <input type="hidden" name="action" value="save_company_config">
-        <input type="hidden" name="org_name" value="{{ org }}">
-        <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:16px; margin-bottom:16px;">
-          <div class="form-group">
-            <label>Stockout cost per unit (SGD)
-              <span class="hint">Revenue + emergency sourcing cost when an item runs out</span>
-            </label>
-            <input type="number" name="stockout_cost_per_unit" step="0.01" min="0"
-                   value="{{ cfg.stockout_cost_per_unit | round(2) }}" required>
-          </div>
-          <div class="form-group">
-            <label>Holding cost per unit per day (SGD)
-              <span class="hint">Cost of capital tied up in excess stock</span>
-            </label>
-            <input type="number" name="holding_cost_per_unit_per_day" step="0.01" min="0"
-                   value="{{ cfg.holding_cost_per_unit_per_day | round(2) }}" required>
-          </div>
-          <div class="form-group">
-            <label>Service level target
-              <span class="hint">0.95 = acceptable to stockout 5% of the time</span>
-            </label>
-            <input type="number" name="service_level_target" step="0.01" min="0" max="1"
-                   value="{{ cfg.service_level_target | round(2) }}" required>
-          </div>
-          <div class="form-group">
-            <label>Default lead time (days)
-              <span class="hint">Fallback if no supplier profile exists</span>
-            </label>
-            <input type="number" name="default_lead_time_days" step="1" min="1"
-                   value="{{ cfg.default_lead_time_days }}" required>
-          </div>
-          <div class="form-group">
-            <label>Lead time variance (days)
-              <span class="hint">How unreliable is supply chain timing, on average</span>
-            </label>
-            <input type="number" name="lead_time_variance_days" step="1" min="0"
-                   value="{{ cfg.lead_time_variance_days }}" required>
-          </div>
-          <div class="form-group">
-            <label>Industry
-              <span class="hint">Drives spoilage rules — use: food_distribution, marine_supply, pharma, general</span>
-            </label>
-            <input type="text" name="industry" placeholder="e.g. food_distribution"
-                   value="{{ cfg.industry or 'general' }}">
-          </div>
-        </div>
-        <div class="form-group">
-          <label>Company description
-            <span class="hint">Used by the AI to frame analysis — 1–2 sentences about what this company does</span>
-          </label>
-          <input type="text" name="company_description"
-                 placeholder="e.g. Food distributor in Singapore importing chilled and frozen goods."
-                 value="{{ cfg.company_description or '' }}" style="width:100%;">
-        </div>
-        <button type="submit" class="btn btn-primary btn-sm">Save config for {{ org }}</button>
-      </form>
-    </div>
-    {% endfor %}
-  </div>
+  {# Company consequence config moved to user Settings so each org owner
+     can manage their own default lead times directly. #}
 
   <!-- Supplier profiles -->
   <div class="card">
@@ -269,6 +192,7 @@
           <th>Email</th>
           <th>Organisation</th>
           <th>AI model</th>
+          <th>Verified</th>
           <th>Created</th>
           <th>Actions</th>
         </tr>
@@ -288,6 +212,19 @@
                 {% endfor %}
               </select>
             </form>
+          </td>
+          <td>
+            {% if u.email_verified %}
+              <span style="color:var(--success);font-size:13px;">✓ Verified</span>
+            {% else %}
+              <form method="POST" action="{{ url_for('admin_panel') }}" style="display:inline;">
+                <input type="hidden" name="action" value="verify_user">
+                <input type="hidden" name="user_id" value="{{ u.id }}">
+                <button type="submit" class="btn btn-outline btn-sm" title="Mark this account as verified so the user can log in">
+                  Verify
+                </button>
+              </form>
+            {% endif %}
           </td>
           <td style="font-size:13px; color:var(--muted);">{{ u.created_at[:10] }}</td>
           <td>

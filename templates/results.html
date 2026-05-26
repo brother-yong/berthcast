@@ -157,7 +157,18 @@
         <div class="rec-supplier-group" data-group="{{ group.key }}" id="grp-{{ group.key }}">
           <div class="rec-supplier-head">
             <div class="rec-supplier-head-left">
-              <div class="rec-supplier-name">{{ group.name }}</div>
+              <div class="rec-supplier-name">
+                {{ group.name }}
+                {% if group.count > 1 %}
+                  <span class="rec-supplier-range" title="Items {{ group.start_num }} through {{ group.end_num }} on this page">
+                    #{{ group.start_num }}–{{ group.end_num }}
+                  </span>
+                {% else %}
+                  <span class="rec-supplier-range" title="Item {{ group.start_num }} on this page">
+                    #{{ group.start_num }}
+                  </span>
+                {% endif %}
+              </div>
               <div class="rec-supplier-meta">
                 <span class="rec-supplier-type">{{ group.supplier_type }}</span>
                 <span class="rec-supplier-sep">·</span>
@@ -208,7 +219,10 @@
                   <span class="lbl">{{ 'N/A' if rec.confidence == 'INSUFFICIENT_DATA' else rec.confidence | lower }}</span>
                 </div>
               </button>
-              <div class="rec-card-title">{{ rec.item }}</div>
+              <div class="rec-card-title">
+                <span class="rec-card-num" aria-hidden="true">#{{ rec._display_num }}</span>
+                {{ rec.item }}
+              </div>
               {% if rec.approved %}
                 <span class="badge badge-healthy">✓ Approved</span>
               {% elif rec.dismissed %}
