@@ -585,9 +585,6 @@ def seed_cool_link_defaults():
             ),
         )
     known_suppliers = [
-        ("El Sabah",    0.55, 112, 0.7, "Flagged unreliable. Import. High delay history."),
-        ("ABD Khan",    0.50, 112, 0.6, "Flagged unreliable. Import. Frequent delays."),
-        ("Nhan Tu",     0.45, 112, 0.6, "Flagged unreliable. Import. Inconsistent lead times."),
         ("Local SG",    0.10,  21, 0.9, "Local supplier. Reliable. Fast lead time."),
         ("Import Other",0.25,  56, 0.5, "Generic import. Moderate risk."),
     ]
