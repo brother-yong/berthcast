@@ -115,6 +115,40 @@
     </form>
   </div>
 
+  <!-- Default lead times -->
+  <div class="card" style="margin-top:20px;">
+    <div class="card-title">Default lead times</div>
+    <p style="color:var(--muted); font-size:14px; margin-bottom:20px;">
+      Used by the AI when an item doesn't have a specific supplier profile above.
+      A typical import is 8–16 weeks (56–112 days); a typical local supplier is 2–4 weeks (14–28 days).
+      Variance is your honest estimate of how unreliable timing is — bigger number means the AI orders earlier to be safe.
+    </p>
+    <form method="POST" action="{{ url_for('user_settings') }}">
+      <input type="hidden" name="action" value="save_defaults">
+      <div style="display:grid; grid-template-columns:1fr 1fr auto; gap:16px; align-items:end; max-width:640px;">
+        <div class="form-group" style="margin:0;">
+          <label style="font-size:13px;">Default lead time (days)
+            <span class="hint">Fallback when no supplier profile exists</span>
+          </label>
+          <input type="number" name="default_lead_time_days" id="inp-default-lead"
+                 step="1" min="1" max="365"
+                 value="{{ company_cfg.default_lead_time_days }}" required>
+        </div>
+        <div class="form-group" style="margin:0;">
+          <label style="font-size:13px;">Lead time variance (days)
+            <span class="hint">How much it usually slips by</span>
+          </label>
+          <input type="number" name="lead_time_variance_days" id="inp-lead-var"
+                 step="1" min="0" max="90"
+                 value="{{ company_cfg.lead_time_variance_days }}" required>
+        </div>
+        <div>
+          <button type="submit" class="btn btn-primary">Save defaults</button>
+        </div>
+      </div>
+    </form>
+  </div>
+
   <!-- Change password -->
   <div class="card" style="margin-top:20px;">
     <div class="card-title">Change password</div>

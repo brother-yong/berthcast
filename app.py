@@ -538,35 +538,51 @@ def register():
                                    org_name=org_name, email=email,
                                    accept_terms=accept_terms)
 
-        # Create unverified free account
+        # If we can't actually send mail (MAIL_SENDER / MAIL_APP_PASSWORD
+        # unset on Render), auto-verify the account. Without this, the user
+        # gets stuck: they sign up, no email arrives, and login refuses them
+        # forever with "Please verify your email".
+        mail_configured = bool(os.environ.get("MAIL_SENDER")) and bool(os.environ.get("MAIL_APP_PASSWORD"))
+        verified_on_create = 0 if mail_configured else 1
+
         db.execute(
             """INSERT INTO users
                (email, password_hash, org_name, model, tier, email_verified,
                 analyses_used, chat_messages_used)
                VALUES (?,?,?,?,?,?,?,?)""",
             (email, generate_password_hash(password), org_name,
-             "claude-haiku-4-5-20251001", "free", 0, 0, 0)
+             "claude-haiku-4-5-20251001", "free", verified_on_create, 0, 0)
         )
         new_user = db.query("SELECT id FROM users WHERE email=?", (email,))[0]
 
-        # Issue verification token
-        db.execute(
-            "DELETE FROM email_verification_tokens WHERE user_id=?",
-            (new_user["id"],)
-        )
-        token = secrets.token_urlsafe(32)
-        db.execute(
-            "INSERT INTO email_verification_tokens (user_id, token) VALUES (?,?)",
-            (new_user["id"], token)
-        )
-        verify_url = url_for("verify_email", token=token, _external=True)
-        threading.Thread(
-            target=_send_verification_email,
-            args=(email, verify_url),
-            daemon=True,
-        ).start()
+        if mail_configured:
+            # Issue verification token and email it
+            db.execute(
+                "DELETE FROM email_verification_tokens WHERE user_id=?",
+                (new_user["id"],)
+            )
+            token = secrets.token_urlsafe(32)
+            db.execute(
+                "INSERT INTO email_verification_tokens (user_id, token) VALUES (?,?)",
+                (new_user["id"], token)
+            )
+            verify_url = url_for("verify_email", token=token, _external=True)
+            threading.Thread(
+                target=_send_verification_email,
+                args=(email, verify_url),
+                daemon=True,
+            ).start()
+            return render_template("register.html", submitted=True, email=email)
 
-        return render_template("register.html", submitted=True, email=email)
+        # Mail not configured — log them in immediately so they don't get stuck.
+        session["user_id"]  = new_user["id"]
+        session["email"]    = email
+        session["org_name"] = org_name
+        session["model"]    = "claude-haiku-4-5-20251001"
+        session["is_admin"] = False
+        session["tier"]     = "free"
+        flash("Account created. Welcome to BerthAI.", "success")
+        return redirect(url_for("chat"))
 
     return render_template("register.html")
 
@@ -950,6 +966,13 @@ def admin_panel():
             uid = request.form.get("user_id")
             db.execute("DELETE FROM users WHERE id=? AND is_admin=0", (uid,))
             flash("Account removed.", "success")
+        elif action == "verify_user":
+            # Safety net: manually mark a user as email-verified so they can
+            # log in even when mail isn't configured or the link expired.
+            uid = request.form.get("user_id")
+            db.execute("UPDATE users SET email_verified=1 WHERE id=?", (uid,))
+            db.execute("DELETE FROM email_verification_tokens WHERE user_id=?", (uid,))
+            flash("Account verified — user can now log in.", "success")
         elif action == "change_model":
             uid   = request.form.get("user_id")
             model = request.form.get("model")
@@ -994,7 +1017,7 @@ def admin_panel():
                 except Exception as e:
                     flash(f"Error saving supplier profile: {e}", "error")
 
-    users = db.query("SELECT id, email, org_name, model, created_at FROM users WHERE is_admin=0 ORDER BY created_at DESC")
+    users = db.query("SELECT id, email, org_name, model, email_verified, created_at FROM users WHERE is_admin=0 ORDER BY created_at DESC")
     contact_requests = db.query(
         "SELECT id, name, email, company, message, status, created_at "
         "FROM contact_requests ORDER BY (status='new') DESC, created_at DESC"
@@ -1062,10 +1085,29 @@ def user_settings():
                     (generate_password_hash(new_pw), session["user_id"])
                 )
                 flash("Password updated.", "success")
+        elif action == "save_defaults":
+            # Default lead times — used by the AI when an item has no supplier
+            # profile on file. The user (not just admin) gets to set these now.
+            try:
+                lead_days = int(request.form.get("default_lead_time_days", 56))
+                lead_var  = int(request.form.get("lead_time_variance_days", 14))
+                if lead_days < 1 or lead_days > 365:
+                    raise ValueError("Lead time must be between 1 and 365 days.")
+                if lead_var < 0 or lead_var > 90:
+                    raise ValueError("Lead time variance must be between 0 and 90 days.")
+                db.upsert_company_config(
+                    org,
+                    default_lead_time_days  = lead_days,
+                    lead_time_variance_days = lead_var,
+                )
+                flash("Default lead times saved.", "success")
+            except (ValueError, TypeError) as e:
+                flash(f"Could not save defaults: {e}", "error")
         return redirect(url_for("user_settings"))
 
     profiles = db.get_supplier_profiles(org)
-    return render_template("settings.html", profiles=profiles)
+    company_cfg = db.get_company_config(org)
+    return render_template("settings.html", profiles=profiles, company_cfg=company_cfg)
 
 
 @app.route("/dashboard")
@@ -1964,6 +2006,18 @@ def results(upload_session_id):
     # supplier with bulk-approve. Most urgent supplier first.
     rec_groups = _group_recs_by_supplier(recommendations, status_by_item)
 
+    # Walk the groups in render order and stamp a sequential display number on
+    # each rec. Same-supplier items naturally get consecutive numbers (e.g.
+    # 1–4 from Supplier A, 5–6 from Supplier B), making the grouping obvious
+    # at a glance — also helpful when the user prints or shares the page.
+    _n = 0
+    for _grp in rec_groups:
+        _grp["start_num"] = _n + 1
+        for _rec in _grp["recs"]:
+            _n += 1
+            _rec["_display_num"] = _n
+        _grp["end_num"] = _n
+
     return render_template(
         "results.html",
         recommendations=recommendations,
@@ -2671,5 +2725,6 @@ def recommend_undo_approve_all():
 
 
 if __name__ == "__main__":
+    # Local dev entry point. On Render we use gunicorn (see render.yaml).
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=False)
