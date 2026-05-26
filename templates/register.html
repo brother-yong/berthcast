@@ -53,15 +53,29 @@
                placeholder="Repeat your password">
       </div>
 
-      <button type="submit" class="btn btn-primary btn-full" style="margin-top:8px;">
+      <div class="form-group" style="margin-top:18px;">
+        <label for="accept_terms"
+               style="display:flex; align-items:flex-start; gap:10px; cursor:pointer;
+                      font-size:13px; line-height:1.5; color:var(--text); font-weight:400;">
+          <input type="checkbox" id="accept_terms" name="accept_terms" required
+                 {% if accept_terms %}checked{% endif %}
+                 style="margin-top:3px; width:16px; height:16px; flex-shrink:0; cursor:pointer; accent-color: var(--brass-3, #c8924c);">
+          <span>
+            I agree to BerthAI's
+            <a href="{{ url_for('terms') }}" target="_blank" rel="noopener"
+               style="color:var(--brass-3); text-decoration:underline;">Terms of Service</a>
+            and
+            <a href="{{ url_for('privacy') }}" target="_blank" rel="noopener"
+               style="color:var(--brass-3); text-decoration:underline;">Privacy Policy</a>.
+          </span>
+        </label>
+      </div>
+
+      <button type="submit" class="btn btn-primary btn-full" style="margin-top:12px;">
         Create account
       </button>
 
       <p style="font-size:12px; color:var(--muted); text-align:center; margin-top:14px; margin-bottom:0; line-height:1.5;">
-        By creating an account you agree to BerthAI's
-        <a href="{{ url_for('terms') }}" style="color:var(--brass-3); text-decoration:underline;">Terms of Service</a>
-        and
-        <a href="{{ url_for('privacy') }}" style="color:var(--brass-3); text-decoration:underline;">Privacy Policy</a>.<br>
         Your free account includes 1 analysis and 20 chat messages.
       </p>
     </form>

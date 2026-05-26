@@ -27,7 +27,7 @@ app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "berthai-dev-secret-change-in-prod")
 app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024  # 100MB
 
-UPLOAD_FOLDER = "uploads"
+UPLOAD_FOLDER = os.environ.get("UPLOAD_FOLDER", "uploads")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 ALLOWED_EXTENSIONS = {"xlsx", "csv"}
@@ -461,10 +461,14 @@ def register():
     if "user_id" in session:
         return redirect(url_for("chat"))
     if request.method == "POST":
-        org_name  = request.form.get("org_name", "").strip()
-        email     = request.form.get("email", "").strip().lower()
-        password  = request.form.get("password", "")
-        password2 = request.form.get("password2", "")
+        org_name     = request.form.get("org_name", "").strip()
+        email        = request.form.get("email", "").strip().lower()
+        password     = request.form.get("password", "")
+        password2    = request.form.get("password2", "")
+        # Browsers only send checkbox values when checked. Anything other than
+        # the exact "on" / "1" / "true" we consider unchecked — don't trust
+        # the front-end to enforce the agreement.
+        accept_terms = request.form.get("accept_terms", "").strip().lower() in ("on", "1", "true", "yes")
 
         # Validation
         error = None
@@ -476,6 +480,8 @@ def register():
             error = "Password must be at least 8 characters."
         elif password != password2:
             error = "Passwords don't match."
+        elif not accept_terms:
+            error = "Please tick the box to agree to the Terms of Service and Privacy Policy."
         else:
             existing = db.query("SELECT id FROM users WHERE email=?", (email,))
             if existing:
@@ -483,7 +489,8 @@ def register():
 
         if error:
             return render_template("register.html", error=error,
-                                   org_name=org_name, email=email)
+                                   org_name=org_name, email=email,
+                                   accept_terms=accept_terms)
 
         # Create unverified free account
         db.execute(
