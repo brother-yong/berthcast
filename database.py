@@ -2,7 +2,20 @@ import sqlite3
 import json
 import os
 
-DB_PATH = "berthai.db"
+# DB lives on the Render persistent disk in prod (DB_PATH env var points to
+# /var/data/berthai.db). For local dev, defaults to a file in the cwd.
+# IMPORTANT: never put this under the project source dir on Render — that
+# folder is overwritten on every deploy and the DB gets wiped.
+DB_PATH = os.environ.get("DB_PATH", "berthai.db")
+
+# Make sure the parent directory exists before sqlite tries to open the file.
+# On Render's first boot the /var/data mount is empty.
+_db_dir = os.path.dirname(DB_PATH)
+if _db_dir and not os.path.exists(_db_dir):
+    try:
+        os.makedirs(_db_dir, exist_ok=True)
+    except Exception:
+        pass
 
 
 def get_db():

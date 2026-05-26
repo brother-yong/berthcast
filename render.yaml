@@ -15,7 +15,13 @@ services:
         sync: false
       - key: PYTHON_VERSION
         value: "3.11.9"
+      # Persistent DB path on the mounted disk. Survives deploys.
+      - key: DB_PATH
+        value: /var/data/berthai.db
+      # Where uploaded files land. Also on the disk so resumable uploads survive a worker restart.
+      - key: UPLOAD_FOLDER
+        value: /var/data/uploads
     disk:
       name: berthai-data
-      mountPath: /opt/render/project/src
+      mountPath: /var/data
       sizeGB: 1
