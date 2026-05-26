@@ -28,6 +28,135 @@ SPOILAGE_THRESHOLD_DAYS = {
     "dry":     180,
 }
 
+# Category-based supplier type inference — shared between inventory and rec agents.
+# Used as a last-resort fallback when the supplier listing and PO table don't
+# have a match. Food-distribution defaults; non-food clients should populate
+# their own supplier profiles via the settings page.
+CATEGORY_SUPPLIER_TYPE = {
+    "bread": "local", "bun": "local", "hotdog": "local", "prata": "local",
+    "eggs": "local", "egg": "local", "water": "local",
+    "coca-cola": "local", "fanta": "local", "sprite": "local", "pepsi": "local",
+    "7up": "local", "carbonated": "local",
+    "spring roll skin": "local", "spring roll": "local",
+    "milk": "import", "cheese": "import", "butter": "import",
+    "cream": "import", "yoghurt": "import", "yogurt": "import",
+    "ice cream": "import", "muesli": "import", "cereal": "import",
+    "pasta": "import", "noodle": "import", "flour": "import",
+    "biscuit": "import", "cracker": "import", "cookie": "import",
+    "juice": "import", "coffee": "import", "sauce": "import",
+    "ketchup": "import", "canned": "import", "tortilla": "import",
+    "pizza": "import", "pastry": "import", "puff": "import",
+    "mozzarella": "import", "parmesan": "import", "edam": "import",
+    "cheddar": "import", "feta": "import", "gouda": "import",
+    "cottage cheese": "import", "emmenthal": "import",
+}
+
+LEAD_TIME_BY_TYPE = {"import": 112, "local": 21, "other": 56}
+
+
+def _infer_supplier_type(item_name: str) -> str:
+    """Guess import vs local from product keywords. Last-resort fallback."""
+    name_lower = item_name.lower()
+    for keyword, stype in CATEGORY_SUPPLIER_TYPE.items():
+        if keyword in name_lower:
+            return stype
+    return "other"
+
+
+def _resolve_item_suppliers(session_id: int, org_name: str, config: dict,
+                            alias_map: dict = None, progress_emit=None):
+    """Build per-item supplier context: supplier name, type, lead time, risk.
+
+    Returns two dicts:
+      item_supplier_map:  {item_name: supplier_name}
+      item_lead_time_map: {item_name: {"supplier": str, "type": str,
+                                        "lead_time_days": int|None,
+                                        "delay_prob": float, "high_risk": bool}}
+    """
+    alias_map = alias_map or {}
+    sup_table = f"suppliers_{session_id}"
+    po_table  = f"purchase_orders_{session_id}"
+
+    # 1. Build supplier_type_map from the Supplier Listing upload
+    supplier_type_map = {}
+    try:
+        sup_rows = query(f"SELECT * FROM {sup_table} LIMIT 1000")
+        for row in sup_rows:
+            name_col = next((k for k in row if "name" in k or "supplier" in k), None)
+            type_col = next((k for k in row if "type" in k or "category" in k or "class" in k), None)
+            if name_col and type_col:
+                sname = str(row[name_col] or "").strip()
+                stype = str(row[type_col] or "").strip().lower()
+                if "import" in stype:
+                    supplier_type_map[sname] = "import"
+                elif "local" in stype:
+                    supplier_type_map[sname] = "local"
+                else:
+                    supplier_type_map[sname] = "other"
+    except Exception:
+        pass
+
+    # 2. Build item→supplier from Purchase Orders (most recent PO per item)
+    item_supplier_map = {}
+    try:
+        sample = query(f"SELECT * FROM {po_table} LIMIT 1")
+        if sample:
+            cols = list(sample[0].keys())
+            desc_col = next((c for c in cols if c in (
+                "inventory_desc", "item_description", "description", "product_name")), None)
+            sup_col = next((c for c in cols if "supplier" in c and "name" in c), None) or \
+                      next((c for c in cols if "supplier" in c), None)
+            if desc_col and sup_col:
+                po_rows = query(
+                    f'SELECT "{desc_col}" as item_name, "{sup_col}" as sup_name '
+                    f'FROM {po_table} WHERE "{desc_col}" IS NOT NULL '
+                    f'ORDER BY rowid DESC LIMIT 3000'
+                )
+                for row in po_rows:
+                    item = row.get("item_name", "")
+                    sup  = row.get("sup_name", "")
+                    if item and item not in item_supplier_map:
+                        item_supplier_map[item] = sup
+                    # Also try canonical name so inventory names match
+                    if item and alias_map:
+                        canonical = alias_map.get(str(item).strip().lower())
+                        if canonical and canonical not in item_supplier_map:
+                            item_supplier_map[canonical] = sup
+    except Exception:
+        pass
+
+    _emit(progress_emit,
+          f"Mapped {len(supplier_type_map)} suppliers, {len(item_supplier_map)} item→supplier links")
+
+    # 3. For each known item, resolve lead time from profile → type default → config default
+    item_lead_time_map = {}
+    for item_name, supplier in item_supplier_map.items():
+        stype = supplier_type_map.get(supplier, "other")
+        if stype == "other" and (not supplier or supplier == "Unknown"):
+            stype = _infer_supplier_type(item_name)
+
+        sup_profile = get_supplier_profile(org_name, supplier)
+        if not supplier or supplier == "Unknown":
+            lt_days = None
+        else:
+            lt_days = (sup_profile.get("avg_lead_time_days")
+                       or LEAD_TIME_BY_TYPE.get(stype)
+                       or config.get("default_lead_time_days")
+                       or None)
+        delay_prob = sup_profile.get("delay_probability", 0.2)
+        quality    = sup_profile.get("data_quality_score", 0.3)
+        high_risk  = delay_prob > 0.30 or quality < 0.50
+
+        item_lead_time_map[item_name] = {
+            "supplier":       supplier,
+            "type":           stype,
+            "lead_time_days": lt_days,
+            "delay_prob":     delay_prob,
+            "high_risk":      high_risk,
+        }
+
+    return item_supplier_map, item_lead_time_map, supplier_type_map
+
 
 # ---------------------------------------------------------------------------
 # Consequence engine — pure Python, no LLM involvement
@@ -170,7 +299,6 @@ def run_normalization_agent(session_id: int, model: str, progress_emit=None) -> 
 
 def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, context: dict, progress_emit=None) -> dict:
     _emit(progress_emit, "Loading company config for analysis rules")
-    from database import get_company_config
     sess_rows_inv = query("SELECT org_name FROM upload_sessions WHERE id=?", (session_id,))
     org_name_inv  = sess_rows_inv[0]["org_name"] if sess_rows_inv else "Unknown"
     inv_config    = get_company_config(org_name_inv)
@@ -192,6 +320,13 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
     for group in confirmed_groups:
         for variant in group.get("variants", []):
             alias_map[variant.lower()] = group["canonical"]
+
+    # Resolve supplier + lead time for every item so the inventory agent can
+    # use lead-time-relative thresholds instead of fixed 1/3-month cutoffs.
+    _emit(progress_emit, "Resolving supplier lead times for each item")
+    _, item_lt_map, _ = _resolve_item_suppliers(
+        session_id, org_name_inv, inv_config, alias_map, progress_emit
+    )
 
     _emit(progress_emit, "Computing sales velocity for each item")
     sales_by_item = {}
@@ -426,9 +561,19 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
             supply_tag = ""
 
         revenue_tag = f" | Revenue: {round(total_revenue)}" if total_revenue > 0 else ""
+
+        # Lead time context — lets Claude judge urgency relative to reorder horizon
+        lt_info = item_lt_map.get(canonical) or item_lt_map.get(desc)
+        if lt_info and lt_info.get("lead_time_days"):
+            lt_days = lt_info["lead_time_days"]
+            lt_months = round(lt_days / 30, 1)
+            lt_tag = f" | Lead time: {lt_days}d ({lt_months}mo)"
+        else:
+            lt_tag = ""
+
         inv_summary_lines.append(
             f"Item: {canonical} | Category: {cat} | Stock: {qty_raw} | "
-            f"Total sold ({months_of_data}mo): {round(total_sold)}{revenue_tag}{supply_tag}"
+            f"Total sold ({months_of_data}mo): {round(total_sold)}{revenue_tag}{supply_tag}{lt_tag}"
         )
 
     if not inv_summary_lines:
@@ -456,19 +601,27 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
     system_prompt = (
         f"You are an inventory health analyst for: {company_desc}\n\n"
         "Each item line includes: item name, category, current stock, total units sold over N months, "
-        "optional revenue, and optionally 'Months of supply' (stock ÷ avg monthly sales — already computed for you).\n\n"
+        "optional revenue, 'Months of supply' (stock ÷ avg monthly sales), and optionally "
+        "'Lead time' (days and months the supplier takes to deliver).\n\n"
         "For each item, determine:\n"
         "1. Status: HEALTHY / LOW / CRITICAL / DEAD\n"
         "2. Spoilage risk: HIGH / MEDIUM / LOW / NONE\n"
         "3. Days of supply (use Months of supply × 30 when provided, otherwise estimate)\n"
         "4. A one-line plain English observation\n\n"
-        "Status rules — use 'Months of supply' as your primary signal when available:\n"
-        "- CRITICAL: Months of supply < 1, OR total sold > 0 AND stock = 0.\n"
-        "- LOW: Months of supply between 1 and 3.\n"
-        "- HEALTHY: Months of supply > 3.\n"
-        "- DEAD: total sold = 0 AND no reason to believe the item is new or seasonal. "
-        "  Also DEAD: stock = 0 AND total sold = 0 (no demand and no stock — not a stockout). "
-        "  Once DEAD, set spoilage_risk = NONE.\n\n"
+        "STATUS RULES — lead-time-aware thresholds:\n"
+        "When Lead time IS provided for an item, use it to set dynamic thresholds:\n"
+        "  Let LT = lead time in months (given in the data).\n"
+        "  - CRITICAL: Months of supply < LT (not enough stock to survive one reorder cycle), "
+        "    OR total sold > 0 AND stock = 0.\n"
+        "  - LOW: Months of supply between LT and LT + 2 (tight — reorder window closing).\n"
+        "  - HEALTHY: Months of supply > LT + 2.\n"
+        "When Lead time is NOT provided, fall back to fixed thresholds:\n"
+        "  - CRITICAL: Months of supply < 1, OR total sold > 0 AND stock = 0.\n"
+        "  - LOW: Months of supply between 1 and 3.\n"
+        "  - HEALTHY: Months of supply > 3.\n"
+        "DEAD rules (always apply regardless of lead time):\n"
+        "  - DEAD: total sold = 0 AND no reason to believe the item is new or seasonal. "
+        "  Also DEAD: stock = 0 AND total sold = 0. Once DEAD, set spoilage_risk = NONE.\n\n"
         "Spoilage rules:\n"
         + spoilage_rules +
         "\nReturn ONLY a JSON array of objects with keys:\n"
@@ -506,79 +659,9 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
     config = get_company_config(org_name)
 
     _emit(progress_emit, "Reading supplier list (local vs import) to set lead times")
-    sup_table = f"suppliers_{session_id}"
-    po_table  = f"purchase_orders_{session_id}"
-
-    supplier_type_map = {}
-    try:
-        sup_rows = query(f"SELECT * FROM {sup_table} LIMIT 1000")
-        for row in sup_rows:
-            name_col = next((k for k in row if "name" in k or "supplier" in k), None)
-            type_col = next((k for k in row if "type" in k or "category" in k or "class" in k), None)
-            if name_col and type_col:
-                sname = str(row[name_col] or "").strip()
-                stype = str(row[type_col] or "").strip().lower()
-                if "import" in stype:
-                    supplier_type_map[sname] = "import"
-                elif "local" in stype:
-                    supplier_type_map[sname] = "local"
-                else:
-                    supplier_type_map[sname] = "other"
-    except Exception:
-        pass
-
-    item_supplier_map = {}
-    try:
-        sample = query(f"SELECT * FROM {po_table} LIMIT 1")
-        if sample:
-            cols = list(sample[0].keys())
-            desc_col = next((c for c in cols if c in ("inventory_desc", "item_description", "description", "product_name")), None)
-            sup_col  = next((c for c in cols if "supplier" in c and "name" in c), None) or \
-                       next((c for c in cols if "supplier" in c), None)
-            if desc_col and sup_col:
-                po_rows = query(
-                    'SELECT "' + desc_col + '" as item_name, "' + sup_col + '" as sup_name '
-                    'FROM ' + po_table + ' WHERE "' + desc_col + '" IS NOT NULL '
-                    'ORDER BY rowid DESC LIMIT 3000'
-                )
-                for row in po_rows:
-                    item = row.get("item_name", "")
-                    sup  = row.get("sup_name", "")
-                    if item and item not in item_supplier_map:
-                        item_supplier_map[item] = sup
-    except Exception:
-        pass
-
-    # Category-based supplier type fallback — used when PO table has no match
-    CATEGORY_SUPPLIER_TYPE = {
-        "bread": "local", "bun": "local", "hotdog": "local", "prata": "local",
-        "eggs": "local", "egg": "local", "water": "local",
-        "coca-cola": "local", "fanta": "local", "sprite": "local", "pepsi": "local",
-        "7up": "local", "carbonated": "local",
-        "spring roll skin": "local", "spring roll": "local",
-        "milk": "import", "cheese": "import", "butter": "import",
-        "cream": "import", "yoghurt": "import", "yogurt": "import",
-        "ice cream": "import", "muesli": "import", "cereal": "import",
-        "pasta": "import", "noodle": "import", "flour": "import",
-        "biscuit": "import", "cracker": "import", "cookie": "import",
-        "juice": "import", "coffee": "import", "sauce": "import",
-        "ketchup": "import", "canned": "import", "tortilla": "import",
-        "pizza": "import", "pastry": "import", "puff": "import",
-        "mozzarella": "import", "parmesan": "import", "edam": "import",
-        "cheddar": "import", "feta": "import", "gouda": "import",
-        "cottage cheese": "import", "emmenthal": "import",
-    }
-
-    LEAD_TIME_BY_TYPE = {"import": 112, "local": 21, "other": 56}
-
-    def _infer_supplier_type(item_name: str) -> str:
-        name_lower = item_name.lower()
-        for keyword, stype in CATEGORY_SUPPLIER_TYPE.items():
-            if keyword in name_lower:
-                return stype
-        return "other"
-
-    _emit(progress_emit, f"Mapped {len(supplier_type_map)} suppliers, {len(item_supplier_map)} item-supplier links")
+    item_supplier_map, item_lt_map, supplier_type_map = _resolve_item_suppliers(
+        session_id, org_name, config, progress_emit=progress_emit
+    )
 
     # Strip dead SKUs first — they must never reach the recommendation agent
     live_items = [r for r in inventory_report if r.get("status") != "DEAD"]
@@ -660,24 +743,34 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
     enriched_lines = []
     for inv_item in actionable:
         iname    = inv_item.get("item", "Unknown")
-        supplier = item_supplier_map.get(iname, "Unknown") or "Unknown"
-        stype    = supplier_type_map.get(supplier, "other")
 
-        # Fallback: if supplier unknown, infer type from item name
-        if stype == "other" and supplier == "Unknown":
-            stype = _infer_supplier_type(iname)
-
-        sup_profile = get_supplier_profile(org_name, supplier)
-        # Only apply a default lead time when the supplier is actually known
-        if supplier == "Unknown":
-            lt_days = sup_profile.get("avg_lead_time_days") or None
+        # Use shared resolver results; fall back to direct lookup for items
+        # that weren't in the PO table (and therefore not in item_lt_map).
+        lt_info = item_lt_map.get(iname)
+        if lt_info:
+            supplier   = lt_info["supplier"]
+            stype      = lt_info["type"]
+            lt_days    = lt_info["lead_time_days"]
+            delay_prob = lt_info["delay_prob"]
+            high_risk  = lt_info["high_risk"]
         else:
-            lt_days = sup_profile.get("avg_lead_time_days") or LEAD_TIME_DAYS.get(stype) or config.get("default_lead_time_days") or None
-        delay_prob  = sup_profile.get("delay_probability", 0.2)
-        quality     = sup_profile.get("data_quality_score", 0.3)
-        sup_notes   = sup_profile.get("notes", "")
-        high_risk   = delay_prob > 0.30 or quality < 0.50
-        known_sup   = quality >= 0.5
+            supplier = item_supplier_map.get(iname, "Unknown") or "Unknown"
+            stype    = supplier_type_map.get(supplier, "other")
+            if stype == "other" and supplier == "Unknown":
+                stype = _infer_supplier_type(iname)
+            sup_profile = get_supplier_profile(org_name, supplier)
+            if supplier == "Unknown":
+                lt_days = None
+            else:
+                lt_days = (sup_profile.get("avg_lead_time_days")
+                           or LEAD_TIME_BY_TYPE.get(stype)
+                           or config.get("default_lead_time_days") or None)
+            delay_prob = sup_profile.get("delay_probability", 0.2)
+            high_risk  = delay_prob > 0.30 or sup_profile.get("data_quality_score", 0.3) < 0.50
+
+        quality   = get_supplier_profile(org_name, supplier).get("data_quality_score", 0.3)
+        sup_notes = get_supplier_profile(org_name, supplier).get("notes", "")
+        known_sup = quality >= 0.5
 
         acc      = get_supplier_accuracy(org_name, supplier)
         acc_note = ""
@@ -685,13 +778,23 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
             acc_note = (f" | Past recs: {acc['total_recs']} — "
                         f"{acc['approved']} approved, {acc['dismissed']} dismissed")
 
-        # Compute a suggested order quantity from sales velocity
+        # Compute suggested order quantity with adaptive safety buffer.
+        # Buffer scales with supplier reliability instead of a flat 1.5 months:
+        #   - Reliable local supplier (delay_prob < 0.15):  +0.5 months
+        #   - Average supplier (delay_prob 0.15–0.35):      +1.5 months
+        #   - Unreliable import (delay_prob > 0.35):         +2.5 months
         avg_monthly = sales_velocity.get(iname, 0)
         uom = uom_by_item_r.get(iname.lower(), "")
         uom_label = f" {uom}" if uom else " units"
         if avg_monthly > 0:
-            lt_months = (lt_days / 30) if lt_days else 2.0  # default 2-month cover if lead time unknown
-            suggested_qty = round(avg_monthly * (lt_months + 1.5))  # lead time + 1.5 months safety buffer
+            lt_months = (lt_days / 30) if lt_days else 2.0
+            if delay_prob <= 0.15:
+                safety_buffer = 0.5
+            elif delay_prob <= 0.35:
+                safety_buffer = 1.5
+            else:
+                safety_buffer = 2.5
+            suggested_qty = round(avg_monthly * (lt_months + safety_buffer))
             suggested_qty_str = f"{suggested_qty}{uom_label}"
         else:
             suggested_qty_str = None
