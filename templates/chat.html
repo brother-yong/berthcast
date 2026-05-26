@@ -760,7 +760,14 @@
     <!-- Messages -->
     <div class="chat-messages" id="chatMessages">
       <div class="chat-welcome" id="chatWelcome">
-        <h1 class="welcome-headline">What are you working on?</h1>
+        <h1 class="welcome-headline" id="welcomeTitle">What are you working on?</h1>
+        {% if chat_starters %}
+        <div class="welcome-starters">
+          {% for q in chat_starters %}
+          <button class="starter-btn" onclick="sendStarter(this)">{{ q }}</button>
+          {% endfor %}
+        </div>
+        {% endif %}
       </div>
     </div>
 
@@ -1054,6 +1061,13 @@ function toggleAttachMenu() {
   document.getElementById('attachMenu').classList.toggle('open');
 }
 
+// ── Starter button click ──────────────────────────────────────────────────
+function sendStarter(btn) {
+  const input = document.getElementById('chatInput');
+  input.value = btn.textContent.trim();
+  sendMessage();
+}
+
 // ── Send message ───────────────────────────────────────────────────────────
 async function sendMessage() {
   if (isStreaming) return;
@@ -1262,14 +1276,22 @@ function toggleThinking(btn) {
   btn.setAttribute('aria-expanded', !expanded);
 }
 
+const CHAT_STARTERS = {{ chat_starters | tojson }};
+
 function clearMessages() {
   const messages = document.getElementById('chatMessages');
+  let starterHTML = '';
+  if (CHAT_STARTERS.length) {
+    starterHTML = '<div class="welcome-starters">' +
+      CHAT_STARTERS.map(q => `<button class="starter-btn" onclick="sendStarter(this)">${q}</button>`).join('') +
+    '</div>';
+  }
   messages.innerHTML = `
     <div class="chat-welcome" id="chatWelcome">
-      <h1 class="welcome-headline">What are you working on?</h1>
+      <h1 class="welcome-headline">${WELCOME_TITLES[Math.floor(Math.random() * WELCOME_TITLES.length)]}</h1>
+      ${starterHTML}
     </div>
   `;
-  // Re-enter empty state when the user starts a new chat
   const main = document.getElementById('chatMain');
   if (main) main.classList.add('is-empty');
 }
