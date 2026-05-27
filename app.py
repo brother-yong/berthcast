@@ -100,9 +100,9 @@ def inject_live_stats():
         return {"live_stats": None}
     try:
         sessions = db.query(
-            "SELECT id, created_at FROM upload_sessions WHERE user_id=? AND status='complete' "
+            "SELECT id, created_at FROM upload_sessions WHERE org_name=? AND status='complete' "
             "ORDER BY created_at DESC LIMIT 1",
-            (session["user_id"],)
+            (session["org_name"],)
         )
         if not sessions:
             return {"live_stats": None}
@@ -159,6 +159,22 @@ def admin_required(f):
     return decorated
 
 
+def analyst_required(f):
+    """Only admin and reviewer roles can run analyses and approve/dismiss.
+    Viewers get a flash message and redirect."""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        role = session.get("role", "admin")
+        if role == "viewer":
+            # JSON endpoints get a JSON error
+            if request.is_json or request.path.startswith(("/api/", "/recommend/")):
+                return jsonify({"ok": False, "error": "You have view-only access."}), 403
+            flash("You have view-only access. Ask your admin to run a new analysis.", "error")
+            return redirect(url_for("dashboard"))
+        return f(*args, **kwargs)
+    return decorated
+
+
 def _allowed(filename: str) -> bool:
     """True if filename has an accepted extension."""
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -166,12 +182,13 @@ def _allowed(filename: str) -> bool:
 
 def _verify_session_owner(session_id):
     """Guard for any session-scoped route. Aborts the request if the current
-    user is not the owner. Used at the top of every upload/analysis route.
+    user's org does not own the session. All users in the same org can see
+    the same upload sessions — we check org_name, not user_id.
 
     Returns nothing on success. On failure raises a Flask abort:
       - 404 if session_id is missing or not numeric
       - 404 if no session with that id exists
-      - 403 if the session belongs to a different user
+      - 403 if the session belongs to a different org
 
     For JSON endpoints (anything that returned a body the frontend tried to
     `.json()` parse), we return JSON instead of Flask's default HTML error
@@ -198,10 +215,10 @@ def _verify_session_owner(session_id):
     except (TypeError, ValueError):
         _fail(404, "Session not found.")
 
-    rows = db.query("SELECT user_id FROM upload_sessions WHERE id=?", (sid,))
+    rows = db.query("SELECT org_name FROM upload_sessions WHERE id=?", (sid,))
     if not rows:
         _fail(404, "Session not found.")
-    if rows[0]["user_id"] != session.get("user_id"):
+    if rows[0]["org_name"] != session.get("org_name"):
         _fail(403, "You don't have access to this session.")
 
 
@@ -252,6 +269,7 @@ def login():
             session["model"]    = u["model"]
             session["is_admin"] = bool(u["is_admin"])
             session["tier"]     = u["tier"]
+            session["role"]     = u.get("role") or "admin"
             return redirect(url_for("admin_panel") if u["is_admin"] else url_for("chat"))
         flash("Incorrect email or password.", "error")
     return render_template("login.html")
@@ -522,6 +540,61 @@ def _send_verification_email(to_email: str, verify_url: str) -> None:
         pass
 
 
+def _send_invite_email(to_email: str, org_name: str, temp_password: str, login_url: str) -> None:
+    """Send a team invite email. Includes the temporary password so the user can log in."""
+    sender   = os.environ.get("MAIL_SENDER", "")
+    password = os.environ.get("MAIL_APP_PASSWORD", "")
+    if not sender or not password:
+        return
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = f"You've been invited to join {org_name} on BerthAI"
+    msg["From"]    = sender
+    msg["To"]      = to_email
+
+    text = (
+        f"Hi,\n\n"
+        f"You've been invited to join {org_name} on BerthAI.\n\n"
+        f"Sign in at: {login_url}\n\n"
+        f"Email: {to_email}\n"
+        f"Temporary password: {temp_password}\n\n"
+        f"Please change your password after signing in (Settings → Change password).\n\n"
+        f"— BerthAI"
+    )
+    html = f"""
+    <div style="font-family:'Segoe UI',sans-serif;max-width:480px;margin:0 auto;color:#1a2a3a;">
+      <p style="font-size:15px;line-height:1.6;">
+        You've been invited to join <strong>{org_name}</strong> on BerthAI.
+      </p>
+      <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:16px 20px;margin:20px 0;">
+        <div style="font-size:13px;color:#6b7280;margin-bottom:4px;">Email</div>
+        <div style="font-size:15px;font-weight:600;margin-bottom:12px;">{to_email}</div>
+        <div style="font-size:13px;color:#6b7280;margin-bottom:4px;">Temporary password</div>
+        <div style="font-size:15px;font-weight:600;font-family:monospace;letter-spacing:0.5px;">{temp_password}</div>
+      </div>
+      <a href="{login_url}"
+         style="display:inline-block;margin:12px 0;padding:12px 28px;
+                background:#c8924c;color:#fff;text-decoration:none;
+                border-radius:8px;font-weight:600;font-size:14px;">
+        Sign in to BerthAI
+      </a>
+      <p style="font-size:13px;color:#6b7280;line-height:1.5;margin-top:16px;">
+        Please change your password after signing in (Settings &rarr; Change password).
+      </p>
+      <p style="font-size:13px;color:#6b7280;">— BerthAI</p>
+    </div>
+    """
+    msg.attach(MIMEText(text, "plain"))
+    msg.attach(MIMEText(html, "html"))
+
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as smtp:
+            smtp.login(sender, password)
+            smtp.sendmail(sender, to_email, msg.as_string())
+    except Exception:
+        pass
+
+
 @app.route("/register", methods=["GET", "POST"])
 def register():
     if "user_id" in session:
@@ -601,6 +674,7 @@ def register():
         session["model"]    = "claude-haiku-4-5-20251001"
         session["is_admin"] = False
         session["tier"]     = "free"
+        session["role"]     = "admin"
         flash("Account created. Welcome to BerthAI.", "success")
         return redirect(url_for("chat"))
 
@@ -706,11 +780,11 @@ def _build_chat_context(user_id: int, org_name: str, detailed: bool = False) -> 
     """
     result = {"summary_text": "", "detailed_text": "", "starters": [], "has_data": False}
 
-    # Latest completed session
+    # Latest completed session (org-scoped — all users in the org see the same data)
     sessions = db.query(
-        "SELECT id, created_at FROM upload_sessions WHERE user_id=? AND status='complete' "
+        "SELECT id, created_at FROM upload_sessions WHERE org_name=? AND status='complete' "
         "ORDER BY created_at DESC LIMIT 1",
-        (user_id,)
+        (org_name,)
     )
     if not sessions:
         result["starters"] = [
@@ -858,16 +932,16 @@ def chat_api():
     is_new_conv = False
     if conversation_id:
         rows = db.query(
-            "SELECT id FROM chat_conversations WHERE id=? AND user_id=?",
-            (conversation_id, session["user_id"])
+            "SELECT id FROM chat_conversations WHERE id=? AND (org_name=? OR (org_name IS NULL AND user_id=?))",
+            (conversation_id, session["org_name"], session["user_id"])
         )
         if not rows:
             return jsonify({"error": "Conversation not found"}), 404
     else:
         is_new_conv = True
         conversation_id = db.execute(
-            "INSERT INTO chat_conversations (user_id, title) VALUES (?,?)",
-            (session["user_id"], "New conversation")
+            "INSERT INTO chat_conversations (user_id, title, org_name) VALUES (?,?,?)",
+            (session["user_id"], "New conversation", session["org_name"])
         )
 
     # Save user message first
@@ -985,18 +1059,20 @@ def chat_api():
 @login_required
 def chat_conversations():
     q = request.args.get("q", "").strip()
+    org = session["org_name"]
     if q:
         convs = db.query(
             "SELECT id, title, created_at, pinned FROM chat_conversations "
-            "WHERE user_id=? AND title LIKE ? "
+            "WHERE (org_name=? OR (org_name IS NULL AND user_id=?)) AND title LIKE ? "
             "ORDER BY pinned DESC, created_at DESC LIMIT 50",
-            (session["user_id"], f"%{q}%")
+            (org, session["user_id"], f"%{q}%")
         )
     else:
         convs = db.query(
             "SELECT id, title, created_at, pinned FROM chat_conversations "
-            "WHERE user_id=? ORDER BY pinned DESC, created_at DESC LIMIT 50",
-            (session["user_id"],)
+            "WHERE (org_name=? OR (org_name IS NULL AND user_id=?)) "
+            "ORDER BY pinned DESC, created_at DESC LIMIT 50",
+            (org, session["user_id"])
         )
     return jsonify([dict(c) for c in convs])
 
@@ -1004,8 +1080,13 @@ def chat_conversations():
 @app.route("/api/chat/conversation/<int:conv_id>")
 @login_required
 def chat_conversation(conv_id):
-    rows = db.query("SELECT user_id FROM chat_conversations WHERE id=?", (conv_id,))
-    if not rows or rows[0]["user_id"] != session.get("user_id"):
+    rows = db.query("SELECT user_id, org_name FROM chat_conversations WHERE id=?", (conv_id,))
+    if not rows:
+        return jsonify({"error": "Not found"}), 404
+    row = rows[0]
+    if row["org_name"] and row["org_name"] != session.get("org_name"):
+        return jsonify({"error": "Not found"}), 404
+    if not row["org_name"] and row["user_id"] != session.get("user_id"):
         return jsonify({"error": "Not found"}), 404
     messages = db.query(
         "SELECT role, content, created_at FROM chat_messages "
@@ -1022,8 +1103,13 @@ def chat_conversation(conv_id):
 @app.route("/api/chat/conversation/<int:conv_id>", methods=["PATCH"])
 @login_required
 def patch_conversation(conv_id):
-    rows = db.query("SELECT user_id FROM chat_conversations WHERE id=?", (conv_id,))
-    if not rows or rows[0]["user_id"] != session.get("user_id"):
+    rows = db.query("SELECT user_id, org_name FROM chat_conversations WHERE id=?", (conv_id,))
+    if not rows:
+        return jsonify({"error": "Not found"}), 404
+    row = rows[0]
+    if row["org_name"] and row["org_name"] != session.get("org_name"):
+        return jsonify({"error": "Not found"}), 404
+    if not row["org_name"] and row["user_id"] != session.get("user_id"):
         return jsonify({"error": "Not found"}), 404
     data = request.get_json() or {}
     if "title" in data:
@@ -1037,8 +1123,13 @@ def patch_conversation(conv_id):
 @app.route("/api/chat/conversation/<int:conv_id>", methods=["DELETE"])
 @login_required
 def delete_conversation(conv_id):
-    rows = db.query("SELECT user_id FROM chat_conversations WHERE id=?", (conv_id,))
-    if not rows or rows[0]["user_id"] != session.get("user_id"):
+    rows = db.query("SELECT user_id, org_name FROM chat_conversations WHERE id=?", (conv_id,))
+    if not rows:
+        return jsonify({"error": "Not found"}), 404
+    row = rows[0]
+    if row["org_name"] and row["org_name"] != session.get("org_name"):
+        return jsonify({"error": "Not found"}), 404
+    if not row["org_name"] and row["user_id"] != session.get("user_id"):
         return jsonify({"error": "Not found"}), 404
     db.execute("DELETE FROM chat_messages WHERE conversation_id=?", (conv_id,))
     db.execute("DELETE FROM chat_conversations WHERE id=?", (conv_id,))
@@ -1280,20 +1371,121 @@ def user_settings():
                 flash("Default lead times saved.", "success")
             except (ValueError, TypeError) as e:
                 flash(f"Could not save defaults: {e}", "error")
+
+        # ── Team management (admin role only) ─────────────────────────────
+        elif action == "invite_user":
+            if session.get("role") != "admin":
+                flash("Only admins can invite team members.", "error")
+            else:
+                inv_email = request.form.get("invite_email", "").strip().lower()
+                inv_role  = request.form.get("invite_role", "reviewer")
+                if inv_role not in ("reviewer", "viewer"):
+                    inv_role = "reviewer"
+                if not inv_email or "@" not in inv_email:
+                    flash("Enter a valid email address.", "error")
+                else:
+                    existing = db.query("SELECT id FROM users WHERE email=?", (inv_email,))
+                    if existing:
+                        flash("That email is already registered.", "error")
+                    else:
+                        temp_pw = secrets.token_urlsafe(10)
+                        db.execute(
+                            """INSERT INTO users
+                               (email, password_hash, org_name, model, tier,
+                                email_verified, role, analyses_used, chat_messages_used)
+                               VALUES (?,?,?,?,?,1,?,0,0)""",
+                            (inv_email, generate_password_hash(temp_pw), org,
+                             session["model"], session.get("tier", "enterprise"), inv_role)
+                        )
+                        login_url = url_for("login", _external=True)
+                        threading.Thread(
+                            target=_send_invite_email,
+                            args=(inv_email, org, temp_pw, login_url),
+                            daemon=True,
+                        ).start()
+                        flash(f"Invited {inv_email} as {inv_role}. They'll receive an email with login details.", "success")
+
+        elif action == "remove_user":
+            if session.get("role") != "admin":
+                flash("Only admins can remove team members.", "error")
+            else:
+                rm_id = request.form.get("remove_user_id")
+                if rm_id and int(rm_id) == session["user_id"]:
+                    flash("You can't remove yourself.", "error")
+                elif rm_id:
+                    # Don't remove the last admin
+                    target = db.query("SELECT role, org_name FROM users WHERE id=?", (rm_id,))
+                    if not target or target[0]["org_name"] != org:
+                        flash("User not found in your org.", "error")
+                    else:
+                        if target[0]["role"] == "admin":
+                            admin_count = db.query(
+                                "SELECT COUNT(*) as c FROM users WHERE org_name=? AND role='admin'",
+                                (org,)
+                            )
+                            if admin_count and admin_count[0]["c"] <= 1:
+                                flash("Can't remove the last admin.", "error")
+                            else:
+                                db.execute("DELETE FROM users WHERE id=? AND is_admin=0", (rm_id,))
+                                flash("Team member removed.", "success")
+                        else:
+                            db.execute("DELETE FROM users WHERE id=? AND is_admin=0", (rm_id,))
+                            flash("Team member removed.", "success")
+
+        elif action == "change_role":
+            if session.get("role") != "admin":
+                flash("Only admins can change roles.", "error")
+            else:
+                cr_id   = request.form.get("change_user_id")
+                cr_role = request.form.get("new_role", "")
+                if cr_role not in ("admin", "reviewer", "viewer"):
+                    flash("Invalid role.", "error")
+                elif cr_id and int(cr_id) == session["user_id"]:
+                    flash("You can't change your own role.", "error")
+                elif cr_id:
+                    target = db.query("SELECT role, org_name FROM users WHERE id=?", (cr_id,))
+                    if not target or target[0]["org_name"] != org:
+                        flash("User not found in your org.", "error")
+                    else:
+                        # If demoting the last admin, block it
+                        if target[0]["role"] == "admin" and cr_role != "admin":
+                            admin_count = db.query(
+                                "SELECT COUNT(*) as c FROM users WHERE org_name=? AND role='admin'",
+                                (org,)
+                            )
+                            if admin_count and admin_count[0]["c"] <= 1:
+                                flash("Can't demote the last admin.", "error")
+                            else:
+                                db.execute("UPDATE users SET role=? WHERE id=?", (cr_role, cr_id))
+                                flash("Role updated.", "success")
+                        else:
+                            db.execute("UPDATE users SET role=? WHERE id=?", (cr_role, cr_id))
+                            flash("Role updated.", "success")
+
         return redirect(url_for("user_settings"))
 
     profiles = db.get_supplier_profiles(org)
     company_cfg = db.get_company_config(org)
-    return render_template("settings.html", profiles=profiles, company_cfg=company_cfg)
+
+    # Team members (only loaded for admin role, but harmless otherwise)
+    team_members = []
+    if session.get("role") == "admin":
+        team_members = db.query(
+            "SELECT id, email, role, created_at FROM users WHERE org_name=? AND is_admin=0 ORDER BY created_at ASC",
+            (org,)
+        )
+
+    return render_template("settings.html", profiles=profiles, company_cfg=company_cfg,
+                           team_members=team_members)
 
 
 @app.route("/dashboard")
 @login_required
 def dashboard():
-    # Load all completed sessions (most recent first, cap at 50)
+    # Load all completed sessions for this org (most recent first, cap at 50)
     all_sessions = db.query(
-        "SELECT * FROM upload_sessions WHERE user_id=? AND status='complete' ORDER BY created_at DESC LIMIT 50",
-        (session["user_id"],)
+        "SELECT * FROM upload_sessions WHERE org_name=? AND status='complete' ORDER BY created_at DESC LIMIT 50",
+        (session["org_name"],)
     )
     last_session = all_sessions[0] if all_sessions else None
 
@@ -1361,12 +1553,13 @@ def dashboard():
 
 @app.route("/upload/start")
 @login_required
+@analyst_required
 def upload_start():
     """Entry point for new analysis. Offer choice: reuse last data, or upload fresh."""
     rows = db.query(
-        "SELECT * FROM upload_sessions WHERE user_id=? AND status='complete' "
+        "SELECT * FROM upload_sessions WHERE org_name=? AND status='complete' "
         "ORDER BY created_at DESC LIMIT 1",
-        (session["user_id"],)
+        (session["org_name"],)
     )
     last_complete = rows[0] if rows else None
 
@@ -1414,6 +1607,7 @@ def upload_start():
 
 @app.route("/upload/use_previous/<int:source_id>", methods=["POST"])
 @login_required
+@analyst_required
 def upload_use_previous(source_id):
     """Clone tables from a previous complete session into a fresh uploading session."""
     _verify_session_owner(source_id)
@@ -1423,10 +1617,10 @@ def upload_use_previous(source_id):
         flash("Cannot use that previous session.", "error")
         return redirect(url_for("upload"))
 
-    # Discard any in-progress upload session this user already has — clean slate.
+    # Discard any in-progress upload session for this org — clean slate.
     existing = db.query(
-        "SELECT id FROM upload_sessions WHERE user_id=? AND status='uploading'",
-        (session["user_id"],)
+        "SELECT id FROM upload_sessions WHERE org_name=? AND status='uploading'",
+        (session["org_name"],)
     )
     for row in existing:
         _purge_uploading_session(row["id"])
@@ -1480,10 +1674,11 @@ def _purge_uploading_session(session_id):
 
 @app.route("/upload", methods=["GET", "POST"])
 @login_required
+@analyst_required
 def upload():
     upload_sessions = db.query(
-        "SELECT * FROM upload_sessions WHERE user_id=? AND status='uploading' ORDER BY created_at DESC LIMIT 1",
-        (session["user_id"],)
+        "SELECT * FROM upload_sessions WHERE org_name=? AND status='uploading' ORDER BY created_at DESC LIMIT 1",
+        (session["org_name"],)
     )
     if upload_sessions:
         upload_session_id = upload_sessions[0]["id"]
@@ -1595,6 +1790,7 @@ def upload_status(upload_session_id):
 
 @app.route("/upload/scope/<int:upload_session_id>", methods=["POST"])
 @login_required
+@analyst_required
 def upload_set_scope(upload_session_id):
     _verify_session_owner(upload_session_id)
     data  = request.get_json() or {}
@@ -1613,6 +1809,7 @@ def upload_set_scope(upload_session_id):
 
 @app.route("/upload/remove", methods=["POST"])
 @login_required
+@analyst_required
 def remove_upload():
     data       = request.get_json() or {}
     slot       = data.get("slot")
@@ -1665,6 +1862,7 @@ def remove_upload():
 
 @app.route("/context/<int:upload_session_id>", methods=["GET", "POST"])
 @login_required
+@analyst_required
 def context_form(upload_session_id):
     _verify_session_owner(upload_session_id)
     if request.method == "POST":
@@ -1684,6 +1882,7 @@ def context_form(upload_session_id):
 
 @app.route("/dedup/loading/<int:upload_session_id>")
 @login_required
+@analyst_required
 def dedup_loading(upload_session_id):
     _verify_session_owner(upload_session_id)
     return render_template("dedup_loading.html", upload_session_id=upload_session_id)
@@ -1691,6 +1890,7 @@ def dedup_loading(upload_session_id):
 
 @app.route("/dedup/stream/<int:upload_session_id>")
 @login_required
+@analyst_required
 def dedup_stream(upload_session_id):
     """SSE endpoint — streams Claude tokens for the normalisation agent in real time."""
     _verify_session_owner(upload_session_id)
@@ -1820,6 +2020,7 @@ def dedup_stream(upload_session_id):
 
 @app.route("/dedup/<int:upload_session_id>", methods=["GET", "POST"])
 @login_required
+@analyst_required
 def dedup_review(upload_session_id):
     _verify_session_owner(upload_session_id)
     model = session["model"]
@@ -1849,6 +2050,7 @@ def dedup_review(upload_session_id):
 
 @app.route("/analyse/<int:upload_session_id>")
 @login_required
+@analyst_required
 def run_analysis(upload_session_id):
     _verify_session_owner(upload_session_id)
 
@@ -2026,14 +2228,15 @@ def run_analysis(upload_session_id):
             # Compare against the previous completed session for this user.
             # If any items are newly CRITICAL (weren't critical before), email the user.
             try:
-                sess_meta = db.query("SELECT user_id FROM upload_sessions WHERE id=?", (upload_session_id,))
+                sess_meta = db.query("SELECT user_id, org_name FROM upload_sessions WHERE id=?", (upload_session_id,))
                 if sess_meta:
                     uid = sess_meta[0]["user_id"]
+                    _org = sess_meta[0]["org_name"]
                     prev = db.query(
                         "SELECT id FROM upload_sessions "
-                        "WHERE user_id=? AND status='complete' AND id!=? "
+                        "WHERE org_name=? AND status='complete' AND id!=? "
                         "ORDER BY created_at DESC LIMIT 1",
-                        (uid, upload_session_id)
+                        (_org, upload_session_id)
                     )
                     if prev:
                         prev_ar = db.query(
@@ -2205,6 +2408,7 @@ def results(upload_session_id):
         generated_at=generated_at,
         status_by_item=status_by_item,
         user_tier=session.get("tier", "enterprise"),
+        user_role=session.get("role", "admin"),
     )
 
 
@@ -2721,6 +2925,7 @@ def _confidence_reasons(rec):
 
 @app.route("/recommend/action", methods=["POST"])
 @login_required
+@analyst_required
 def recommend_action():
     """Approve or dismiss a single recommendation. Optionally accepts
     edited_quantity and edited_supplier so the user's adjustments are saved
@@ -2736,9 +2941,9 @@ def recommend_action():
     if not session_id or not item or action not in ("approve", "dismiss"):
         return jsonify({"ok": False, "error": "Invalid parameters"}), 400
 
-    # Ownership check
-    rows = db.query("SELECT user_id FROM upload_sessions WHERE id=?", (session_id,))
-    if not rows or rows[0]["user_id"] != session.get("user_id"):
+    # Ownership check (org-scoped)
+    rows = db.query("SELECT org_name FROM upload_sessions WHERE id=?", (session_id,))
+    if not rows or rows[0]["org_name"] != session.get("org_name"):
         return jsonify({"ok": False, "error": "Forbidden"}), 403
 
     ar = db.query("SELECT recommendations_json FROM analysis_results WHERE session_id=?", (session_id,))
@@ -2785,6 +2990,7 @@ def recommend_action():
 
 @app.route("/recommend/edit", methods=["POST"])
 @login_required
+@analyst_required
 def recommend_edit():
     """Save the user's edited quantity and/or supplier without changing the
     approve/dismiss state. Called on blur from the inline edit inputs so the
@@ -2798,8 +3004,8 @@ def recommend_edit():
     if not session_id or not item:
         return jsonify({"ok": False, "error": "Invalid parameters"}), 400
 
-    rows = db.query("SELECT user_id FROM upload_sessions WHERE id=?", (session_id,))
-    if not rows or rows[0]["user_id"] != session.get("user_id"):
+    rows = db.query("SELECT org_name FROM upload_sessions WHERE id=?", (session_id,))
+    if not rows or rows[0]["org_name"] != session.get("org_name"):
         return jsonify({"ok": False, "error": "Forbidden"}), 403
 
     ar = db.query("SELECT recommendations_json FROM analysis_results WHERE session_id=?", (session_id,))
@@ -2841,6 +3047,7 @@ def recommend_edit():
 
 @app.route("/recommend/approve_all", methods=["POST"])
 @login_required
+@analyst_required
 def recommend_approve_all():
     """Approve non-dismissed recommendations for a session.
 
@@ -2854,8 +3061,8 @@ def recommend_approve_all():
     if not session_id:
         return jsonify({"ok": False, "error": "Missing session_id"}), 400
 
-    rows = db.query("SELECT user_id FROM upload_sessions WHERE id=?", (session_id,))
-    if not rows or rows[0]["user_id"] != session.get("user_id"):
+    rows = db.query("SELECT org_name FROM upload_sessions WHERE id=?", (session_id,))
+    if not rows or rows[0]["org_name"] != session.get("org_name"):
         return jsonify({"ok": False, "error": "Forbidden"}), 403
 
     ar = db.query("SELECT recommendations_json FROM analysis_results WHERE session_id=?", (session_id,))
@@ -2886,6 +3093,7 @@ def recommend_approve_all():
 
 @app.route("/recommend/undo_approve_all", methods=["POST"])
 @login_required
+@analyst_required
 def recommend_undo_approve_all():
     """Un-approve a specific list of items (the ones bulk-approved moments ago)."""
     data       = request.get_json(force=True, silent=True) or {}
@@ -2895,8 +3103,8 @@ def recommend_undo_approve_all():
     if not session_id:
         return jsonify({"ok": False, "error": "Missing session_id"}), 400
 
-    rows = db.query("SELECT user_id FROM upload_sessions WHERE id=?", (session_id,))
-    if not rows or rows[0]["user_id"] != session.get("user_id"):
+    rows = db.query("SELECT org_name FROM upload_sessions WHERE id=?", (session_id,))
+    if not rows or rows[0]["org_name"] != session.get("org_name"):
         return jsonify({"ok": False, "error": "Forbidden"}), 403
 
     ar = db.query("SELECT recommendations_json FROM analysis_results WHERE session_id=?", (session_id,))

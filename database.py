@@ -156,6 +156,10 @@ def init_db():
         "ALTER TABLE users ADD COLUMN tier TEXT NOT NULL DEFAULT 'enterprise'",
         "ALTER TABLE users ADD COLUMN analyses_used INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE users ADD COLUMN chat_messages_used INTEGER NOT NULL DEFAULT 0",
+        # Role column: admin / reviewer / viewer. Existing users default to admin.
+        "ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'admin'",
+        # Org-scoped chat: add org_name to chat_conversations so all org members share them.
+        "ALTER TABLE chat_conversations ADD COLUMN org_name TEXT",
         """CREATE TABLE IF NOT EXISTS email_verification_tokens (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,
@@ -166,6 +170,7 @@ def init_db():
         # ── Performance indexes ──────────────────────────────────────────
         "CREATE INDEX IF NOT EXISTS idx_upload_sessions_user_id ON upload_sessions(user_id)",
         "CREATE INDEX IF NOT EXISTS idx_upload_sessions_status ON upload_sessions(user_id, status)",
+        "CREATE INDEX IF NOT EXISTS idx_upload_sessions_org ON upload_sessions(org_name, status)",
         "CREATE INDEX IF NOT EXISTS idx_analysis_results_session ON analysis_results(session_id)",
         "CREATE INDEX IF NOT EXISTS idx_chat_conversations_user ON chat_conversations(user_id)",
         "CREATE INDEX IF NOT EXISTS idx_chat_messages_conv ON chat_messages(conversation_id)",

@@ -112,6 +112,7 @@
                  placeholder="Search items or suppliers…  ( / to focus )"
                  autocomplete="off">
           <span class="mc-result-count" id="recs-count">{{ valid_recs | length }} of {{ valid_recs | length }}</span>
+          {% if user_role != 'viewer' %}
           <button id="approve-all-btn" class="btn btn-primary btn-sm no-print" onclick="approveAll()">
             ✓ Approve all
           </button>
@@ -119,6 +120,7 @@
                   onclick="undoApproveAll()" style="display:none;">
             Undo
           </button>
+          {% endif %}
           {% if user_tier != 'free' %}
           <a href="{{ url_for('export_csv', upload_session_id=upload_session_id) }}"
              class="btn btn-outline btn-sm no-print" title="Download as CSV for Excel">
@@ -143,6 +145,7 @@
         </div>
 
         <!-- Keyboard shortcut hint bar -->
+        {% if user_role != 'viewer' %}
         <div class="kb-hint-bar no-print" id="kb-hint-bar">
           <span class="kb-key">j</span> next &nbsp;
           <span class="kb-key">k</span> prev &nbsp;
@@ -151,6 +154,7 @@
           <span class="kb-key">/</span> search &nbsp;
           <span class="kb-key">Esc</span> clear
         </div>
+        {% endif %}
 
         <div id="recs-container">
         {% for group in rec_groups %}
@@ -183,12 +187,14 @@
                 {% endif %}
               </div>
             </div>
+            {% if user_role != 'viewer' %}
             <button type="button" class="btn btn-primary btn-sm no-print rec-supplier-approve"
                     data-group-key="{{ group.key }}"
                     data-items='{{ group.item_names | tojson }}'
                     onclick="approveSupplier(this)">
               ✓ Approve all {{ group.count }} from this supplier
             </button>
+            {% endif %}
           </div>
           <div class="rec-supplier-cards">
         {% for rec in group.recs %}
@@ -315,6 +321,7 @@
             </div>
 
             <div class="rec-card-actions">
+              {% if user_role != 'viewer' %}
               <input type="text" class="rec-note"
                      id="note-{{ rec._card_idx }}"
                      placeholder="Add a note (e.g. called supplier, confirmed delivery)"
@@ -327,6 +334,9 @@
                       onclick="takeAction({{ rec._card_idx }}, '{{ rec.item | replace("'", "\\'") }}', 'dismiss')">
                 Dismiss
               </button>
+              {% else %}
+              <span style="font-size:13px; color:var(--muted); font-style:italic;">View-only access</span>
+              {% endif %}
             </div>
           </div>
         {% endif %}
