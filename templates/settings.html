@@ -149,6 +149,100 @@
     </form>
   </div>
 
+  <!-- Team management (admin only) -->
+  {% if session.role == 'admin' %}
+  <div class="card" style="margin-top:20px;">
+    <div class="card-title">Team</div>
+    <p style="color:var(--muted); font-size:14px; margin-bottom:20px;">
+      Everyone in {{ session.org_name }} shares the same data: upload sessions, analysis results, recommendations, and chat history.
+    </p>
+
+    {% if team_members %}
+    <table class="data-table" style="margin-bottom:24px;">
+      <thead>
+        <tr>
+          <th>Email</th>
+          <th>Role</th>
+          <th>Joined</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for m in team_members %}
+        <tr {% if m.id == session.user_id %}style="background:var(--paper-2);"{% endif %}>
+          <td>
+            <strong>{{ m.email }}</strong>
+            {% if m.id == session.user_id %}<span style="color:var(--muted); font-size:12px;"> (you)</span>{% endif %}
+          </td>
+          <td>
+            {% if m.id != session.user_id %}
+            <form method="POST" action="{{ url_for('user_settings') }}" style="display:inline;">
+              <input type="hidden" name="action" value="change_role">
+              <input type="hidden" name="change_user_id" value="{{ m.id }}">
+              <select name="new_role" onchange="this.form.submit()" style="font-size:13px; padding:4px 8px;">
+                <option value="admin"    {% if m.role == 'admin' %}selected{% endif %}>Admin</option>
+                <option value="reviewer" {% if m.role == 'reviewer' %}selected{% endif %}>Reviewer</option>
+                <option value="viewer"   {% if m.role == 'viewer' %}selected{% endif %}>Viewer</option>
+              </select>
+            </form>
+            {% else %}
+            <span style="font-size:13px; color:var(--muted);">{{ m.role }}</span>
+            {% endif %}
+          </td>
+          <td style="font-size:13px; color:var(--muted);">{{ (m.created_at or '')[:10] }}</td>
+          <td>
+            {% if m.id != session.user_id %}
+            <form method="POST" action="{{ url_for('user_settings') }}"
+                  data-confirm="Remove {{ m.email }} from {{ session.org_name }}?" data-confirm-label="Remove">
+              <input type="hidden" name="action" value="remove_user">
+              <input type="hidden" name="remove_user_id" value="{{ m.id }}">
+              <button type="submit" class="btn btn-danger btn-sm">Remove</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p style="color:var(--muted); font-size:14px; margin-bottom:20px;">
+      No other team members yet. Invite someone below.
+    </p>
+    {% endif %}
+
+    <!-- Invite form -->
+    <div style="font-size:12px; font-weight:600; color:var(--muted); text-transform:uppercase;
+                letter-spacing:0.07em; margin-bottom:14px;">Invite a team member</div>
+    <form method="POST" action="{{ url_for('user_settings') }}">
+      <input type="hidden" name="action" value="invite_user">
+      <div style="display:grid; grid-template-columns:2fr 1fr auto; gap:12px; align-items:end; max-width:640px;">
+        <div class="form-group" style="margin:0;">
+          <label style="font-size:13px;">Email address</label>
+          <input type="email" name="invite_email" required placeholder="colleague@company.com">
+        </div>
+        <div class="form-group" style="margin:0;">
+          <label style="font-size:13px;">Role</label>
+          <select name="invite_role">
+            <option value="reviewer">Reviewer — can upload and approve</option>
+            <option value="viewer">Viewer — read-only access</option>
+          </select>
+        </div>
+        <div>
+          <button type="submit" class="btn btn-primary">Send invite</button>
+        </div>
+      </div>
+    </form>
+
+    <!-- Role explanations -->
+    <div style="margin-top:16px; padding:14px 18px; background:var(--paper-2); border-radius:10px; font-size:13px; color:var(--muted); line-height:1.7;">
+      <strong style="color:var(--text);">Roles:</strong><br>
+      <strong>Admin</strong> — full access, can manage team members and settings<br>
+      <strong>Reviewer</strong> — can upload files, run analyses, and approve/dismiss recommendations<br>
+      <strong>Viewer</strong> — can see results and use chat, but cannot upload or approve
+    </div>
+  </div>
+  {% endif %}
+
   <!-- Change password -->
   <div class="card" style="margin-top:20px;">
     <div class="card-title">Change password</div>

@@ -20,7 +20,9 @@
   </a>
   <div class="nav-links">
     <a href="{{ url_for('dashboard') }}">Dashboard</a>
+    {% if session.role != 'viewer' %}
     <a href="{{ url_for('upload_start') }}">New Analysis</a>
+    {% endif %}
     <a href="{{ url_for('guide') }}">Guide</a>
     <a href="{{ url_for('user_settings') }}">Settings</a>
     {% if session.is_admin %}
