@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}Supplier reliability — berthcast{% endblock %}
+
+{% block content %}
+<div class="sunrise-gradient" aria-hidden="true"></div>
+
+<div class="page-wrap">
+  <section class="hero" style="padding: 40px 0 16px;">
+    <div class="hero-eyebrow">Supplier tracking · {{ org_name }}</div>
+    <h1 style="font-size: clamp(32px, 4.5vw, 48px);">Supplier <em>reliability</em></h1>
+    <div class="hero-byline">
+      <span>{{ suppliers | length }} suppliers tracked</span>
+      {% if outcome_stats %}
+      <span class="hero-byline-sep">/</span>
+      <span>{{ outcome_stats.total_order_placed }} orders placed · {{ outcome_stats.stockout_avoided }} stockouts avoided</span>
+      {% endif %}
+    </div>
+  </section>
+
+  {% if suppliers %}
+  <div class="card" style="overflow-x:auto; margin-top:24px;">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Supplier</th>
+          <th>Type</th>
+          <th>Reliability</th>
+          <th>Recs</th>
+          <th>Orders placed</th>
+          <th>Stockouts avoided</th>
+          <th>Stockouts</th>
+          <th>Lead time</th>
+          <th>Notes</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in suppliers %}
+        <tr>
+          <td style="font-weight:500;">{{ s.supplier_name }}</td>
+          <td>{{ s.supplier_type or '—' }}</td>
+          <td>
+            {% set score = s.reliability_score or 50 %}
+            <span class="sup-score
+              {% if score >= 70 %}sup-score-good
+              {% elif score >= 40 %}sup-score-ok
+              {% else %}sup-score-bad{% endif %}">
+              {{ score | round(0) | int }}
+            </span>
+            <span class="sup-score-bar">
+              <span class="sup-score-fill
+                {% if score >= 70 %}fill-good
+                {% elif score >= 40 %}fill-ok
+                {% else %}fill-bad{% endif %}"
+                style="width: {{ score }}%;">
+              </span>
+            </span>
+          </td>
+          <td>{{ s.total_recs or 0 }}</td>
+          <td>{{ s.orders_placed or 0 }}</td>
+          <td>{{ s.stockouts_avoided or 0 }}</td>
+          <td>
+            {% if s.stockouts_happened %}
+            <span style="color:var(--danger);">{{ s.stockouts_happened }}</span>
+            {% else %}
+            0
+            {% endif %}
+          </td>
+          <td>{{ s.avg_lead_time_days or '—' }}d</td>
+          <td style="font-size:13px; color:var(--muted); max-width:200px;">{{ s.notes or '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="card" style="margin-top:24px; text-align:center; padding:40px;">
+    <p style="color:var(--muted);">No supplier data yet. Run an analysis and record outcomes to start building reliability scores.</p>
+  </div>
+  {% endif %}
+</div>
+
+<style>
+.sup-score {
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  display: inline-block;
+  min-width: 24px;
+  text-align: right;
+  margin-right: 8px;
+}
+.sup-score-good { color: var(--success, #2D6A4F); }
+.sup-score-ok { color: var(--brass); }
+.sup-score-bad { color: var(--danger, #8B2C2C); }
+.sup-score-bar {
+  display: inline-block;
+  width: 60px;
+  height: 5px;
+  background: var(--border);
+  border-radius: 99px;
+  overflow: hidden;
+  vertical-align: middle;
+}
+.sup-score-fill {
+  display: block;
+  height: 100%;
+  border-radius: 99px;
+  transition: width 600ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.fill-good { background: var(--success, #2D6A4F); }
+.fill-ok { background: var(--brass); }
+.fill-bad { background: var(--danger, #8B2C2C); }
+</style>
+{% endblock %}
