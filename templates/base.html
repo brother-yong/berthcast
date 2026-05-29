@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{% block title %}BerthAI{% endblock %}</title>
+  <title>{% block title %}berthcast{% endblock %}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Inter+Tight:wght@500;600;700;800&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
@@ -16,7 +16,7 @@
 {% if session.user_id %}
 <nav>
   <a class="nav-brand" href="{{ url_for('chat') }}">
-    <img class="nav-logo" src="{{ url_for('static', filename='logo.png') }}" alt="BerthAI">
+    <img class="nav-logo" src="{{ url_for('static', filename='logo.png') }}" alt="berthcast">
   </a>
   <div class="nav-links">
     <a href="{{ url_for('dashboard') }}">Dashboard</a>
@@ -60,7 +60,7 @@
 
 {% if session.user_id %}
 <footer class="site-footer">
-  <div class="copyright">BerthAI · Inventory operations for marine supply</div>
+  <div class="copyright">berthcast · Inventory operations for marine supply</div>
 </footer>
 {% endif %}
 

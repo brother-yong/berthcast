@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Chat — BerthAI{% endblock %}
+{% block title %}Chat — berthcast{% endblock %}
 
 {% block head %}
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
@@ -777,7 +777,7 @@
 
       <!-- Feature toggles above input -->
       <div class="feature-toggles" id="featureToggles">
-        <button class="feature-toggle" id="toggleReasoning" onclick="toggleFeature('reasoning')" title="Show BerthAI's thinking process">
+        <button class="feature-toggle" id="toggleReasoning" onclick="toggleFeature('reasoning')" title="Show berthcast's thinking process">
           🧠 Reasoning
         </button>
         <button class="feature-toggle" id="toggleDetailed" onclick="toggleFeature('detailed')" title="Request a more detailed response">
@@ -808,7 +808,7 @@
           <textarea
             id="chatInput"
             class="chat-textarea"
-            placeholder="Message BerthAI…"
+            placeholder="Message berthcast…"
             rows="1"
             onkeydown="handleKey(event)"
             oninput="autoResize(this)"

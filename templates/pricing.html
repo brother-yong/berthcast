@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Pricing — BerthAI</title>
+  <title>Pricing — berthcast</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -316,7 +316,7 @@
 <!-- ── Nav ── -->
 <nav class="landing-nav">
   <a class="landing-nav-logo" href="{{ url_for('landing') }}">
-    <img src="{{ url_for('static', filename='logo.png') }}" alt="BerthAI">
+    <img src="{{ url_for('static', filename='logo.png') }}" alt="berthcast">
   </a>
   <div class="landing-nav-right">
     <a href="{{ url_for('landing') }}" class="nav-link">Home</a>
@@ -329,7 +329,7 @@
 <div class="pricing-wrap">
   <p class="pricing-eyebrow">Pricing</p>
   <h1 class="pricing-headline">Start free.<br>Scale when you're ready.</h1>
-  <p class="pricing-sub">One free analysis to see what BerthAI finds in your data. No credit card, no commitment.</p>
+  <p class="pricing-sub">One free analysis to see what berthcast finds in your data. No credit card, no commitment.</p>
 
   <!-- ── Cards ── -->
   <div class="pricing-grid">
@@ -340,7 +340,7 @@
       <div class="pricing-price">$0</div>
       <div class="pricing-price-note">No credit card needed</div>
       <p class="pricing-desc">
-        One analysis on your real data so you can see exactly what BerthAI does before deciding anything.
+        One analysis on your real data so you can see exactly what berthcast does before deciding anything.
       </p>
       <ul class="pricing-features">
         <li>
@@ -476,7 +476,7 @@
     <h2 class="pricing-faq-title">Common questions</h2>
 
     <div class="faq-item">
-      <p class="faq-q">What files do I need to use BerthAI?</p>
+      <p class="faq-q">What files do I need to use berthcast?</p>
       <p class="faq-a">An inventory file and a sales report are the minimum. Purchase orders and supplier data improve accuracy significantly.
         See the <a href="{{ url_for('guide') if session.user_id else url_for('landing') }}">user guide</a> for the exact column requirements.</p>
     </div>
@@ -505,7 +505,7 @@
 </div><!-- /pricing-wrap -->
 
 <footer class="pricing-footer">
-  <div class="pricing-footer-brand">BerthAI · Inventory operations for marine supply</div>
+  <div class="pricing-footer-brand">berthcast · Inventory operations for marine supply</div>
   <div class="pricing-footer-links">
     <a href="{{ url_for('landing') }}">Home</a>
     <a href="{{ url_for('contact') }}">Contact</a>

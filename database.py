@@ -3,10 +3,10 @@ import json
 import os
 
 # DB lives on the Render persistent disk in prod (DB_PATH env var points to
-# /var/data/berthai.db). For local dev, defaults to a file in the cwd.
+# /var/data/berthcast.db). For local dev, defaults to a file in the cwd.
 # IMPORTANT: never put this under the project source dir on Render — that
 # folder is overwritten on every deploy and the DB gets wiped.
-DB_PATH = os.environ.get("DB_PATH", "berthai.db")
+DB_PATH = os.environ.get("DB_PATH", "berthcast.db")
 
 # Make sure the parent directory exists before sqlite tries to open the file.
 # On Render's first boot the /var/data mount is empty.

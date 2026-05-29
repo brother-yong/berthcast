@@ -1,10 +1,10 @@
 {% extends "base.html" %}
-{% block title %}Email Verification — BerthAI{% endblock %}
+{% block title %}Email Verification — berthcast{% endblock %}
 
 {% block content %}
 <div class="page-narrow">
   <div class="page-header" style="text-align:center;">
-    <img src="{{ url_for('static', filename='logo.png') }}" alt="BerthAI" style="width:220px; height:auto; margin: 0 auto 8px; display:block;">
+    <img src="{{ url_for('static', filename='logo.png') }}" alt="berthcast" style="width:220px; height:auto; margin: 0 auto 8px; display:block;">
   </div>
 
   {% if expired %}
@@ -28,7 +28,7 @@
     <div style="font-size:40px; margin-bottom:16px;">✅</div>
     <h2 style="font-size:20px; font-weight:700; color:var(--navy); margin:0 0 10px;">Email verified</h2>
     <p style="color:var(--muted); font-size:14px; line-height:1.6; margin:0 0 24px;">
-      Your BerthAI account is now active. Sign in to get started.
+      Your berthcast account is now active. Sign in to get started.
     </p>
     <a href="{{ url_for('login') }}" class="btn btn-primary">
       Sign in now
