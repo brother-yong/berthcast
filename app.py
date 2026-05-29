@@ -1542,12 +1542,42 @@ def dashboard():
                 "chat_limit":     20,
             }
 
+    # Last synced relative time
+    last_synced = None
+    if last_session:
+        try:
+            ts = datetime.fromisoformat(str(last_session["created_at"]).replace("Z","").split(".")[0])
+            diff = datetime.utcnow() - ts
+            mins = max(0, int(diff.total_seconds() / 60))
+            if mins < 1:
+                last_synced = {"text": "Just now", "status": "fresh"}
+            elif mins < 60:
+                last_synced = {"text": f"{mins}m ago", "status": "fresh"}
+            elif mins < 60 * 24:
+                h = mins // 60
+                last_synced = {"text": f"{h}h ago", "status": "fresh" if h < 12 else "stale"}
+            else:
+                d = mins // (60 * 24)
+                last_synced = {"text": f"{d}d ago", "status": "stale" if d > 3 else "ok"}
+            last_synced["date"] = str(last_session["created_at"])[:16]
+        except Exception:
+            last_synced = {"text": str(last_session["created_at"])[:10], "status": "ok", "date": ""}
+
+    # Outcome tracking stats for ROI card
+    outcome_stats = db.get_outcome_stats(session["org_name"]) if past_sessions else None
+
+    # Supplier scores for dashboard
+    supplier_scores = db.get_supplier_scores(session["org_name"]) if past_sessions else []
+
     return render_template(
         "dashboard.html",
         last_session=last_session,
         stats=stats,
         past_sessions=past_sessions,
         user_usage=user_usage,
+        last_synced=last_synced,
+        outcome_stats=outcome_stats,
+        supplier_scores=supplier_scores,
     )
 
 
@@ -2398,6 +2428,17 @@ def results(upload_session_id):
             _rec["_display_num"] = _n
         _grp["end_num"] = _n
 
+    # Build supplier score lookup for template
+    sup_scores_raw = db.get_supplier_scores(session["org_name"])
+    supplier_score_map = {}
+    for s in sup_scores_raw:
+        supplier_score_map[s["supplier_name"]] = {
+            "score": s.get("reliability_score", 50),
+            "total_recs": s.get("total_recs", 0),
+            "orders_placed": s.get("orders_placed", 0),
+            "stockouts_avoided": s.get("stockouts_avoided", 0),
+        }
+
     return render_template(
         "results.html",
         recommendations=recommendations,
@@ -2409,6 +2450,7 @@ def results(upload_session_id):
         status_by_item=status_by_item,
         user_tier=session.get("tier", "enterprise"),
         user_role=session.get("role", "admin"),
+        supplier_score_map=supplier_score_map,
     )
 
 
@@ -3130,6 +3172,97 @@ def recommend_undo_approve_all():
         (json.dumps(recs), session_id)
     )
     return jsonify({"ok": True, "undone_items": undone})
+
+
+# ---------------------------------------------------------------------------
+# Outcome tracking — staff record whether they placed the order + result
+# ---------------------------------------------------------------------------
+
+@app.route("/recommend/outcome", methods=["POST"])
+@login_required
+@analyst_required
+def recommend_outcome():
+    """Record outcome for a recommendation: order_placed (bool) and
+    outcome_status (stockout_avoided | stockout_happened | '')."""
+    data       = request.get_json(force=True, silent=True) or {}
+    session_id = data.get("session_id")
+    item       = data.get("item", "").strip()
+    field      = data.get("field", "")         # "order_placed" or "outcome_status"
+    value      = data.get("value")
+
+    if not session_id or not item or field not in ("order_placed", "outcome_status"):
+        return jsonify({"ok": False, "error": "Invalid parameters"}), 400
+
+    rows = db.query("SELECT org_name FROM upload_sessions WHERE id=?", (session_id,))
+    if not rows or rows[0]["org_name"] != session.get("org_name"):
+        return jsonify({"ok": False, "error": "Forbidden"}), 403
+
+    ar = db.query("SELECT recommendations_json FROM analysis_results WHERE session_id=?", (session_id,))
+    if not ar:
+        return jsonify({"ok": False, "error": "No results"}), 404
+
+    try:
+        recs = json.loads(ar[0]["recommendations_json"] or "[]")
+    except Exception:
+        return jsonify({"ok": False, "error": "Corrupt data"}), 500
+
+    updated = False
+    for rec in recs:
+        if isinstance(rec, dict) and rec.get("item", "").strip() == item:
+            if field == "order_placed":
+                rec["order_placed"] = bool(value)
+                rec["order_placed_at"] = datetime.utcnow().isoformat() if value else None
+            elif field == "outcome_status":
+                if value in ("stockout_avoided", "stockout_happened", ""):
+                    rec["outcome_status"] = value
+                    rec["outcome_recorded_at"] = datetime.utcnow().isoformat() if value else None
+                else:
+                    return jsonify({"ok": False, "error": "Invalid outcome_status"}), 400
+            updated = True
+            break
+
+    if not updated:
+        return jsonify({"ok": False, "error": "Item not found"}), 404
+
+    db.execute(
+        "UPDATE analysis_results SET recommendations_json=? WHERE session_id=?",
+        (json.dumps(recs), session_id)
+    )
+
+    # Recalculate supplier scores in the background
+    org_name = session.get("org_name")
+    try:
+        db.update_supplier_scores(org_name)
+    except Exception:
+        pass  # Non-blocking
+
+    return jsonify({"ok": True})
+
+
+# ---------------------------------------------------------------------------
+# Outcome stats API — for dashboard ROI card
+# ---------------------------------------------------------------------------
+
+@app.route("/api/outcome-stats")
+@login_required
+def outcome_stats_api():
+    stats = db.get_outcome_stats(session["org_name"])
+    return jsonify(stats)
+
+
+# ---------------------------------------------------------------------------
+# Supplier scores page
+# ---------------------------------------------------------------------------
+
+@app.route("/suppliers")
+@login_required
+def suppliers_page():
+    scores = db.get_supplier_scores(session["org_name"])
+    outcome_stats = db.get_outcome_stats(session["org_name"])
+    return render_template("suppliers.html",
+                           suppliers=scores,
+                           outcome_stats=outcome_stats,
+                           org_name=session["org_name"])
 
 
 if __name__ == "__main__":

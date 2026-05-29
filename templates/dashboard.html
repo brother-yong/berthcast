@@ -69,6 +69,12 @@
       <div class="dash-org-header">
         <div class="dash-org-name">{{ session.org_name }}</div>
         <div class="dash-org-sub">Inventory operations</div>
+        {% if last_synced %}
+        <div class="dash-synced dash-synced-{{ last_synced.status }}" title="{{ last_synced.date }}">
+          <span class="dash-synced-dot"></span>
+          <span>Last synced {{ last_synced.text }}</span>
+        </div>
+        {% endif %}
       </div>
 
       {% if user_usage %}
@@ -129,6 +135,28 @@
           <div class="dash-stat-tile-meta">of {{ stats.rec_count }} recommendations</div>
         </div>
       </div>
+
+      {% if outcome_stats and outcome_stats.total_approved > 0 %}
+      <div class="dash-roi-card">
+        <div class="dash-roi-label">ROI tracking</div>
+        <div class="dash-roi-row">
+          <span class="dash-roi-num">{{ outcome_stats.total_order_placed }}</span>
+          <span class="dash-roi-desc">orders placed</span>
+        </div>
+        {% if outcome_stats.stockout_avoided or outcome_stats.stockout_happened %}
+        <div class="dash-roi-row">
+          <span class="dash-roi-num dash-roi-success">{{ outcome_stats.stockout_avoided }}</span>
+          <span class="dash-roi-desc">stockouts avoided</span>
+        </div>
+        {% if outcome_stats.success_rate_pct %}
+        <div class="dash-roi-rate">{{ outcome_stats.success_rate_pct }}% success rate</div>
+        {% endif %}
+        {% endif %}
+        {% if outcome_stats.follow_through_pct %}
+        <div class="dash-roi-rate">{{ outcome_stats.follow_through_pct }}% follow-through on approvals</div>
+        {% endif %}
+      </div>
+      {% endif %}
 
       {% if last_session %}
       <div class="dash-last-card">
@@ -338,6 +366,49 @@
   color: var(--text);
   border-color: var(--brass);
 }
+/* Last synced indicator */
+.dash-synced {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  letter-spacing: 0.03em;
+  color: var(--muted);
+  margin-top: 8px;
+  padding: 4px 10px;
+  background: var(--paper);
+  border: 0.5px solid var(--border);
+  border-radius: 6px;
+}
+.dash-synced-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--success, #2D6A4F); flex-shrink: 0;
+}
+.dash-synced-fresh .dash-synced-dot {
+  background: var(--success, #2D6A4F);
+  animation: syncPulse 2s ease-in-out infinite;
+}
+.dash-synced-ok .dash-synced-dot { background: var(--brass); }
+.dash-synced-stale .dash-synced-dot { background: var(--warning, #B85C00); }
+.dash-synced-stale { color: var(--warning, #B85C00); }
+@keyframes syncPulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+/* ROI tracking card */
+.dash-roi-card {
+  background: var(--paper); border: 0.5px solid var(--border);
+  border-radius: 10px; padding: 12px 14px;
+}
+.dash-roi-label {
+  font-size: 11px; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--muted); margin-bottom: 8px;
+}
+.dash-roi-row { display: flex; align-items: baseline; gap: 6px; margin-bottom: 4px; }
+.dash-roi-num { font-size: 20px; font-weight: 500; color: var(--text); font-variant-numeric: tabular-nums; }
+.dash-roi-success { color: var(--success, #2D6A4F); }
+.dash-roi-desc { font-size: 12px; color: var(--muted); }
+.dash-roi-rate { font-size: 11px; color: var(--brass); font-weight: 500; margin-top: 2px; }
+
 @media (max-width: 680px) {
   .dash-split { grid-template-columns: 1fr; }
 }

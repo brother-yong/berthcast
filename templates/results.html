@@ -185,6 +185,14 @@
                 <span class="rec-supplier-sep">·</span>
                 <span class="rec-supplier-low">{{ group.low }} low</span>
                 {% endif %}
+                {% set sup_score = supplier_score_map.get(group.name, {}) %}
+                {% if sup_score.get('total_recs', 0) > 0 %}
+                <span class="rec-supplier-sep">&middot;</span>
+                <span class="rec-supplier-score {% if sup_score.score >= 70 %}score-good{% elif sup_score.score >= 40 %}score-ok{% else %}score-bad{% endif %}"
+                  title="Reliability score based on {{ sup_score.total_recs }} past recommendations">
+                  {{ sup_score.score | round(0) | int }}/100 reliability
+                </span>
+                {% endif %}
               </div>
             </div>
             {% if user_role != 'viewer' %}
@@ -338,6 +346,47 @@
               <span style="font-size:13px; color:var(--muted); font-style:italic;">View-only access</span>
               {% endif %}
             </div>
+
+            {# ── Outcome tracking strip ── #}
+            {% if rec.approved and user_role != 'viewer' %}
+            <div class="outcome-strip" id="outcome-{{ rec._card_idx }}">
+              {% if not rec.order_placed %}
+              <div class="outcome-prompt">
+                <span class="outcome-q">Did you place this order?</span>
+                <button class="btn btn-outline btn-sm outcome-btn"
+                        onclick="recordOutcome({{ rec._card_idx }}, '{{ rec.item | replace("'", "\\'") }}', 'order_placed', true)">
+                  Yes, ordered
+                </button>
+                <button class="btn btn-ghost btn-sm outcome-btn"
+                        onclick="recordOutcome({{ rec._card_idx }}, '{{ rec.item | replace("'", "\\'") }}', 'order_placed', false)">
+                  No
+                </button>
+              </div>
+              {% elif not rec.outcome_status %}
+              <div class="outcome-prompt">
+                <span class="outcome-check">Order placed</span>
+                <span class="outcome-q outcome-q-secondary">Was the stockout avoided?</span>
+                <button class="btn btn-success btn-sm outcome-btn"
+                        onclick="recordOutcome({{ rec._card_idx }}, '{{ rec.item | replace("'", "\\'") }}', 'outcome_status', 'stockout_avoided')">
+                  Yes, avoided
+                </button>
+                <button class="btn btn-muted btn-sm outcome-btn"
+                        onclick="recordOutcome({{ rec._card_idx }}, '{{ rec.item | replace("'", "\\'") }}', 'outcome_status', 'stockout_happened')">
+                  No, stockout
+                </button>
+              </div>
+              {% else %}
+              <div class="outcome-done">
+                <span class="outcome-check">Order placed</span>
+                {% if rec.outcome_status == 'stockout_avoided' %}
+                <span class="outcome-result outcome-good">Stockout avoided</span>
+                {% else %}
+                <span class="outcome-result outcome-bad">Stockout occurred</span>
+                {% endif %}
+              </div>
+              {% endif %}
+            </div>
+            {% endif %}
           </div>
         {% endif %}
         {% endfor %}
@@ -443,6 +492,31 @@
   </div>
   {% endif %}
 </div>
+
+<style>
+.outcome-strip {
+  border-top: 1px solid var(--border); padding: 10px 16px;
+  background: var(--paper, #FAF8F3);
+}
+.outcome-prompt { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.outcome-q { font-size: 13px; font-weight: 500; color: var(--text); }
+.outcome-q-secondary { font-size: 12px; color: var(--muted); }
+.outcome-btn { font-size: 12px; padding: 4px 12px; }
+.outcome-check {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 12px; font-weight: 500; color: var(--success, #2D6A4F);
+  background: rgba(45,106,79,0.08); padding: 2px 8px; border-radius: 4px;
+}
+.outcome-check::before { content: "\2713  "; }
+.outcome-done { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.outcome-result { font-size: 12px; font-weight: 500; padding: 2px 8px; border-radius: 4px; }
+.outcome-good { color: var(--success, #2D6A4F); background: rgba(45,106,79,0.08); }
+.outcome-bad { color: var(--danger, #8B2C2C); background: rgba(139,44,44,0.08); }
+.rec-supplier-score { font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.score-good { color: var(--success, #2D6A4F); }
+.score-ok { color: var(--brass); }
+.score-bad { color: var(--danger, #8B2C2C); }
+</style>
 
 <script>
 const sessionId = {{ upload_session_id }};
@@ -1026,6 +1100,74 @@ async function takeAction(idx, item, action) {
       }
     }
     applyFilters();
+
+    // After approving, show the outcome strip if not already visible
+    if (action === 'approve') {
+      const outcomeStrip = document.getElementById('outcome-' + idx);
+      if (!outcomeStrip) {
+        const card = document.getElementById('rec-' + idx);
+        const strip = document.createElement('div');
+        strip.className = 'outcome-strip';
+        strip.id = 'outcome-' + idx;
+        strip.innerHTML = `
+          <div class="outcome-prompt">
+            <span class="outcome-q">Did you place this order?</span>
+            <button class="btn btn-outline btn-sm outcome-btn"
+                    onclick="recordOutcome(${idx}, '${item.replace(/'/g,"\\'")}', 'order_placed', true)">
+              Yes, ordered
+            </button>
+            <button class="btn btn-ghost btn-sm outcome-btn"
+                    onclick="recordOutcome(${idx}, '${item.replace(/'/g,"\\'")}', 'order_placed', false)">
+              No
+            </button>
+          </div>`;
+        card.appendChild(strip);
+      }
+    }
+  }
+}
+
+// ── Outcome tracking ──
+async function recordOutcome(idx, item, field, value) {
+  const res = await fetch('/recommend/outcome', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session_id: sessionId, item, field, value })
+  });
+  const data = await res.json();
+  if (!data.ok) return;
+
+  const strip = document.getElementById('outcome-' + idx);
+  if (!strip) return;
+
+  if (field === 'order_placed' && value) {
+    strip.innerHTML = `
+      <div class="outcome-prompt">
+        <span class="outcome-check">Order placed</span>
+        <span class="outcome-q outcome-q-secondary">Was the stockout avoided?</span>
+        <button class="btn btn-success btn-sm outcome-btn"
+                onclick="recordOutcome(${idx}, '${item.replace(/'/g,"\\'")}', 'outcome_status', 'stockout_avoided')">
+          Yes, avoided
+        </button>
+        <button class="btn btn-muted btn-sm outcome-btn"
+                onclick="recordOutcome(${idx}, '${item.replace(/'/g,"\\'")}', 'outcome_status', 'stockout_happened')">
+          No, stockout
+        </button>
+      </div>`;
+  } else if (field === 'order_placed' && !value) {
+    strip.innerHTML = `
+      <div class="outcome-done">
+        <span style="font-size:12px;color:var(--muted);">Not ordered</span>
+      </div>`;
+  } else if (field === 'outcome_status') {
+    const isGood = value === 'stockout_avoided';
+    strip.innerHTML = `
+      <div class="outcome-done">
+        <span class="outcome-check">Order placed</span>
+        <span class="outcome-result ${isGood ? 'outcome-good' : 'outcome-bad'}">
+          ${isGood ? 'Stockout avoided' : 'Stockout occurred'}
+        </span>
+      </div>`;
   }
 }
 </script>

@@ -178,6 +178,14 @@ def init_db():
         "CREATE INDEX IF NOT EXISTS idx_recommendation_outcomes_session ON recommendation_outcomes(session_id)",
         "CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_token ON password_reset_tokens(token)",
         "CREATE INDEX IF NOT EXISTS idx_email_verification_tokens_token ON email_verification_tokens(token)",
+        # ── Supplier reliability score (persists across sessions) ────────
+        "ALTER TABLE supplier_profiles ADD COLUMN reliability_score REAL DEFAULT 50.0",
+        "ALTER TABLE supplier_profiles ADD COLUMN total_recs INTEGER DEFAULT 0",
+        "ALTER TABLE supplier_profiles ADD COLUMN orders_placed INTEGER DEFAULT 0",
+        "ALTER TABLE supplier_profiles ADD COLUMN stockouts_avoided INTEGER DEFAULT 0",
+        "ALTER TABLE supplier_profiles ADD COLUMN stockouts_happened INTEGER DEFAULT 0",
+        "ALTER TABLE supplier_profiles ADD COLUMN last_scored_at TIMESTAMP",
+        "CREATE INDEX IF NOT EXISTS idx_supplier_profiles_org ON supplier_profiles(org_name)",
     ]:
         try:
             conn.execute(migration)
@@ -619,16 +627,17 @@ def save_recommendation_outcome(session_id: int, item: str, action_recommended: 
     )
 
 
+
 def get_supplier_accuracy(org_name: str, supplier_name: str, days: int = 90) -> dict:
     """Return historical prediction accuracy for a supplier across recent sessions."""
     rows = query(
-        """SELECT ro.action_recommended, ro.user_action, ro.actual_outcome,
-                  ro.predicted_loss_no_act, ro.confidence
-           FROM recommendation_outcomes ro
-           JOIN upload_sessions us ON ro.session_id = us.id
-           WHERE us.org_name=?
-             AND ro.created_at >= datetime('now', ?)
-             AND ro.item LIKE ?""",
+        "SELECT ro.action_recommended, ro.user_action, ro.actual_outcome, "
+        "       ro.predicted_loss_no_act, ro.confidence "
+        "FROM recommendation_outcomes ro "
+        "JOIN upload_sessions us ON ro.session_id = us.id "
+        "WHERE us.org_name=? "
+        "  AND ro.created_at >= datetime('now', ?) "
+        "  AND ro.item LIKE ?",
         (org_name, f"-{days} days", f"%{supplier_name}%")
     )
     total = len(rows)
@@ -640,3 +649,133 @@ def get_supplier_accuracy(org_name: str, supplier_name: str, days: int = 90) -> 
         "dismissed": dismissed,
         "days_window": days,
     }
+
+
+def get_outcome_stats(org_name: str) -> dict:
+    """Aggregate outcome tracking stats across all sessions for an org.
+    Returns counts for the ROI dashboard card."""
+    rows = query(
+        "SELECT ar.recommendations_json FROM analysis_results ar "
+        "JOIN upload_sessions us ON ar.session_id = us.id "
+        "WHERE us.org_name=? AND us.status='complete' "
+        "ORDER BY us.created_at DESC",
+        (org_name,)
+    )
+    total_recs = 0
+    total_approved = 0
+    total_order_placed = 0
+    total_stockout_avoided = 0
+    total_stockout_happened = 0
+    total_outcome_pending = 0
+    for row in rows:
+        try:
+            recs = json.loads(row["recommendations_json"] or "[]")
+        except Exception:
+            continue
+        for r in recs:
+            if not isinstance(r, dict) or r.get("error"):
+                continue
+            total_recs += 1
+            if r.get("approved"):
+                total_approved += 1
+            if r.get("order_placed"):
+                total_order_placed += 1
+                outcome = r.get("outcome_status", "")
+                if outcome == "stockout_avoided":
+                    total_stockout_avoided += 1
+                elif outcome == "stockout_happened":
+                    total_stockout_happened += 1
+                elif not outcome:
+                    total_outcome_pending += 1
+    return {
+        "total_recs": total_recs,
+        "total_approved": total_approved,
+        "total_order_placed": total_order_placed,
+        "stockout_avoided": total_stockout_avoided,
+        "stockout_happened": total_stockout_happened,
+        "outcome_pending": total_outcome_pending,
+        "follow_through_pct": round(total_order_placed / total_approved * 100) if total_approved else 0,
+        "success_rate_pct": round(total_stockout_avoided / (total_stockout_avoided + total_stockout_happened) * 100) if (total_stockout_avoided + total_stockout_happened) else 0,
+    }
+
+
+def update_supplier_scores(org_name: str):
+    """Recalculate reliability scores for all suppliers in an org based on
+    outcome history across all sessions. Score formula:
+      - Base: 50
+      - +20 max from follow-through rate (orders placed / approved)
+      - +30 max from stockout avoidance rate
+      - -10 if known unreliable (delay_probability > 0.3)
+      - Clamped to 0-100
+    """
+    rows = query(
+        "SELECT ar.recommendations_json FROM analysis_results ar "
+        "JOIN upload_sessions us ON ar.session_id = us.id "
+        "WHERE us.org_name=? AND us.status='complete'",
+        (org_name,)
+    )
+    supplier_stats = {}
+    for row in rows:
+        try:
+            recs = json.loads(row["recommendations_json"] or "[]")
+        except Exception:
+            continue
+        for r in recs:
+            if not isinstance(r, dict) or r.get("error"):
+                continue
+            sup = (r.get("edited_supplier") or r.get("supplier") or "Unknown").strip()
+            if sup not in supplier_stats:
+                supplier_stats[sup] = {"recs": 0, "approved": 0, "placed": 0, "avoided": 0, "happened": 0}
+            s = supplier_stats[sup]
+            s["recs"] += 1
+            if r.get("approved"):
+                s["approved"] += 1
+            if r.get("order_placed"):
+                s["placed"] += 1
+                if r.get("outcome_status") == "stockout_avoided":
+                    s["avoided"] += 1
+                elif r.get("outcome_status") == "stockout_happened":
+                    s["happened"] += 1
+
+    for sup_name, stats in supplier_stats.items():
+        profile = get_supplier_profile(org_name, sup_name)
+        delay_prob = profile.get("delay_probability", 0.2)
+
+        score = 50.0
+        if stats["approved"] > 0:
+            ft_rate = stats["placed"] / stats["approved"]
+            score += ft_rate * 20
+        outcomes_total = stats["avoided"] + stats["happened"]
+        if outcomes_total > 0:
+            avoid_rate = stats["avoided"] / outcomes_total
+            score += avoid_rate * 30
+        if delay_prob > 0.3:
+            score -= 10
+        score = max(0, min(100, round(score, 1)))
+
+        upsert_supplier_profile(org_name, sup_name,
+            delay_probability=delay_prob,
+        )
+        execute(
+            "UPDATE supplier_profiles "
+            "SET reliability_score=?, total_recs=?, orders_placed=?, "
+            "    stockouts_avoided=?, stockouts_happened=?, "
+            "    last_scored_at=CURRENT_TIMESTAMP "
+            "WHERE org_name=? AND supplier_name=?",
+            (score, stats["recs"], stats["placed"],
+             stats["avoided"], stats["happened"],
+             org_name, sup_name)
+        )
+
+
+def get_supplier_scores(org_name: str) -> list:
+    """Return all supplier profiles with scores for an org, sorted by score descending."""
+    return query(
+        "SELECT supplier_name, supplier_type, reliability_score, "
+        "       total_recs, orders_placed, stockouts_avoided, stockouts_happened, "
+        "       delay_probability, avg_lead_time_days, last_scored_at, notes "
+        "FROM supplier_profiles "
+        "WHERE org_name=? "
+        "ORDER BY reliability_score DESC, supplier_name ASC",
+        (org_name,)
+    )
