@@ -1,5 +1,5 @@
 """
-BerthAI - Three-Agent System
+berthcast - Three-Agent System
 """
 
 import json

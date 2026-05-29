@@ -1,10 +1,10 @@
 {% extends "base.html" %}
-{% block title %}Create Account — BerthAI{% endblock %}
+{% block title %}Create Account — berthcast{% endblock %}
 
 {% block content %}
 <div class="page-narrow">
   <div class="page-header" style="text-align:center;">
-    <img src="{{ url_for('static', filename='logo.png') }}" alt="BerthAI" style="width:220px; height:auto; margin: 0 auto 8px; display:block;">
+    <img src="{{ url_for('static', filename='logo.png') }}" alt="berthcast" style="width:220px; height:auto; margin: 0 auto 8px; display:block;">
     <p style="margin-top:8px;">Create your free account</p>
   </div>
 
@@ -61,7 +61,7 @@
                  {% if accept_terms %}checked{% endif %}
                  style="margin-top:3px; width:16px; height:16px; flex-shrink:0; cursor:pointer; accent-color: var(--brass-3, #c8924c);">
           <span>
-            I agree to BerthAI's
+            I agree to berthcast's
             <a href="{{ url_for('terms') }}" target="_blank" rel="noopener"
                style="color:var(--brass-3); text-decoration:underline;">Terms of Service</a>
             and

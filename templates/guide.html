@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}User Guide — BerthAI{% endblock %}
+{% block title %}User Guide — berthcast{% endblock %}
 
 {% block content %}
 <div class="page-wrap">
@@ -24,7 +24,7 @@
   <section id="files" class="guide-section">
     <div class="guide-section-label">Step 1</div>
     <h2 class="guide-h2">What files to prepare</h2>
-    <p class="guide-intro">BerthAI works with exports from your ERP. No reformatting required — export them as Excel (.xlsx) or CSV. You can upload up to four file types. Two are required; the other two make a large difference to accuracy.</p>
+    <p class="guide-intro">berthcast works with exports from your ERP. No reformatting required — export them as Excel (.xlsx) or CSV. You can upload up to four file types. Two are required; the other two make a large difference to accuracy.</p>
 
     <div class="card" style="overflow-x:auto; margin-top:20px;">
       <table class="data-table">
@@ -52,13 +52,13 @@
           <tr>
             <td><strong>Purchase orders</strong></td>
             <td><span class="badge badge-low">Recommended</span></td>
-            <td>Links each item to its supplier. Without this, BerthAI cannot tell you which supplier to contact.</td>
+            <td>Links each item to its supplier. Without this, berthcast cannot tell you which supplier to contact.</td>
             <td>All items show "Unknown supplier". Confidence drops to N/A on every recommendation.</td>
           </tr>
           <tr>
             <td><strong>Supplier list</strong></td>
             <td><span class="badge badge-low">Recommended</span></td>
-            <td>Tells BerthAI whether each supplier is import (long lead time) or local (short lead time). Directly affects stock runway calculations.</td>
+            <td>Tells berthcast whether each supplier is import (long lead time) or local (short lead time). Directly affects stock runway calculations.</td>
             <td>All suppliers treated as "other" with unknown lead times. Runway estimates will be unreliable.</td>
           </tr>
         </tbody>
@@ -70,7 +70,7 @@
   <section id="columns" class="guide-section">
     <div class="guide-section-label">Step 2</div>
     <h2 class="guide-h2">Column requirements</h2>
-    <p class="guide-intro">BerthAI detects columns automatically. As long as your column names are close to the ones listed below, the system will find them. The exact names in your ERP export are usually fine — you do not need to rename anything.</p>
+    <p class="guide-intro">berthcast detects columns automatically. As long as your column names are close to the ones listed below, the system will find them. The exact names in your ERP export are usually fine — you do not need to rename anything.</p>
 
     <!-- Inventory -->
     <div class="guide-file-block">
@@ -82,7 +82,7 @@
         <table class="data-table">
           <thead>
             <tr>
-              <th>What BerthAI needs</th>
+              <th>What berthcast needs</th>
               <th>Column names it recognises</th>
               <th>Required?</th>
               <th>Effect if missing</th>
@@ -128,7 +128,7 @@
         <table class="data-table">
           <thead>
             <tr>
-              <th>What BerthAI needs</th>
+              <th>What berthcast needs</th>
               <th>Column names it recognises</th>
               <th>Required?</th>
               <th>Effect if missing</th>
@@ -174,7 +174,7 @@
         <table class="data-table">
           <thead>
             <tr>
-              <th>What BerthAI needs</th>
+              <th>What berthcast needs</th>
               <th>Column names it recognises</th>
               <th>Required?</th>
               <th>Effect if missing</th>
@@ -208,7 +208,7 @@
         <table class="data-table">
           <thead>
             <tr>
-              <th>What BerthAI needs</th>
+              <th>What berthcast needs</th>
               <th>Column names it recognises</th>
               <th>Required?</th>
               <th>Effect if missing</th>
@@ -263,7 +263,7 @@
         <div class="guide-step-num">2</div>
         <div class="guide-step-body">
           <div class="guide-step-title">Review duplicate item names</div>
-          <p class="guide-step-desc">BerthAI scans item names across all your files and flags names that refer to the same product but are written differently — e.g. "Bottled Water 1.5L" vs "BTL WATER 1.5L". Confirm the groupings so sales data links correctly to inventory.</p>
+          <p class="guide-step-desc">berthcast scans item names across all your files and flags names that refer to the same product but are written differently — e.g. "Bottled Water 1.5L" vs "BTL WATER 1.5L". Confirm the groupings so sales data links correctly to inventory.</p>
         </div>
       </div>
 
@@ -271,7 +271,7 @@
         <div class="guide-step-num">3</div>
         <div class="guide-step-body">
           <div class="guide-step-title">Add any context the AI should know</div>
-          <p class="guide-step-desc">Before the analysis runs, you can tell BerthAI about things that affect purchasing decisions — delayed suppliers, a large upcoming order, items you're discontinuing. This is optional but improves the recommendations.</p>
+          <p class="guide-step-desc">Before the analysis runs, you can tell berthcast about things that affect purchasing decisions — delayed suppliers, a large upcoming order, items you're discontinuing. This is optional but improves the recommendations.</p>
         </div>
       </div>
 
@@ -313,7 +313,7 @@
 
       <div class="card">
         <div class="guide-tip-title">Item names must be consistent across files</div>
-        <p class="guide-tip-desc">If inventory says "White Rice 5kg" and sales says "RICE WHITE 5KG", BerthAI's deduplication step will try to match them — but the closer the names, the more reliable the match.</p>
+        <p class="guide-tip-desc">If inventory says "White Rice 5kg" and sales says "RICE WHITE 5KG", berthcast's deduplication step will try to match them — but the closer the names, the more reliable the match.</p>
       </div>
 
       <div class="card">
@@ -323,12 +323,12 @@
 
       <div class="card">
         <div class="guide-tip-title">Upload the most recent PO export</div>
-        <p class="guide-tip-desc">BerthAI uses the most recent purchase order per item to identify the current supplier. An old PO file may map items to suppliers you no longer use.</p>
+        <p class="guide-tip-desc">berthcast uses the most recent purchase order per item to identify the current supplier. An old PO file may map items to suppliers you no longer use.</p>
       </div>
 
       <div class="card">
         <div class="guide-tip-title">N/A confidence means supplier is unknown</div>
-        <p class="guide-tip-desc">If a recommendation shows N/A confidence, it means BerthAI could not find the item's supplier in your purchase orders file. Upload a PO file to resolve this.</p>
+        <p class="guide-tip-desc">If a recommendation shows N/A confidence, it means berthcast could not find the item's supplier in your purchase orders file. Upload a PO file to resolve this.</p>
       </div>
 
     </div>
