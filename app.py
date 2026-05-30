@@ -24,6 +24,20 @@ from agents import (
     run_recommendation_agent,
 )
 
+from config import UPLOAD_FOLDER, ALLOWED_EXTENSIONS, FILE_SLOTS, AVAILABLE_MODELS
+from emails import (
+    _send_critical_alert, _send_reset_email, _send_analysis_ready_email,
+    _send_verification_email, _send_invite_email, _send_contact_email,
+)
+from auth_utils import (
+    login_required, admin_required, analyst_required, _allowed, _verify_session_owner,
+)
+from rec_logic import (
+    _normalise_confidence, _effective_qty, _effective_supplier,
+    _compute_order_by, _group_recs_by_supplier, _confidence_reasons,
+)
+from chat_logic import _build_chat_context
+
 app = Flask(__name__)
 
 # SECRET_KEY must be set in production (Render env vars). In local dev,
@@ -41,24 +55,9 @@ csrf = CSRFProtect(app)
 
 app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024  # 100MB
 
-UPLOAD_FOLDER = os.environ.get("UPLOAD_FOLDER", "uploads")
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-ALLOWED_EXTENSIONS = {"xlsx", "csv"}
 
-FILE_SLOTS = {
-    "inventory":       "inventory",
-    "purchase_orders": "purchase_orders",
-    "sales":           "sales",
-    "suppliers":       "suppliers",
-    "customers":       "customers",
-}
 
-AVAILABLE_MODELS = [
-    ("claude-haiku-4-5-20251001", "Haiku — fast, lower cost (testing)"),
-    ("claude-sonnet-4-6",         "Sonnet — balanced (recommended)"),
-    ("claude-opus-4-6",           "Opus — most thorough (production reports)"),
-]
 
 # In-memory progress store for analysis runs. Keyed by upload_session_id.
 # Render uses a single gunicorn worker with threads → shared across requests.
@@ -141,85 +140,13 @@ def inject_live_stats():
         return {"live_stats": None}
 
 
-def login_required(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        if "user_id" not in session:
-            return redirect(url_for("login"))
-        return f(*args, **kwargs)
-    return decorated
-
-def admin_required(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        if not session.get("is_admin"):
-            flash("Admin access required.", "error")
-            return redirect(url_for("dashboard"))
-        return f(*args, **kwargs)
-    return decorated
 
 
-def analyst_required(f):
-    """Only admin and reviewer roles can run analyses and approve/dismiss.
-    Viewers get a flash message and redirect."""
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        role = session.get("role", "admin")
-        if role == "viewer":
-            # JSON endpoints get a JSON error
-            if request.is_json or request.path.startswith(("/api/", "/recommend/")):
-                return jsonify({"ok": False, "error": "You have view-only access."}), 403
-            flash("You have view-only access. Ask your admin to run a new analysis.", "error")
-            return redirect(url_for("dashboard"))
-        return f(*args, **kwargs)
-    return decorated
 
 
-def _allowed(filename: str) -> bool:
-    """True if filename has an accepted extension."""
-    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
 
 
-def _verify_session_owner(session_id):
-    """Guard for any session-scoped route. Aborts the request if the current
-    user's org does not own the session. All users in the same org can see
-    the same upload sessions — we check org_name, not user_id.
 
-    Returns nothing on success. On failure raises a Flask abort:
-      - 404 if session_id is missing or not numeric
-      - 404 if no session with that id exists
-      - 403 if the session belongs to a different org
-
-    For JSON endpoints (anything that returned a body the frontend tried to
-    `.json()` parse), we return JSON instead of Flask's default HTML error
-    page so the browser console shows a clear message rather than a vague
-    "Network error".
-    """
-    from flask import abort, jsonify, make_response
-
-    wants_json = (
-        request.is_json
-        or request.path.startswith(("/api/", "/upload/", "/recommend/", "/analysis_status"))
-        or "application/json" in (request.headers.get("Accept", "") or "")
-    )
-
-    def _fail(code: int, msg: str):
-        # JSON endpoints need a JSON body so the frontend's `.json()` call
-        # succeeds and surfaces a real message instead of "Network error".
-        if wants_json:
-            abort(make_response(jsonify({"ok": False, "error": msg}), code))
-        abort(code)
-
-    try:
-        sid = int(session_id)
-    except (TypeError, ValueError):
-        _fail(404, "Session not found.")
-
-    rows = db.query("SELECT org_name FROM upload_sessions WHERE id=?", (sid,))
-    if not rows:
-        _fail(404, "Session not found.")
-    if rows[0]["org_name"] != session.get("org_name"):
-        _fail(403, "You don't have access to this session.")
 
 
 @app.route("/")
@@ -283,316 +210,14 @@ def logout():
 
 # ── Password reset ────────────────────────────────────────────────────────────
 
-def _send_critical_alert(user_id: int, upload_session_id: int, new_critical: list,
-                          base_url: str = "") -> None:
-    """Email the user when items newly enter CRITICAL status versus the previous run."""
-    users = db.query("SELECT email FROM users WHERE id=?", (user_id,))
-    if not users:
-        return
-    to_email = users[0]["email"]
-
-    sender   = os.environ.get("MAIL_SENDER", "")
-    password = os.environ.get("MAIL_APP_PASSWORD", "")
-    if not sender or not password:
-        return
-
-    count   = len(new_critical)
-    subject = f"⚠ {count} item{'s' if count != 1 else ''} hit critical stock — berthcast"
-
-    results_path = f"{base_url}/results/{upload_session_id}"
-
-    rows_text = "\n".join(
-        f"  • {i.get('item','')}  ({i.get('days_of_supply','?')} days of supply remaining)"
-        for i in new_critical
-    )
-    rows_html = "".join(
-        f"""<tr>
-              <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-weight:500;">{i.get('item','')}</td>
-              <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;color:#c0392b;">{i.get('days_of_supply','—')} days</td>
-              <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;color:#6b7280;font-size:13px;">{i.get('observation','')}</td>
-            </tr>"""
-        for i in new_critical
-    )
-
-    text = (
-        f"berthcast stock alert\n\n"
-        f"{count} item{'s' if count != 1 else ''} moved to CRITICAL stock level since your last analysis:\n\n"
-        f"{rows_text}\n\n"
-        f"View the full report: {results_path}\n\n"
-        f"— berthcast"
-    )
-    html = f"""
-    <div style="font-family:'Segoe UI',sans-serif;max-width:560px;margin:0 auto;color:#1a2a3a;">
-      <div style="background:#fef2f2;border-left:4px solid #c0392b;
-                  padding:16px 20px;border-radius:6px;margin-bottom:24px;">
-        <div style="font-size:14px;font-weight:700;color:#c0392b;text-transform:uppercase;
-                    letter-spacing:0.05em;margin-bottom:4px;">Stock alert</div>
-        <div style="font-size:17px;font-weight:600;color:#1a2a3a;">
-          {count} item{'s' if count != 1 else ''} moved to critical since your last run
-        </div>
-      </div>
-      <table style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:24px;">
-        <thead>
-          <tr style="background:#f9fafb;">
-            <th style="padding:8px 12px;text-align:left;font-size:11px;text-transform:uppercase;
-                       letter-spacing:0.06em;color:#6b7280;border-bottom:2px solid #e5e7eb;">Item</th>
-            <th style="padding:8px 12px;text-align:left;font-size:11px;text-transform:uppercase;
-                       letter-spacing:0.06em;color:#6b7280;border-bottom:2px solid #e5e7eb;">Stock runway</th>
-            <th style="padding:8px 12px;text-align:left;font-size:11px;text-transform:uppercase;
-                       letter-spacing:0.06em;color:#6b7280;border-bottom:2px solid #e5e7eb;">Note</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows_html}
-        </tbody>
-      </table>
-      <a href="{results_path}"
-         style="display:inline-block;padding:11px 24px;background:#c8924c;color:#fff;
-                text-decoration:none;border-radius:8px;font-weight:600;font-size:14px;">
-        View full report →
-      </a>
-      <p style="font-size:12px;color:#9ca3af;margin-top:24px;">— berthcast</p>
-    </div>
-    """
-
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = subject
-    msg["From"]    = sender
-    msg["To"]      = to_email
-    msg.attach(MIMEText(text, "plain"))
-    msg.attach(MIMEText(html, "html"))
-
-    try:
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as smtp:
-            smtp.login(sender, password)
-            smtp.sendmail(sender, to_email, msg.as_string())
-    except Exception:
-        pass
 
 
-def _send_reset_email(to_email: str, reset_url: str) -> None:
-    """Send a password reset link via Gmail SMTP. Fails silently if not configured."""
-    sender   = os.environ.get("MAIL_SENDER", "")
-    password = os.environ.get("MAIL_APP_PASSWORD", "")
-    if not sender or not password:
-        return
-
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = "Reset your berthcast password"
-    msg["From"]    = sender
-    msg["To"]      = to_email
-
-    text = (
-        f"Hi,\n\n"
-        f"Someone requested a password reset for your berthcast account.\n\n"
-        f"Click the link below to set a new password. It expires in 1 hour.\n\n"
-        f"{reset_url}\n\n"
-        f"If you didn't request this, you can ignore this email — your password won't change.\n\n"
-        f"— berthcast"
-    )
-    html = f"""
-    <div style="font-family:'Segoe UI',sans-serif;max-width:480px;margin:0 auto;color:#1a2a3a;">
-      <p style="font-size:15px;line-height:1.6;">
-        Someone requested a password reset for your berthcast account.
-      </p>
-      <a href="{reset_url}"
-         style="display:inline-block;margin:20px 0;padding:12px 28px;
-                background:#c8924c;color:#fff;text-decoration:none;
-                border-radius:8px;font-weight:600;font-size:14px;">
-        Reset password
-      </a>
-      <p style="font-size:13px;color:#6b7280;line-height:1.5;">
-        This link expires in 1 hour. If you didn't request a reset, ignore this email.
-      </p>
-      <p style="font-size:13px;color:#6b7280;">— berthcast</p>
-    </div>
-    """
-    msg.attach(MIMEText(text, "plain"))
-    msg.attach(MIMEText(html, "html"))
-
-    try:
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as smtp:
-            smtp.login(sender, password)
-            smtp.sendmail(sender, to_email, msg.as_string())
-    except Exception:
-        pass
 
 
-def _send_analysis_ready_email(user_id: int, upload_session_id: int,
-                                summary: dict, base_url: str = "") -> None:
-    """Email the user when their analysis has finished. summary is a small dict
-    with: total_items, critical, low, rec_count, flagged."""
-    users = db.query("SELECT email FROM users WHERE id=?", (user_id,))
-    if not users:
-        return
-    to_email = users[0]["email"]
-
-    sender   = os.environ.get("MAIL_SENDER", "")
-    password = os.environ.get("MAIL_APP_PASSWORD", "")
-    if not sender or not password:
-        return
-
-    results_path = f"{base_url}/results/{upload_session_id}"
-    total    = summary.get("total_items", 0)
-    critical = summary.get("critical", 0)
-    low      = summary.get("low", 0)
-    recs     = summary.get("rec_count", 0)
-    flagged  = summary.get("flagged", 0)
-
-    subject = "Your berthcast analysis is ready"
-
-    text = (
-        f"Your berthcast analysis is ready.\n\n"
-        f"{total} items reviewed.\n"
-        f"{critical} flagged as critical, {low} low.\n"
-        f"{recs} reorder recommendations ({flagged} flagged for attention).\n\n"
-        f"Open it here: {results_path}\n\n"
-        f"— berthcast"
-    )
-    html = f"""
-    <div style="font-family:'Inter','Segoe UI',sans-serif;max-width:560px;margin:0 auto;color:#0F1B2D;">
-      <div style="font-size:11px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;
-                  color:#8B6B3D;margin-bottom:8px;">Analysis ready</div>
-      <div style="font-family:'Inter Tight','Inter',sans-serif;font-size:24px;font-weight:600;
-                  letter-spacing:-0.01em;color:#0B1424;margin-bottom:16px;">
-        Your berthcast analysis is ready
-      </div>
-      <p style="font-size:14.5px;line-height:1.6;color:#0F1B2D;margin:0 0 14px;">
-        {total} items reviewed · <strong style="color:#8B2C2C;">{critical} critical</strong> · {low} low ·
-        {recs} reorder recommendation{'s' if recs != 1 else ''}{' · ' + str(flagged) + ' flagged' if flagged else ''}.
-      </p>
-      <a href="{results_path}"
-         style="display:inline-block;margin:18px 0;padding:12px 28px;
-                background:#0F1B2D;color:#fff;text-decoration:none;
-                border-radius:10px;font-weight:600;font-size:14px;">
-        Open the analysis →
-      </a>
-      <p style="font-size:13px;color:#6B7280;line-height:1.5;margin-top:24px;">
-        Tip: edit any recommendation before approving — quantity, supplier, and notes all save automatically.
-      </p>
-      <p style="font-size:12px;color:#9ca3af;margin-top:18px;">— berthcast</p>
-    </div>
-    """
-
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = subject
-    msg["From"]    = sender
-    msg["To"]      = to_email
-    msg.attach(MIMEText(text, "plain"))
-    msg.attach(MIMEText(html, "html"))
-
-    try:
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as smtp:
-            smtp.login(sender, password)
-            smtp.sendmail(sender, to_email, msg.as_string())
-    except Exception:
-        pass
 
 
-def _send_verification_email(to_email: str, verify_url: str) -> None:
-    """Send an email verification link via Gmail SMTP. Fails silently if not configured."""
-    sender   = os.environ.get("MAIL_SENDER", "")
-    password = os.environ.get("MAIL_APP_PASSWORD", "")
-    if not sender or not password:
-        return
-
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = "Verify your berthcast account"
-    msg["From"]    = sender
-    msg["To"]      = to_email
-
-    text = (
-        f"Hi,\n\n"
-        f"Thanks for signing up for berthcast.\n\n"
-        f"Click the link below to verify your email and activate your account:\n\n"
-        f"{verify_url}\n\n"
-        f"This link expires in 24 hours.\n\n"
-        f"— berthcast"
-    )
-    html = f"""
-    <div style="font-family:'Segoe UI',sans-serif;max-width:480px;margin:0 auto;color:#1a2a3a;">
-      <p style="font-size:15px;line-height:1.6;margin-bottom:8px;">
-        Thanks for signing up for berthcast.
-      </p>
-      <p style="font-size:15px;line-height:1.6;margin-top:0;">
-        Click below to verify your email and activate your account.
-      </p>
-      <a href="{verify_url}"
-         style="display:inline-block;margin:20px 0;padding:12px 28px;
-                background:#c8924c;color:#fff;text-decoration:none;
-                border-radius:8px;font-weight:600;font-size:14px;">
-        Verify my email
-      </a>
-      <p style="font-size:13px;color:#6b7280;line-height:1.5;">
-        This link expires in 24 hours. If you didn't sign up, you can ignore this email.
-      </p>
-      <p style="font-size:13px;color:#6b7280;">— berthcast</p>
-    </div>
-    """
-    msg.attach(MIMEText(text, "plain"))
-    msg.attach(MIMEText(html, "html"))
-
-    try:
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as smtp:
-            smtp.login(sender, password)
-            smtp.sendmail(sender, to_email, msg.as_string())
-    except Exception:
-        pass
 
 
-def _send_invite_email(to_email: str, org_name: str, temp_password: str, login_url: str) -> None:
-    """Send a team invite email. Includes the temporary password so the user can log in."""
-    sender   = os.environ.get("MAIL_SENDER", "")
-    password = os.environ.get("MAIL_APP_PASSWORD", "")
-    if not sender or not password:
-        return
-
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = f"You've been invited to join {org_name} on berthcast"
-    msg["From"]    = sender
-    msg["To"]      = to_email
-
-    text = (
-        f"Hi,\n\n"
-        f"You've been invited to join {org_name} on berthcast.\n\n"
-        f"Sign in at: {login_url}\n\n"
-        f"Email: {to_email}\n"
-        f"Temporary password: {temp_password}\n\n"
-        f"Please change your password after signing in (Settings → Change password).\n\n"
-        f"— berthcast"
-    )
-    html = f"""
-    <div style="font-family:'Segoe UI',sans-serif;max-width:480px;margin:0 auto;color:#1a2a3a;">
-      <p style="font-size:15px;line-height:1.6;">
-        You've been invited to join <strong>{org_name}</strong> on berthcast.
-      </p>
-      <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:16px 20px;margin:20px 0;">
-        <div style="font-size:13px;color:#6b7280;margin-bottom:4px;">Email</div>
-        <div style="font-size:15px;font-weight:600;margin-bottom:12px;">{to_email}</div>
-        <div style="font-size:13px;color:#6b7280;margin-bottom:4px;">Temporary password</div>
-        <div style="font-size:15px;font-weight:600;font-family:monospace;letter-spacing:0.5px;">{temp_password}</div>
-      </div>
-      <a href="{login_url}"
-         style="display:inline-block;margin:12px 0;padding:12px 28px;
-                background:#c8924c;color:#fff;text-decoration:none;
-                border-radius:8px;font-weight:600;font-size:14px;">
-        Sign in to berthcast
-      </a>
-      <p style="font-size:13px;color:#6b7280;line-height:1.5;margin-top:16px;">
-        Please change your password after signing in (Settings &rarr; Change password).
-      </p>
-      <p style="font-size:13px;color:#6b7280;">— berthcast</p>
-    </div>
-    """
-    msg.attach(MIMEText(text, "plain"))
-    msg.attach(MIMEText(html, "html"))
-
-    try:
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as smtp:
-            smtp.login(sender, password)
-            smtp.sendmail(sender, to_email, msg.as_string())
-    except Exception:
-        pass
 
 
 @app.route("/register", methods=["GET", "POST"])
@@ -769,139 +394,6 @@ def reset_password(token):
 
 # ── Chat ─────────────────────────────────────────────────────────────────────
 
-def _build_chat_context(user_id: int, org_name: str, detailed: bool = False) -> dict:
-    """Load the user's latest analysis data for the chat system prompt.
-
-    Returns a dict with:
-      summary_text:  always-included context block (stats, critical items, pending recs)
-      detailed_text: extra detail when the 'Analysis context' toggle is on
-      starters:      list of 4 data-aware starter question strings
-      has_data:      bool — whether the user has any completed analysis
-    """
-    result = {"summary_text": "", "detailed_text": "", "starters": [], "has_data": False}
-
-    # Latest completed session (org-scoped — all users in the org see the same data)
-    sessions = db.query(
-        "SELECT id, created_at FROM upload_sessions WHERE org_name=? AND status='complete' "
-        "ORDER BY created_at DESC LIMIT 1",
-        (org_name,)
-    )
-    if not sessions:
-        result["starters"] = [
-            "What does berthcast do?",
-            "How do I run my first analysis?",
-            "What files do I need to upload?",
-            "What kind of recommendations will I get?",
-        ]
-        return result
-
-    sid = sessions[0]["id"]
-    analysis_date = str(sessions[0]["created_at"])[:10]
-    result["has_data"] = True
-
-    ar = db.query(
-        "SELECT inventory_report, recommendations_json FROM analysis_results WHERE session_id=?",
-        (sid,)
-    )
-    if not ar:
-        return result
-
-    try:
-        inventory = json.loads(ar[0]["inventory_report"] or "[]")
-        recs = json.loads(ar[0]["recommendations_json"] or "[]")
-        if isinstance(inventory, dict):
-            inventory = []
-    except Exception:
-        inventory, recs = [], []
-
-    # ── Summary stats ────────────────────────────────────────────────────
-    total      = len(inventory)
-    critical   = [i for i in inventory if isinstance(i, dict) and i.get("status") == "CRITICAL"]
-    low        = [i for i in inventory if isinstance(i, dict) and i.get("status") == "LOW"]
-    dead       = [i for i in inventory if isinstance(i, dict) and i.get("status") == "DEAD"]
-    healthy    = [i for i in inventory if isinstance(i, dict) and i.get("status") == "HEALTHY"]
-    valid_recs = [r for r in recs if isinstance(r, dict) and not r.get("error")]
-    pending    = [r for r in valid_recs if not r.get("approved") and not r.get("dismissed")]
-    approved   = [r for r in valid_recs if r.get("approved")]
-    high_risk  = [r for r in valid_recs if r.get("supplier_risk") == "HIGH"]
-
-    lines = [
-        f"=== {org_name} — LIVE INVENTORY DATA (analysis date: {analysis_date}) ===",
-        f"Total items tracked: {total}",
-        f"CRITICAL: {len(critical)} | LOW: {len(low)} | HEALTHY: {len(healthy)} | DEAD: {len(dead)}",
-        f"Recommendations: {len(valid_recs)} total, {len(pending)} pending review, {len(approved)} approved",
-    ]
-    if high_risk:
-        lines.append(f"High-risk supplier items: {len(high_risk)}")
-
-    # ── Critical items (always included) ─────────────────────────────────
-    if critical:
-        lines.append("")
-        lines.append("CRITICAL ITEMS (need immediate attention):")
-        for item in critical[:30]:
-            dos = item.get("days_of_supply", "?")
-            obs = item.get("observation", "")
-            lines.append(f"  • {item.get('item', '?')} — {dos} days of supply. {obs}")
-
-    # ── Pending recommendations (always included) ────────────────────────
-    if pending:
-        lines.append("")
-        lines.append(f"PENDING RECOMMENDATIONS ({len(pending)} awaiting review):")
-        for rec in pending[:20]:
-            supplier = rec.get("supplier", "Unknown")
-            qty = rec.get("suggested_quantity", "?")
-            conf = rec.get("confidence", "?")
-            reason = rec.get("reason", "")
-            lines.append(f"  • {rec.get('item', '?')} — order {qty} from {supplier} (confidence: {conf}). {reason}")
-
-    result["summary_text"] = "\n".join(lines)
-
-    # ── Detailed text (only when toggle is on) ───────────────────────────
-    if detailed:
-        detail_lines = []
-        if low:
-            detail_lines.append(f"\nLOW STOCK ITEMS ({len(low)}):")
-            for item in low[:40]:
-                dos = item.get("days_of_supply", "?")
-                detail_lines.append(f"  • {item.get('item', '?')} — {dos} days of supply. {item.get('observation', '')}")
-        if dead:
-            detail_lines.append(f"\nDEAD SKUs ({len(dead)}):")
-            for item in dead[:20]:
-                detail_lines.append(f"  • {item.get('item', '?')} — {item.get('observation', '')}")
-        if approved:
-            detail_lines.append(f"\nAPPROVED ORDERS ({len(approved)}):")
-            for rec in approved[:20]:
-                detail_lines.append(f"  • {rec.get('item', '?')} — qty {rec.get('suggested_quantity', '?')} from {rec.get('supplier', '?')}")
-
-        # Supplier profiles
-        profiles = db.get_supplier_profiles(org_name)
-        if profiles:
-            detail_lines.append(f"\nSUPPLIER PROFILES ({len(profiles)}):")
-            for p in profiles:
-                delay = int((p.get("delay_probability") or 0) * 100)
-                lt = p.get("avg_lead_time_days", "?")
-                detail_lines.append(f"  • {p['supplier_name']} — lead time {lt}d, delay rate {delay}%, notes: {p.get('notes', '')}")
-
-        result["detailed_text"] = "\n".join(detail_lines)
-
-    # ── Starter questions based on actual data ───────────────────────────
-    starters = []
-    if critical:
-        starters.append(f"I have {len(critical)} critical items. What should I order first?")
-    if pending:
-        starters.append(f"Walk me through the {len(pending)} pending recommendations.")
-    if high_risk:
-        names = list({r.get("supplier", "?") for r in high_risk})[:3]
-        starters.append(f"What's the risk with {', '.join(names)}?")
-    if dead:
-        starters.append(f"Should I discontinue any of these {len(dead)} dead SKUs?")
-    if len(starters) < 4 and low:
-        starters.append(f"Which of my {len(low)} low-stock items need action soonest?")
-    if len(starters) < 4:
-        starters.append("Give me a quick summary of my inventory health.")
-    result["starters"] = starters[:4]
-
-    return result
 
 
 @app.route("/chat")
@@ -1136,37 +628,6 @@ def delete_conversation(conv_id):
     return jsonify({"ok": True})
 
 
-def _send_contact_email(name: str, email: str, company: str, message: str) -> None:
-    """Send a contact form submission to the berthcast inbox via Gmail SMTP.
-    Requires MAIL_SENDER and MAIL_APP_PASSWORD env vars. Fails silently if not set."""
-    sender    = os.environ.get("MAIL_SENDER", "")
-    password  = os.environ.get("MAIL_APP_PASSWORD", "")
-    recipient = os.environ.get("MAIL_RECIPIENT", "tanyonghan41@gmail.com")
-    if not sender or not password:
-        return  # Not configured — DB record is the fallback
-
-    subject = f"berthcast contact: {name}" + (f" ({company})" if company else "")
-    body = (
-        f"Name: {name}\n"
-        f"Email: {email}\n"
-        f"Company: {company or '—'}\n\n"
-        f"Message:\n{message}\n\n"
-        f"---\nReply directly to this email to respond to {name}."
-    )
-
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = subject
-    msg["From"]    = sender
-    msg["To"]      = recipient
-    msg["Reply-To"] = email
-    msg.attach(MIMEText(body, "plain"))
-
-    try:
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as smtp:
-            smtp.login(sender, password)
-            smtp.sendmail(sender, recipient, msg.as_string())
-    except Exception:
-        pass  # Never surface email errors to the user
 
 
 @app.route("/contact", methods=["GET", "POST"])
@@ -2779,188 +2240,17 @@ def diff_view(session_a_id, session_b_id):
 
 # Confidence values the rest of the codebase (templates, CSV, PDF) expects.
 # Normalise on both save and read so old DB rows render correctly.
-_CONFIDENCE_ALIASES = {
-    "MED":          "MEDIUM",
-    "MID":          "MEDIUM",
-    "M":            "MEDIUM",
-    "H":            "HIGH",
-    "L":            "LOW",
-    "INSUFFICIENT": "INSUFFICIENT_DATA",
-    "UNKNOWN":      "INSUFFICIENT_DATA",
-    "N/A":          "INSUFFICIENT_DATA",
-}
-
-def _normalise_confidence(rec):
-    """Coerce rec['confidence'] to one of HIGH / MEDIUM / LOW / INSUFFICIENT_DATA."""
-    if not isinstance(rec, dict):
-        return
-    raw = (rec.get("confidence") or "").strip().upper()
-    if not raw:
-        return
-    if raw in ("HIGH", "MEDIUM", "LOW", "INSUFFICIENT_DATA"):
-        rec["confidence"] = raw
-        return
-    rec["confidence"] = _CONFIDENCE_ALIASES.get(raw, "INSUFFICIENT_DATA")
 
 
-def _effective_qty(rec):
-    """Return the quantity to display/export: edited value if user adjusted it,
-    otherwise the AI's suggested quantity."""
-    if not isinstance(rec, dict):
-        return ""
-    edited = rec.get("edited_quantity")
-    if edited not in (None, "", "null"):
-        return edited
-    return rec.get("suggested_quantity", "")
 
 
-def _effective_supplier(rec):
-    """Return the supplier to display/export: edited value if user adjusted it,
-    otherwise the AI's suggested supplier."""
-    if not isinstance(rec, dict):
-        return ""
-    edited = rec.get("edited_supplier")
-    if edited not in (None, "", "null"):
-        return edited
-    return rec.get("supplier", "")
 
 
-def _compute_order_by(rec):
-    """Compute when the user must place this order to avoid a stockout.
-
-    Returns a dict with:
-      order_by_date: human-readable string like "12 Jun 2026", or None
-      buffer_days:   int (negative = already overdue), or None
-      status:        'overdue' | 'urgent' | 'ok' | 'unknown'
-    """
-    if not isinstance(rec, dict):
-        return {"order_by_date": None, "buffer_days": None, "status": "unknown"}
-    dos = rec.get("days_of_supply")
-    lt  = rec.get("lead_time_days")
-    try:
-        dos = float(dos) if dos not in (None, "", "null") else None
-        lt  = float(lt)  if lt  not in (None, "", "null") else None
-    except (TypeError, ValueError):
-        return {"order_by_date": None, "buffer_days": None, "status": "unknown"}
-
-    if dos is None or lt is None:
-        return {"order_by_date": None, "buffer_days": None, "status": "unknown"}
-
-    buffer_days = int(round(dos - lt))
-    order_by = datetime.utcnow() + timedelta(days=buffer_days)
-    order_by_date = order_by.strftime("%d %b %Y")
-
-    if buffer_days < 0:
-        status = "overdue"
-    elif buffer_days <= 7:
-        status = "urgent"
-    else:
-        status = "ok"
-
-    return {
-        "order_by_date": order_by_date,
-        "buffer_days":   buffer_days,
-        "status":        status,
-    }
 
 
-def _group_recs_by_supplier(recommendations, status_by_item):
-    """Group recommendations by their effective supplier (user-edited if present,
-    otherwise the AI's suggestion). Returns a list of dicts, ordered with the
-    most-urgent supplier first.
-
-    Each group dict:
-      - name:      supplier display name (or 'Unknown supplier' if blank)
-      - key:       slug used as DOM id
-      - count:     total recs in this group
-      - critical:  number of CRITICAL items
-      - low:       number of LOW items
-      - supplier_type: 'import' / 'local' / 'other' (taken from first rec)
-      - items:     list of item names (for the bulk-approve POST)
-      - recs:      list of the actual rec dicts
-
-    Groups are sorted: most critical first, then most items first, then name.
-    """
-    groups = {}
-    for rec in recommendations:
-        if not isinstance(rec, dict) or rec.get("error"):
-            continue
-        supplier = _effective_supplier(rec) or "Unknown supplier"
-        key = supplier.strip() or "Unknown supplier"
-        g = groups.get(key)
-        if g is None:
-            g = {
-                "name":          key,
-                "key":           "sg-" + "".join(c if c.isalnum() else "-" for c in key.lower())[:60],
-                "count":         0,
-                "critical":      0,
-                "low":           0,
-                "supplier_type": rec.get("supplier_type") or "other",
-                "item_names":    [],
-                "recs":          [],
-            }
-            groups[key] = g
-        g["count"] += 1
-        g["recs"].append(rec)
-        g["item_names"].append(rec.get("item", ""))
-        item_status = status_by_item.get(str(rec.get("item", "")), "")
-        if item_status == "CRITICAL":
-            g["critical"] += 1
-        elif item_status == "LOW":
-            g["low"] += 1
-
-    ordered = sorted(
-        groups.values(),
-        key=lambda g: (-g["critical"], -g["count"], g["name"].lower())
-    )
-    return ordered
 
 
-def _confidence_reasons(rec):
-    """Build a short, plain-English list of reasons explaining why the AI
-    settled on this confidence level. Used in the confidence-ring popover."""
-    if not isinstance(rec, dict):
-        return []
-    reasons = []
-    conf = (rec.get("confidence") or "").upper()
-    if conf == "INSUFFICIENT_DATA":
-        reasons.append("Supplier or sales history not in system.")
 
-    if not rec.get("supplier") or rec.get("supplier") in ("Unknown", "unknown", "—"):
-        reasons.append("Supplier not on file.")
-
-    lt = rec.get("lead_time_days")
-    if lt in (None, "", "null"):
-        reasons.append("Lead time unknown — buffer based on supplier type.")
-    else:
-        try:
-            lt_f = float(lt)
-            reasons.append(f"Lead time on file: {int(lt_f)} days.")
-        except (TypeError, ValueError):
-            pass
-
-    dos = rec.get("days_of_supply")
-    if dos in (None, "", "null"):
-        reasons.append("Stock runway unknown — limited sales history.")
-
-    risk = rec.get("supplier_risk")
-    if risk == "HIGH":
-        reasons.append("Supplier flagged as high-risk (delays or unreliable).")
-
-    flags = rec.get("flags") or []
-    if isinstance(flags, list) and flags:
-        for f in flags[:3]:
-            if f:
-                reasons.append(str(f))
-
-    if not reasons:
-        if conf == "HIGH":
-            reasons.append("Strong sales history, known supplier, lead time on file.")
-        elif conf in ("MED", "MEDIUM"):
-            reasons.append("Some data missing — recommendation is solid but not certain.")
-        elif conf == "LOW":
-            reasons.append("Limited data — review before approving.")
-    return reasons
 
 
 # ── Recommendation approve / dismiss routes ──────────────────────────────────
