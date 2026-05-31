@@ -320,12 +320,39 @@
                 </div>
               </div>
 
+              {% if rec._quantity_basis %}
+              <p class="rec-qty-basis">{{ rec._quantity_basis }}</p>
+              {% endif %}
+
               {% if rec.days_of_supply %}
               <p style="margin-top:10px; color:var(--muted);">
                 <strong>Stock runway:</strong> {{ (rec.days_of_supply / 30) | round(1) }} months remaining
               </p>
               {% endif %}
               <p style="margin-top:8px;">{{ rec.reason }}</p>
+
+              {% if rec._has_stakes %}
+              <div class="rec-stakes">
+                {% if rec.consequence_if_not_acting %}
+                <div class="rec-stake is-negative">
+                  <div class="rec-stake-label">If you don't order</div>
+                  <div class="rec-stake-text">{{ rec.consequence_if_not_acting }}</div>
+                </div>
+                {% endif %}
+                {% if rec.consequence_if_acting %}
+                <div class="rec-stake is-positive">
+                  <div class="rec-stake-label">If you order</div>
+                  <div class="rec-stake-text">{{ rec.consequence_if_acting }}</div>
+                </div>
+                {% endif %}
+              </div>
+              {% endif %}
+              {% if rec.supplier_risk == 'HIGH' and rec.mitigation %}
+              <div class="rec-mitigation">
+                <span class="rec-mitigation-label">What to do about the supplier risk:</span>
+                {{ rec.mitigation }}
+              </div>
+              {% endif %}
             </div>
 
             <div class="rec-card-actions">
@@ -516,6 +543,24 @@
 .score-good { color: var(--success, #2D6A4F); }
 .score-ok { color: var(--brass); }
 .score-bad { color: var(--danger, #8B2C2C); }
+
+/* ── Quantity basis: plain-English "why this number" line ── */
+.rec-qty-basis { margin-top: 8px; font-size: 13px; color: var(--muted); line-height: 1.45; }
+
+/* ── Stakes: side-by-side "if you don't / if you do" boxes ── */
+.rec-stakes { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+.rec-stake { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; background: var(--paper, #FAF8F3); }
+.rec-stake-label { font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; margin-bottom: 4px; }
+.rec-stake-text { font-size: 13px; line-height: 1.45; color: var(--text); }
+.rec-stake.is-negative { border-color: rgba(139,44,44,0.35); background: rgba(139,44,44,0.06); }
+.rec-stake.is-negative .rec-stake-label { color: var(--danger, #8B2C2C); }
+.rec-stake.is-positive .rec-stake-label { color: var(--muted); }
+
+/* ── Mitigation: amber strip, shown only for high-risk suppliers ── */
+.rec-mitigation { margin-top: 10px; font-size: 13px; line-height: 1.45; color: var(--text); border-left: 3px solid var(--brass, #c8924c); background: rgba(200,146,76,0.10); padding: 8px 12px; border-radius: 0 8px 8px 0; }
+.rec-mitigation-label { font-weight: 700; color: var(--brass, #c8924c); }
+
+@media (max-width: 560px) { .rec-stakes { grid-template-columns: 1fr; } }
 </style>
 
 <script>

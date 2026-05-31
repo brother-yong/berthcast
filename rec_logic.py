@@ -186,3 +186,66 @@ def _confidence_reasons(rec):
         elif conf == "LOW":
             reasons.append("Limited data — review before approving.")
     return reasons
+
+
+def _has_stakes(rec):
+    """True when the rec has at least one non-empty consequence sentence to show.
+    Lets the template decide whether to render the 'stakes' section at all."""
+    if not isinstance(rec, dict):
+        return False
+    neg = (rec.get("consequence_if_not_acting") or "").strip()
+    pos = (rec.get("consequence_if_acting") or "").strip()
+    return bool(neg or pos)
+
+
+def _fmt_num(n):
+    """Format a number for display without a trailing '.0' on whole values.
+    Returns None if the value can't be read as a number."""
+    try:
+        f = float(n)
+    except (TypeError, ValueError):
+        return None
+    if f != f:  # NaN
+        return None
+    return str(int(f)) if f == int(f) else str(round(f, 1))
+
+
+def _quantity_basis(rec):
+    """Plain-English sentence explaining how the suggested order quantity was sized,
+    e.g. "You sell about 40 CTN/month, and this supplier takes about 3.5 months.
+    Suggested order: 160 CTN — covers the wait plus a safety buffer."
+
+    Returns None when there's no usable monthly-sales figure (the existing
+    'insufficient sales data' case), so the template can hide the line. Described,
+    not a strict equation — the agent may nudge the quantity, and a fake equation
+    that doesn't add up would erode trust faster than no equation."""
+    if not isinstance(rec, dict):
+        return None
+    raw_avg = rec.get("avg_monthly_sales")
+    avg = _fmt_num(raw_avg)
+    try:
+        if avg is None or float(raw_avg) <= 0:
+            return None
+    except (TypeError, ValueError):
+        return None
+
+    uom = rec.get("uom_label") or " units"
+    qty_str = str(_effective_qty(rec)).strip()
+
+    lt = rec.get("lead_time_days")
+    lt_months = None
+    if lt not in (None, "", "null"):
+        try:
+            lt_months = _fmt_num(round(float(lt) / 30, 1))
+        except (TypeError, ValueError):
+            lt_months = None
+
+    sentence = f"You sell about {avg}{uom}/month"
+    if lt_months is not None:
+        sentence += f", and this supplier takes about {lt_months} months"
+    sentence += "."
+    if qty_str:
+        buffer_phrase = ("the wait plus a safety buffer" if lt_months is not None
+                         else "expected demand plus a safety buffer")
+        sentence += f" Suggested order: {qty_str} — covers {buffer_phrase}."
+    return sentence
