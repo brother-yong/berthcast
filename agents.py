@@ -741,6 +741,10 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
 
     # Build enriched item lines for Claude
     enriched_lines = []
+    # Capture the monthly-sales figure + unit used to size each suggested
+    # quantity, keyed by item name. Attached to the saved recs below so the
+    # results page can explain where the number came from.
+    qty_basis_by_item = {}
     for inv_item in actionable:
         iname    = inv_item.get("item", "Unknown")
 
@@ -786,6 +790,7 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
         avg_monthly = sales_velocity.get(iname, 0)
         uom = uom_by_item_r.get(iname.lower(), "")
         uom_label = f" {uom}" if uom else " units"
+        qty_basis_by_item[iname] = (avg_monthly, uom_label)
         if avg_monthly > 0:
             lt_months = (lt_days / 30) if lt_days else 2.0
             if delay_prob <= 0.15:
@@ -878,8 +883,14 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
             _emit(progress_emit, "Recommendation agent returned no usable response")
             return [{"error": f"Recommendation agent returned no usable JSON. First 400 chars: {raw[:400]}"}]
 
-        # Save outcome stubs for future learning
+        # Save outcome stubs for future learning, and attach the quantity
+        # basis (monthly sales + unit) so the results page can explain the
+        # suggested number. Matched by item name — the LLM echoes it back.
         for rec in recs:
+            if isinstance(rec, dict):
+                basis = qty_basis_by_item.get(rec.get("item", ""))
+                if basis:
+                    rec["avg_monthly_sales"], rec["uom_label"] = basis
             try:
                 save_recommendation_outcome(
                     session_id=session_id,

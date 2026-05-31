@@ -35,6 +35,7 @@ from auth_utils import (
 from rec_logic import (
     _normalise_confidence, _effective_qty, _effective_supplier,
     _compute_order_by, _group_recs_by_supplier, _confidence_reasons,
+    _quantity_basis, _has_stakes,
 )
 from chat_logic import _build_chat_context
 
@@ -1870,6 +1871,8 @@ def results(upload_session_id):
         rec["_conf_reasons"]  = _confidence_reasons(rec)
         rec["_effective_qty"]      = _effective_qty(rec)
         rec["_effective_supplier"] = _effective_supplier(rec)
+        rec["_quantity_basis"]     = _quantity_basis(rec)
+        rec["_has_stakes"]         = _has_stakes(rec)
         rec["_card_idx"]      = _idx
         _idx += 1
 
