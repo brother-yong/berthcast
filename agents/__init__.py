@@ -8,6 +8,7 @@ Internal helpers/constants are re-exported too for backward-compatible access.
 from .normalization import run_normalization_agent
 from .inventory import run_inventory_agent
 from .recommendation import run_recommendation_agent
+from .orchestrator import run_pipeline
 
 # Re-export internals so existing references like `agents._extract_json_array`
 # keep working (and so tests can reach them through the package root).
@@ -29,4 +30,5 @@ __all__ = [
     "run_normalization_agent",
     "run_inventory_agent",
     "run_recommendation_agent",
+    "run_pipeline",
 ]
