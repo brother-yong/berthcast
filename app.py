@@ -20,8 +20,7 @@ import anthropic as _anthropic
 import database as db
 from agents import (
     run_normalization_agent,
-    run_inventory_agent,
-    run_recommendation_agent,
+    run_pipeline,
 )
 
 from config import UPLOAD_FOLDER, ALLOWED_EXTENSIONS, FILE_SLOTS, AVAILABLE_MODELS
@@ -1636,34 +1635,6 @@ def run_analysis(upload_session_id):
             if summary is not None:
                 ag["summary"] = summary
 
-    def _summarise_inventory(report):
-        """One-line summary for the inventory agent's collapsed card."""
-        if not isinstance(report, list):
-            return "Inventory classified"
-        total    = len(report)
-        critical = sum(1 for r in report if isinstance(r, dict) and r.get("status") == "CRITICAL")
-        low      = sum(1 for r in report if isinstance(r, dict) and r.get("status") == "LOW")
-        dead     = sum(1 for r in report if isinstance(r, dict) and r.get("status") == "DEAD")
-        parts = [f"{total} items reviewed"]
-        if critical: parts.append(f"{critical} critical")
-        if low:      parts.append(f"{low} low")
-        if dead:     parts.append(f"{dead} dead")
-        return " · ".join(parts)
-
-    def _summarise_recommendations(recs):
-        """One-line summary for the recommendation agent's collapsed card."""
-        if not isinstance(recs, list):
-            return "Recommendations generated"
-        valid    = [r for r in recs if isinstance(r, dict) and not r.get("error")]
-        total    = len(valid)
-        flagged  = sum(1 for r in valid if r.get("supplier_risk") == "HIGH" or r.get("flags"))
-        if total == 0:
-            return "No reorder recommendations needed"
-        s = f"{total} reorder recommendation" + ("s" if total != 1 else "")
-        if flagged:
-            s += f" · {flagged} flagged"
-        return s
-
     def _run():
         try:
             rows    = db.query("SELECT context_json FROM upload_sessions WHERE id=?", (upload_session_id,))
@@ -1677,31 +1648,21 @@ def run_analysis(upload_session_id):
                 except Exception:
                     pass
 
-            # ── Agent 2: Inventory health ────────────────────────────────────
-            _mark_agent("inventory", "running")
-            _emit("Starting inventory health agent")
-            inv_result = run_inventory_agent(upload_session_id, model, confirmed_groups, context, progress_emit=_emit)
-            if "error" in inv_result:
-                _mark_agent("inventory", "error", summary="Failed — see error below")
+            # ── Run the agent pipeline (inventory -> recommendation) ─────────
+            # The orchestrator ("big boss") owns the agent sequence and progress
+            # markers; this route keeps the DB/email/notification glue below.
+            result = run_pipeline(
+                upload_session_id, model, confirmed_groups, context,
+                emit=_emit, mark=_mark_agent,
+            )
+            if "error" in result:
                 with analysis_progress_lock:
                     analysis_progress[upload_session_id]["status"] = "error"
-                    analysis_progress[upload_session_id]["error"]  = inv_result["error"]
+                    analysis_progress[upload_session_id]["error"]  = result["error"]
                 return
 
-            inventory_report = inv_result["report"]
-            _mark_agent("inventory", "done", summary=_summarise_inventory(inventory_report))
-
-            # ── Agent 3: Purchase recommendations ────────────────────────────
-            _mark_agent("recommendation", "running")
-            _emit("Starting purchase recommendation agent")
-            recommendations = run_recommendation_agent(upload_session_id, model, inventory_report, context, progress_emit=_emit)
-
-            # Defensive: normalise confidence values before persisting so the
-            # UI doesn't have to guess what "MED" or "high" means later.
-            for _rec in recommendations:
-                _normalise_confidence(_rec)
-
-            _mark_agent("recommendation", "done", summary=_summarise_recommendations(recommendations))
+            inventory_report = result["inventory_report"]
+            recommendations  = result["recommendations"]
 
             db.execute(
                 "UPDATE analysis_results SET inventory_report=?, recommendations_json=? WHERE session_id=?",
