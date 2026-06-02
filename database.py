@@ -2,20 +2,64 @@ import sqlite3
 import json
 import os
 
-# DB lives on the Render persistent disk in prod (DB_PATH env var points to
-# /var/data/berthcast.db). For local dev, defaults to a file in the cwd.
-# IMPORTANT: never put this under the project source dir on Render — that
-# folder is overwritten on every deploy and the DB gets wiped.
+# DB lives on the Render persistent disk in prod (DB_PATH env var points to a
+# file on the mounted disk, e.g. /var/data/berthai.db). For local dev, defaults
+# to a file in the cwd.
+# IMPORTANT: never put this under the project source dir on Render — that folder
+# is overwritten on every deploy and the DB gets wiped.
 DB_PATH = os.environ.get("DB_PATH", "berthcast.db")
 
-# Make sure the parent directory exists before sqlite tries to open the file.
-# On Render's first boot the /var/data mount is empty.
-_db_dir = os.path.dirname(DB_PATH)
-if _db_dir and not os.path.exists(_db_dir):
-    try:
-        os.makedirs(_db_dir, exist_ok=True)
-    except Exception:
-        pass
+
+def _verify_persistent_storage(db_path, on_render, dir_exists=os.path.isdir,
+                               db_path_is_explicit=None):
+    """Refuse to start if, in production, the DB would land on throwaway storage.
+
+    Previously the code silently created a missing folder and wrote there — so if
+    the persistent disk wasn't mounted (or DB_PATH wasn't set) the database lived
+    on the ephemeral container filesystem and every deploy wiped all accounts,
+    with no error. This makes that situation loud instead of silent.
+
+    Only enforced on Render (on_render). Locally it does nothing, so dev is
+    unaffected. Kept as a pure function (deps injected) so it is fully testable.
+    """
+    if not on_render:
+        return
+    if db_path_is_explicit is None:
+        db_path_is_explicit = bool(os.environ.get("DB_PATH"))
+
+    problems = []
+    if not db_path_is_explicit:
+        problems.append("DB_PATH is not set (so the DB would be written to the "
+                        "deploy folder, which Render wipes on every deploy)")
+    else:
+        parent = os.path.dirname(db_path)
+        if parent and not dir_exists(parent):
+            problems.append(f"the folder {parent} does not exist — the persistent "
+                            "disk is probably not mounted")
+
+    if problems:
+        raise RuntimeError(
+            "REFUSING TO START: the database would be saved to throwaway storage "
+            "and lost on the next deploy.\n"
+            "  Problem: " + "; ".join(problems) + ".\n"
+            "  Fix: in Render, attach a persistent disk (e.g. mounted at /var/data) "
+            "and set the DB_PATH env var to a file on it (e.g. /var/data/berthai.db)."
+        )
+
+
+# Fail loudly in production if storage isn't persistent; stay convenient locally.
+_verify_persistent_storage(DB_PATH, bool(os.environ.get("RENDER")))
+
+# Local/dev only: create the parent dir if missing so sqlite can open the file.
+# In production the persistent disk is already mounted, so we never create it
+# here (a missing dir there means trouble — handled by the guard above).
+if not os.environ.get("RENDER"):
+    _db_dir = os.path.dirname(DB_PATH)
+    if _db_dir and not os.path.exists(_db_dir):
+        try:
+            os.makedirs(_db_dir, exist_ok=True)
+        except Exception:
+            pass
 
 
 def get_db():
