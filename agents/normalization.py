@@ -4,12 +4,17 @@ Scans item names across inventory/PO/sales and groups duplicates so the rest of
 the pipeline treats one product as one item. Moved verbatim from agents.py.
 """
 
-from database import query
+from database import query, get_company_config
 from .shared import _call_claude, _emit, _extract_json_array
 
 
 def run_normalization_agent(session_id: int, model: str, progress_emit=None) -> dict:
     _emit(progress_emit, "Reading item names from your inventory, purchase orders, and sales files")
+
+    _sess = query("SELECT org_name FROM upload_sessions WHERE id=?", (session_id,))
+    _org_name    = _sess[0]["org_name"] if _sess else "your company"
+    _norm_config = get_company_config(_org_name)
+    _company_desc = _norm_config.get("company_description") or _org_name
     item_names = set()
     inv_table = f"inventory_{session_id}"
     po_table  = f"purchase_orders_{session_id}"
@@ -43,7 +48,7 @@ def run_normalization_agent(session_id: int, model: str, progress_emit=None) -> 
     _emit(progress_emit, "Asking Claude to spot duplicates (same product, different wording)")
 
     system_prompt = (
-        "You are a data normalisation specialist for a food distribution company.\n"
+        f"You are a data normalisation specialist for {_company_desc}.\n"
         "Identify item names that clearly refer to the same product but are written differently.\n\n"
         "Rules:\n"
         "- Only group items you are confident are the same product (same product, same size/weight)\n"

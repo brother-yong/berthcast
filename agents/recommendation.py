@@ -47,7 +47,7 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
         r for r in live_items
         if r.get("status") in ("LOW", "CRITICAL")
         or (r.get("status") != "HEALTHY" and r.get("spoilage_risk") in ("HIGH", "MEDIUM"))
-    ][:150]
+    ]
 
     if not actionable:
         _emit(progress_emit, "No items need attention right now — inventory looks healthy")
@@ -100,8 +100,16 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
                 s_qty = next((c for c in s_cols if any(k in c.lower() for k in ("qty", "quantity")) and "allocated" not in c.lower()), None)
             if s_desc and s_qty:
                 try:
-                    mo_r = query(f'SELECT COUNT(DISTINCT strftime("%Y-%m", date)) as m FROM {sal_table_r} LIMIT 1')
-                    months_r = max(1, (mo_r[0]["m"] or 0) if mo_r else 0) or 12
+                    _DATE_EXACT_R = ("date", "invoice_date", "order_date", "transaction_date",
+                                     "sales_date", "po_date", "doc_date", "posting_date")
+                    _date_col_r = next((c for c in s_cols if c.lower() in _DATE_EXACT_R), None)
+                    if not _date_col_r:
+                        _date_col_r = next((c for c in s_cols if "date" in c.lower()), None)
+                    if _date_col_r:
+                        mo_r = query(f'SELECT COUNT(DISTINCT strftime("%Y-%m", "{_date_col_r}")) as m FROM {sal_table_r} LIMIT 1')
+                        months_r = max(1, (mo_r[0]["m"] or 0) if mo_r else 0) or 12
+                    else:
+                        months_r = 12
                 except Exception:
                     months_r = 12
                 vel_rows = query(
@@ -243,19 +251,42 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
         "8. Return ONLY a valid JSON array. No text outside the array."
     )
 
-    user_prompt = (
-        f"Items requiring attention ({len(enriched_lines)} items):\n\n"
-        + "\n".join(enriched_lines)
-        + f"\n\nContext from purchasing team:\n{context_text}\n\n"
-        "Generate consequence-aware purchase recommendations."
-    )
+    # Process in batches — large catalogues need multiple Claude passes
+    _REC_BATCH  = 150
+    rec_batches = [enriched_lines[i:i+_REC_BATCH]
+                   for i in range(0, len(enriched_lines), _REC_BATCH)]
+    n_batches   = len(rec_batches)
+    if n_batches > 1:
+        _emit(progress_emit,
+              f"Splitting into {n_batches} recommendation batches of up to {_REC_BATCH} items")
 
     try:
-        raw = _call_claude(model, system_prompt, user_prompt, max_tokens=24000)
-        recs, _repaired = _extract_json_array(raw)
-        if recs is None:
+        all_recs = []
+        for i, batch in enumerate(rec_batches, 1):
+            if n_batches > 1:
+                _emit(progress_emit,
+                      f"Recommendations: batch {i}/{n_batches} ({len(batch)} items)")
+            user_prompt = (
+                f"Items requiring attention ({len(batch)} items"
+                + (f", batch {i}/{n_batches}" if n_batches > 1 else "")
+                + "):\n\n"
+                + "\n".join(batch)
+                + f"\n\nContext from purchasing team:\n{context_text}\n\n"
+                "Generate consequence-aware purchase recommendations."
+            )
+            raw = _call_claude(model, system_prompt, user_prompt, max_tokens=24000)
+            recs_batch, _ = _extract_json_array(raw)
+            if recs_batch is None:
+                _emit(progress_emit,
+                      f"WARNING: recommendation batch {i}/{n_batches} returned no usable response — skipping")
+                continue
+            all_recs.extend(recs_batch)
+
+        if not all_recs:
             _emit(progress_emit, "Recommendation agent returned no usable response")
-            return [{"error": f"Recommendation agent returned no usable JSON. First 400 chars: {raw[:400]}"}]
+            return [{"error": "Recommendation agent returned no usable JSON for any batch."}]
+
+        recs = all_recs
 
         # Save outcome stubs for future learning, and attach the quantity
         # basis (monthly sales + unit) so the results page can explain the
