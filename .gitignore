@@ -7,6 +7,9 @@ Stockout Report/
 Supplier Listing/
 uploads/
 
+# Local memory / working notes — contains client financials, never upload
+MEMORY.md
+
 # Database
 *.db
 *.db-journal
