@@ -18,6 +18,7 @@ from flask_wtf.csrf import CSRFProtect
 import anthropic as _anthropic
 
 import database as db
+import rate_limit
 from agents import (
     run_normalization_agent,
     run_pipeline,
@@ -54,6 +55,25 @@ app.secret_key = _secret or secrets.token_hex(32)
 csrf = CSRFProtect(app)
 
 app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024  # 100MB
+
+# Session cookie hardening. SECURE is only enforced in production (on Render,
+# which is HTTPS-only) so local http dev still works. HTTPONLY keeps JavaScript
+# from reading the login cookie; SAMESITE=Lax stops it being sent on cross-site
+# requests. Session length is left as a browser-session cookie (clears on close).
+app.config.update(
+    SESSION_COOKIE_SECURE=bool(os.environ.get("RENDER")),
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+)
+
+
+def _client_ip():
+    """Best-effort client IP for throttling. Behind Render's proxy the real
+    client is the first entry in X-Forwarded-For; fall back to remote_addr."""
+    xff = request.headers.get("X-Forwarded-For", "")
+    if xff:
+        return xff.split(",")[0].strip()
+    return request.remote_addr or "unknown"
 
 
 
@@ -182,6 +202,12 @@ def login():
     if "user_id" in session:
         return redirect(url_for("chat"))
     if request.method == "POST":
+        ip = _client_ip()
+        if rate_limit.is_locked(ip):
+            mins = max(1, rate_limit.seconds_until_unlock(ip) // 60)
+            flash(f"Too many failed sign-in attempts. Please wait about "
+                  f"{mins} minute{'s' if mins != 1 else ''} and try again.", "error")
+            return render_template("login.html")
         email    = request.form.get("email", "").strip().lower()
         password = request.form.get("password", "")
         users = db.query("SELECT * FROM users WHERE email=?", (email,))
@@ -190,6 +216,7 @@ def login():
             if not u["email_verified"]:
                 flash("Please verify your email before signing in. Check your inbox for the verification link.", "error")
                 return render_template("login.html")
+            rate_limit.clear(ip)
             session["user_id"]  = u["id"]
             session["email"]    = u["email"]
             session["org_name"] = u["org_name"]
@@ -198,6 +225,7 @@ def login():
             session["tier"]     = u["tier"]
             session["role"]     = u.get("role") or "admin"
             return redirect(url_for("admin_panel") if u["is_admin"] else url_for("chat"))
+        rate_limit.record_failure(ip)
         flash("Incorrect email or password.", "error")
     return render_template("login.html")
 
