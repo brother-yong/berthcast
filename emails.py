@@ -1,5 +1,15 @@
 """Email senders for berthcast (reset, verification, invites, contact form,
-analysis-ready and critical-stock alerts). Extracted verbatim from app.py."""
+analysis-ready and critical-stock alerts).
+
+All mail goes out through Gmail SMTP using three env vars:
+  MAIL_USERNAME      the real Gmail account used to log in (owns the app password).
+                     Optional - falls back to MAIL_SENDER when unset.
+  MAIL_APP_PASSWORD  a Gmail App Password generated on that account.
+  MAIL_SENDER        the address shown to recipients in the From header
+                     (e.g. admin@berthcast.com, a verified Gmail "send-as" alias).
+
+Splitting login from the From header lets mail be sent *as* admin@berthcast.com
+while authenticating as a real Gmail account."""
 import os
 import smtplib
 from email.mime.text import MIMEText
@@ -89,7 +99,7 @@ def _send_critical_alert(user_id: int, upload_session_id: int, new_critical: lis
 
     try:
         with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as smtp:
-            smtp.login(sender, password)
+            smtp.login(os.environ.get("MAIL_USERNAME") or sender, password)
             smtp.sendmail(sender, to_email, msg.as_string())
     except Exception:
         pass
@@ -137,7 +147,7 @@ def _send_reset_email(to_email: str, reset_url: str) -> None:
 
     try:
         with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as smtp:
-            smtp.login(sender, password)
+            smtp.login(os.environ.get("MAIL_USERNAME") or sender, password)
             smtp.sendmail(sender, to_email, msg.as_string())
     except Exception:
         pass
@@ -208,7 +218,7 @@ def _send_analysis_ready_email(user_id: int, upload_session_id: int,
 
     try:
         with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as smtp:
-            smtp.login(sender, password)
+            smtp.login(os.environ.get("MAIL_USERNAME") or sender, password)
             smtp.sendmail(sender, to_email, msg.as_string())
     except Exception:
         pass
@@ -259,7 +269,7 @@ def _send_verification_email(to_email: str, verify_url: str) -> None:
 
     try:
         with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as smtp:
-            smtp.login(sender, password)
+            smtp.login(os.environ.get("MAIL_USERNAME") or sender, password)
             smtp.sendmail(sender, to_email, msg.as_string())
     except Exception:
         pass
@@ -314,7 +324,7 @@ def _send_invite_email(to_email: str, org_name: str, temp_password: str, login_u
 
     try:
         with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as smtp:
-            smtp.login(sender, password)
+            smtp.login(os.environ.get("MAIL_USERNAME") or sender, password)
             smtp.sendmail(sender, to_email, msg.as_string())
     except Exception:
         pass
@@ -347,7 +357,7 @@ def _send_contact_email(name: str, email: str, company: str, message: str) -> No
 
     try:
         with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as smtp:
-            smtp.login(sender, password)
+            smtp.login(os.environ.get("MAIL_USERNAME") or sender, password)
             smtp.sendmail(sender, recipient, msg.as_string())
     except Exception:
         pass  # Never surface email errors to the user
