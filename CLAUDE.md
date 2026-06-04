@@ -6,7 +6,7 @@ At the start of every session, read MEMORY.md before responding. Use what you fi
 
 When I say "remember this," write the information to MEMORY.md immediately and confirm you've done it.
 
-At the end of every session (or when something significant happens mid-session), Claude must update `About Me/memory.md` — appending new entries or updating existing ones as needed.
+At the end of every session (or when something significant happens mid-session), Claude must update `MEMORY.md` — appending new entries or updating existing ones as needed.
 
 ---
 
@@ -50,6 +50,7 @@ At the end of every session (or when something significant happens mid-session),
 - Always critique your own code before answering me
 - Tell me the exact prompts when we need to push to GitHub
 - Always update memory/context whenever a significant task is done
+- Whenever a commit is made, immediately update MEMORY.md to record what changed (MEMORY.md stays local — never commit it)
 - After compacting any chat at any point of time, do not change the way that you talk
 - Whenever a new task is started in a project, read context/memory to keep yourself updated
 - Feel free to play the devil's advocate and push back on ideas, but it has to always be backed up with a solution
