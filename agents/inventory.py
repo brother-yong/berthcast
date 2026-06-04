@@ -243,17 +243,29 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
             if uom_val and canonical_key and canonical_key not in uom_by_item:
                 uom_by_item[canonical_key] = uom_val
 
-    # Estimate months of data coverage from distinct year-months in sales table
+    # Estimate months of data coverage from distinct year-months in sales table.
+    # Detect the actual date column name — ERP exports use different names.
     try:
-        _mo_rows = query(
-            f'SELECT COUNT(DISTINCT strftime("%Y-%m", date)) as m FROM {sal_table} LIMIT 1'
-        )
-        months_of_data = max(1, (_mo_rows[0]["m"] or 0) if _mo_rows else 0) or 12
+        _sal_cols_sample = query(f"SELECT * FROM {sal_table} LIMIT 1")
+        _sal_col_names   = list(_sal_cols_sample[0].keys()) if _sal_cols_sample else []
+        _DATE_EXACT = ("date", "invoice_date", "order_date", "transaction_date",
+                       "sales_date", "po_date", "doc_date", "posting_date")
+        _date_col = next((c for c in _sal_col_names if c.lower() in _DATE_EXACT), None)
+        if not _date_col:
+            _date_col = next((c for c in _sal_col_names if "date" in c.lower()), None)
+        if _date_col:
+            _mo_rows = query(
+                f'SELECT COUNT(DISTINCT strftime("%Y-%m", "{_date_col}")) as m FROM {sal_table} LIMIT 1'
+            )
+            months_of_data = max(1, (_mo_rows[0]["m"] or 0) if _mo_rows else 0) or 12
+        else:
+            months_of_data = 12
+            _emit(progress_emit, "WARNING: no date column found in sales table — defaulting to 12 months for velocity calculation")
     except Exception:
-        months_of_data = 12  # fallback: assume 1 year of data
+        months_of_data = 12
 
     inv_summary_lines = []
-    for row in inventory_sorted[:800]:
+    for row in inventory_sorted:
         desc      = row.get(_desc_col) or "Unknown"
         qty_raw   = row.get(_qty_col)  or "0"
         cat       = (row.get(_cat_col) if _cat_col else None) or "GENERAL"
@@ -297,7 +309,6 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
         return {"error": f"No inventory rows. desc_col={_desc_col}, qty_col={_qty_col}, rows={len(inventory)}"}
 
     _emit(progress_emit, f"Prepared {len(inv_summary_lines)} items for analysis (zero-stock items prioritised)")
-    _emit(progress_emit, "Asking Claude to assess inventory health (this is the slow part — up to a minute)")
 
     context_text = _format_context(context)
 
@@ -345,22 +356,51 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
         "item, category, stock, status, spoilage_risk, days_of_supply, observation\n"
         "Do not include text outside the JSON array."
     )
-    user_prompt = (
-        f"Inventory snapshot ({len(inv_summary_lines)} items, data covers {months_of_data} months):\n\n"
-        + "\n".join(inv_summary_lines)
-        + f"\n\nContext from purchasing team:\n{context_text}\n\nReturn the health report JSON."
-    )
+    # Process in batches — catalogues larger than 800 items need multiple passes
+    _INV_BATCH  = 800
+    inv_batches = [inv_summary_lines[i:i+_INV_BATCH]
+                   for i in range(0, len(inv_summary_lines), _INV_BATCH)]
+    n_batches   = len(inv_batches)
+    if n_batches > 1:
+        _emit(progress_emit,
+              f"Catalogue too large for one pass — splitting into {n_batches} batches of up to {_INV_BATCH} items")
+    else:
+        _emit(progress_emit, "Asking Claude to assess inventory health (this is the slow part — up to a minute)")
 
     try:
-        raw = _call_claude(model, system_prompt, user_prompt, max_tokens=16000)
-        report, repaired = _extract_json_array(raw)
-        if report is None:
+        all_items   = []
+        any_repaired = False
+        for i, batch in enumerate(inv_batches, 1):
+            if n_batches > 1:
+                _emit(progress_emit,
+                      f"Inventory health: batch {i}/{n_batches} ({len(batch)} items)")
+            user_prompt = (
+                f"Inventory snapshot"
+                + (f" — batch {i}/{n_batches}" if n_batches > 1 else "")
+                + f" ({len(batch)} items, data covers {months_of_data} months):\n\n"
+                + "\n".join(batch)
+                + f"\n\nContext from purchasing team:\n{context_text}\n\nReturn the health report JSON."
+            )
+            raw = _call_claude(model, system_prompt, user_prompt, max_tokens=16000)
+            parsed, repaired = _extract_json_array(raw)
+            if parsed is None:
+                _emit(progress_emit,
+                      f"WARNING: inventory batch {i}/{n_batches} returned no usable response — skipping")
+                continue
+            all_items.extend(parsed)
+            if repaired:
+                any_repaired = True
+
+        if not all_items:
             _emit(progress_emit, "Inventory agent returned no usable response")
-            return {"error": f"Inventory agent returned no usable JSON. First 400 chars: {raw[:400]}"}
+            return {"error": "Inventory agent returned no usable JSON for any batch."}
+
+        report = all_items
         crit = sum(1 for r in report if r.get("status") == "CRITICAL")
         low  = sum(1 for r in report if r.get("status") == "LOW")
-        _emit(progress_emit, f"Inventory health complete — {len(report)} items reviewed, {crit} critical, {low} low")
-        return {"report": report, "items_analysed": len(report), "partial": repaired}
+        _emit(progress_emit,
+              f"Inventory health complete — {len(report)} items reviewed, {crit} critical, {low} low")
+        return {"report": report, "items_analysed": len(report), "partial": any_repaired}
     except Exception as e:
         _emit(progress_emit, f"Inventory agent error: {str(e)}")
         return {"error": f"Inventory agent error: {str(e)}"}
