@@ -200,7 +200,19 @@
       <tbody>
         {% for u in users %}
         <tr>
-          <td>{{ u.email }}</td>
+          <td>
+            <div style="margin-bottom:6px;">{{ u.email }}</div>
+            <form method="POST" action="{{ url_for('admin_panel') }}"
+                  style="display:flex; gap:6px; align-items:center;"
+                  data-confirm="Change this account's email? Make sure the new address is correct."
+                  data-confirm-label="Change email">
+              <input type="hidden" name="action" value="change_email">
+              <input type="hidden" name="user_id" value="{{ u.id }}">
+              <input type="email" name="new_email" placeholder="new email…" required
+                     style="font-size:12px; padding:4px 6px; width:170px;">
+              <button type="submit" class="btn btn-outline btn-sm">Change</button>
+            </form>
+          </td>
           <td>{{ u.org_name }}</td>
           <td>
             <form method="POST" action="{{ url_for('admin_panel') }}" style="display:flex; gap:8px; align-items:center;">
