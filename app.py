@@ -19,6 +19,7 @@ import anthropic as _anthropic
 
 import database as db
 import rate_limit
+import validators
 from agents import (
     run_normalization_agent,
     run_pipeline,
@@ -735,6 +736,27 @@ def admin_panel():
             model = request.form.get("model")
             db.execute("UPDATE users SET model=? WHERE id=?", (model, uid))
             flash("Model updated.", "success")
+        elif action == "change_email":
+            # Fix an account's email (e.g. one created with the wrong address).
+            # Validation lives in validators.validate_email_change: it rejects
+            # blanks/malformed addresses and refuses an email already used by a
+            # different account, so this can't be used to hijack another login.
+            uid = request.form.get("user_id")
+            try:
+                target_id = int(uid)
+            except (TypeError, ValueError):
+                flash("Couldn't identify which account to update.", "error")
+            else:
+                def _owner(addr):
+                    rows = db.query("SELECT id FROM users WHERE email=?", (addr,))
+                    return rows[0]["id"] if rows else None
+                normalized, err = validators.validate_email_change(
+                    request.form.get("new_email", ""), target_id, _owner)
+                if err:
+                    flash(err, "error")
+                else:
+                    db.execute("UPDATE users SET email=? WHERE id=?", (normalized, target_id))
+                    flash(f"Email updated to {normalized}.", "success")
         elif action == "mark_contact_read":
             cid = request.form.get("contact_id")
             db.execute("UPDATE contact_requests SET status='read' WHERE id=?", (cid,))
