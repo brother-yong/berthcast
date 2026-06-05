@@ -757,6 +757,25 @@ def admin_panel():
                 else:
                     db.execute("UPDATE users SET email=? WHERE id=?", (normalized, target_id))
                     flash(f"Email updated to {normalized}.", "success")
+        elif action == "set_password":
+            # Admin sets a new password for an account (e.g. a locked-out user
+            # whose reset email can't reach them). Held to the same 8-char
+            # minimum as sign-up; admin relays it and asks the user to change it.
+            uid = request.form.get("user_id")
+            try:
+                target_id = int(uid)
+            except (TypeError, ValueError):
+                flash("Couldn't identify which account to update.", "error")
+            else:
+                new_password = request.form.get("new_password", "")
+                err = validators.password_error(new_password)
+                if err:
+                    flash(err, "error")
+                else:
+                    db.execute("UPDATE users SET password_hash=? WHERE id=?",
+                               (generate_password_hash(new_password), target_id))
+                    flash("Password updated. Share it with the user and ask them "
+                          "to change it after signing in.", "success")
         elif action == "mark_contact_read":
             cid = request.form.get("contact_id")
             db.execute("UPDATE contact_requests SET status='read' WHERE id=?", (cid,))
