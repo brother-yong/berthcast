@@ -1,6 +1,21 @@
 """Small input validators for berthcast. Pure functions — no Flask, no DB —
 so they're easy to unit-test in isolation."""
 
+MIN_PASSWORD_LENGTH = 8
+
+
+def password_error(new_password):
+    """Return an error message if new_password isn't acceptable, else None.
+
+    Uses the same 8-character minimum enforced at sign-up and password reset,
+    so admin-set passwords are held to the same bar.
+    """
+    if not new_password:
+        return "Password can't be empty."
+    if len(new_password) < MIN_PASSWORD_LENGTH:
+        return f"Password must be at least {MIN_PASSWORD_LENGTH} characters."
+    return None
+
 
 def validate_email_change(new_email, target_user_id, find_user_id_by_email):
     """Validate an admin's request to change target_user_id's email.

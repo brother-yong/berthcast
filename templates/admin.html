@@ -241,6 +241,16 @@
           <td style="font-size:13px; color:var(--muted);">{{ u.created_at[:10] }}</td>
           <td>
             <form method="POST" action="{{ url_for('admin_panel') }}"
+                  style="display:flex; gap:6px; align-items:center; margin-bottom:6px;"
+                  data-confirm="Set a new password for this account? You'll need to share it with the user."
+                  data-confirm-label="Set password">
+              <input type="hidden" name="action" value="set_password">
+              <input type="hidden" name="user_id" value="{{ u.id }}">
+              <input type="text" name="new_password" placeholder="new password" required minlength="8"
+                     style="font-size:12px; padding:4px 6px; width:150px;">
+              <button type="submit" class="btn btn-outline btn-sm">Set</button>
+            </form>
+            <form method="POST" action="{{ url_for('admin_panel') }}"
                   data-confirm="Remove this account? This cannot be undone." data-confirm-label="Remove">
               <input type="hidden" name="action" value="delete_user">
               <input type="hidden" name="user_id" value="{{ u.id }}">
