@@ -600,7 +600,11 @@ def get_supplier_profile(org_name: str, supplier_name: str) -> dict:
         "org_name": org_name,
         "supplier_name": supplier_name,
         "delay_probability": 0.2,
-        "avg_lead_time_days": 56,
+        # None (not 56) so callers fall through to the supplier-type lead time
+        # (import 112 / local 21). A hardcoded number here silently shadowed that
+        # and made every item use a flat 56-day horizon. Truly unknown suppliers
+        # still land on config.default_lead_time_days as the final fallback.
+        "avg_lead_time_days": None,
         "data_quality_score": 0.3,  # Low — unknown supplier
         "notes": "No profile. Using defaults.",
     }
