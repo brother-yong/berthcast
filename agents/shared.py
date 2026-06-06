@@ -174,6 +174,18 @@ def _call_claude(model: str, system: str, user: str, max_tokens: int = 4096) -> 
         return stream.get_final_text()
 
 
+def _num_sql(col: str) -> str:
+    """SQL expression that reads a TEXT column as a number, tolerating thousands
+    separators.
+
+    Uploaded values are all stored as TEXT, and SQLite's CAST stops at the first
+    non-digit character — so CAST("1,200" AS REAL) wrongly yields 1.0, silently
+    corrupting every sales/velocity/revenue figure downstream. Stripping the
+    commas first makes "1,200" -> "1200" -> 1200.0.
+    """
+    return f"CAST(REPLACE(\"{col}\", ',', '') AS REAL)"
+
+
 def _emit(progress_emit, msg: str) -> None:
     """Safely call optional progress callback. Never raise into agent flow."""
     if progress_emit is None:

@@ -11,6 +11,7 @@ from .shared import (
     _format_context,
     _call_claude,
     _extract_json_array,
+    _num_sql,
 )
 
 
@@ -63,8 +64,8 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
                 rev_col = next((c for c in cols if any(k in c.lower() for k in ("amount", "value", "revenue", "price"))), None)
             if desc_col and (qty_col or rev_col):
                 select_parts = [f'"{desc_col}" as item_name']
-                select_parts.append(f'SUM(CAST("{qty_col}" AS REAL)) as total_qty' if qty_col else '0 as total_qty')
-                select_parts.append(f'SUM(CAST("{rev_col}" AS REAL)) as total_revenue' if rev_col else '0 as total_revenue')
+                select_parts.append(f'SUM({_num_sql(qty_col)}) as total_qty' if qty_col else '0 as total_qty')
+                select_parts.append(f'SUM({_num_sql(rev_col)}) as total_revenue' if rev_col else '0 as total_revenue')
                 select_parts.append('COUNT(*) as txn_count')
                 sal_rows = query(
                     'SELECT ' + ', '.join(select_parts) +
@@ -168,7 +169,7 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
                     metric   = "revenue" if val_col_s else "quantity sold"
                     top_rows = query(
                         f'SELECT "{desc_col_s}" as item, '
-                        f'SUM(CAST("{rank_col}" AS REAL)) as metric '
+                        f'SUM({_num_sql(rank_col)}) as metric '
                         f'FROM {sal_table} '
                         f'WHERE "{desc_col_s}" IS NOT NULL '
                         f'GROUP BY "{desc_col_s}" '
@@ -221,7 +222,7 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
                        (query(
                            f'SELECT "{desc_col_s}" as item FROM {sal_table} '
                            f'WHERE "{desc_col_s}" IS NOT NULL GROUP BY "{desc_col_s}" '
-                           f'ORDER BY SUM(CAST("{rank_col}" AS REAL)) DESC LIMIT {n}'
+                           f'ORDER BY SUM({_num_sql(rank_col)}) DESC LIMIT {n}'
                        ) if 'desc_col_s' in dir() else [])} if False else set()
             inventory_sorted = [
                 row for row in sorted(inventory, key=_qty_key)

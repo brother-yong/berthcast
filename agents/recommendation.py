@@ -19,6 +19,7 @@ from .shared import (
     _format_context,
     _call_claude,
     _extract_json_array,
+    _num_sql,
     LEAD_TIME_BY_TYPE,
 )
 
@@ -114,7 +115,7 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
                     months_r = 12
                 vel_rows = query(
                     f'SELECT "{s_desc}" as item, '
-                    f'SUM(CAST("{s_qty}" AS REAL)) / {months_r} as avg_monthly '
+                    f'SUM({_num_sql(s_qty)}) / {months_r} as avg_monthly '
                     f'FROM {sal_table_r} GROUP BY "{s_desc}" LIMIT 5000'
                 )
                 sales_velocity = {r["item"]: round(r["avg_monthly"] or 0, 1) for r in vel_rows if r["item"]}
