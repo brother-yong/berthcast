@@ -1,6 +1,7 @@
 import sqlite3
 import json
 import os
+import re
 
 # DB lives on the Render persistent disk in prod (DB_PATH env var points to a
 # file on the mounted disk, e.g. /var/data/berthai.db). For local dev, defaults
@@ -249,9 +250,14 @@ def excel_to_sqlite(filepath: str, table_name: str, session_id: int):
 
 
 def _sanitize_name(name: str) -> str:
-    return (name.strip().lower()
+    name = (name.strip().lower()
             .replace(" ", "_").replace("/", "_").replace("-", "_")
             .replace(".", "").replace("(", "").replace(")", ""))
+    # Whitelist: only letters, digits, and underscore may reach a SQL identifier.
+    # A header like  foo" TEXT); DROP TABLE users;--  would otherwise smuggle a
+    # quote/semicolon into the CREATE TABLE statement. Callers fall back to
+    # "col_<i>" when this returns "".
+    return re.sub(r"[^a-z0-9_]", "", name)
 
 
 def _csv_to_sqlite(filepath: str, table_name: str, session_id: int):
