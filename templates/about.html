@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>About — berthcast</title>
+  <meta name="description" content="berthcast began on the floor of a real distribution business — built to catch stockouts before they cost you a sale. Here's what it is, what it isn't, and how we treat your data.">
+  <link rel="icon" type="image/png" href="{{ url_for('static', filename='logo-icon.png') }}">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Inter+Tight:wght@500;600;700;800&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --navy-900: #0B1424; --navy-800: #0F1B2D; --navy-700: #1B2B4A;
+      --brass: #C89B5C; --brass-2: #E2B97A; --brass-3: #8B6B3D;
+      --paper: #FAF8F3; --paper-2: #F3EFE3; --border: #E5DFCF;
+      --muted: #6B7280; --text: #0F1B2D;
+      --font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      --font-display: 'Inter Tight', 'Inter', sans-serif;
+      --font-serif: 'Instrument Serif', Georgia, serif;
+    }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: var(--font-body);
+      background: var(--paper);
+      color: var(--text);
+      font-size: 16px;
+      line-height: 1.7;
+      -webkit-font-smoothing: antialiased;
+    }
+    .legal-nav {
+      position: sticky; top: 0; z-index: 100;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 40px; height: 64px;
+      background: rgba(250,248,243,0.92);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+    }
+    .legal-nav-logo img { height: 36px; width: auto; display: block; }
+    .legal-nav a {
+      font-size: 14px; font-weight: 500;
+      color: var(--navy-700); text-decoration: none;
+      margin-left: 22px;
+    }
+    .legal-nav a:hover { color: var(--brass); }
+
+    .legal-wrap {
+      max-width: 720px; margin: 0 auto;
+      padding: 64px 32px 88px;
+    }
+    .legal-eyebrow {
+      font-size: 12px; font-weight: 700;
+      letter-spacing: 0.1em; text-transform: uppercase;
+      color: var(--brass-3); margin-bottom: 14px;
+    }
+    .legal-title {
+      font-family: var(--font-display);
+      font-size: 46px; font-weight: 700;
+      letter-spacing: -0.02em; line-height: 1.08;
+      color: var(--navy-900); margin-bottom: 16px;
+    }
+    .about-lead {
+      font-family: var(--font-serif);
+      font-size: 22px; font-style: italic;
+      color: var(--brass-3); line-height: 1.4;
+      margin-bottom: 36px; padding-bottom: 28px;
+      border-bottom: 1px solid var(--border);
+    }
+    .legal-wrap h2 {
+      font-family: var(--font-display);
+      font-size: 22px; font-weight: 700;
+      color: var(--navy-900); letter-spacing: -0.01em;
+      margin: 38px 0 12px;
+    }
+    .legal-wrap h2:first-of-type { margin-top: 0; }
+    .legal-wrap p { margin-bottom: 14px; color: var(--text); }
+
+    .about-cta {
+      margin-top: 44px; padding: 28px 30px;
+      background: var(--navy-900); border-radius: 14px;
+      color: var(--paper);
+    }
+    .about-cta p { color: rgba(250,248,243,0.82); margin-bottom: 18px; }
+    .about-cta a.btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: var(--brass); color: var(--navy-900);
+      font-weight: 600; font-size: 15px; text-decoration: none;
+      padding: 12px 22px; border-radius: 10px;
+      transition: background 160ms;
+    }
+    .about-cta a.btn:hover { background: var(--brass-2); }
+
+    .legal-footer {
+      margin-top: 80px; padding: 28px 32px;
+      border-top: 1px solid var(--border);
+      max-width: 720px; margin-left: auto; margin-right: auto;
+      display: flex; align-items: center; justify-content: space-between;
+      font-size: 13px; color: var(--muted);
+    }
+    .legal-footer a { color: var(--muted); text-decoration: none; margin-left: 22px; }
+    .legal-footer a:hover { color: var(--text); }
+
+    @media (max-width: 640px) {
+      .legal-nav { padding: 0 20px; }
+      .legal-wrap { padding: 44px 24px 64px; }
+      .legal-title { font-size: 34px; }
+      .about-lead { font-size: 19px; }
+      .legal-footer { flex-direction: column; gap: 14px; text-align: center; }
+      .legal-footer a { margin: 0 10px; }
+    }
+  </style>
+</head>
+<body>
+
+<nav class="legal-nav">
+  <a class="legal-nav-logo" href="{{ url_for('landing') }}">
+    <img src="{{ url_for('static', filename='logo.png') }}" alt="berthcast">
+  </a>
+  <div>
+    <a href="{{ url_for('pricing') }}">Pricing</a>
+    <a href="{{ url_for('contact') }}">Contact</a>
+    <a href="{{ url_for('login') }}">Sign in</a>
+  </div>
+</nav>
+
+<div class="legal-wrap">
+  <div class="legal-eyebrow">About</div>
+  <h1 class="legal-title">About berthcast</h1>
+  <div class="about-lead">It started with a problem, not a plan.</div>
+
+  <p>berthcast began on the floor of a real distribution business. Fast-moving products kept running out while cash sat tied up in stock that wasn't selling. The signs were usually there in the data — but with over a thousand items to check by hand every week, they were easy to miss until a customer had already been let down.</p>
+
+  <p>It felt like something a computer should be able to watch for. So we started building it.</p>
+
+  <h2>What it does</h2>
+  <p>berthcast reads the exports you already pull from your system — inventory, sales, purchase orders — and tries to tell you, in plain language, what's likely to run out and what to reorder. There's nothing new to install and no integration to set up. You send the files you already have.</p>
+
+  <h2>We try to be careful with the numbers</h2>
+  <p>The maths — how fast something sells, how much to order — is done in plain code, not guessed. The AI's role is to explain each decision in words you can act on, not to invent figures. When the data isn't enough to be sure, berthcast says so rather than pretending. We'd rather tell you we don't know than hand you a number you can't trust.</p>
+
+  <h2>What it isn't</h2>
+  <p>berthcast isn't an ERP, and it isn't trying to replace the system you already have. Your system holds your data. berthcast just tries to help you decide what to do with it.</p>
+
+  <h2>Your data stays yours</h2>
+  <p>berthcast only works because you trust it with real figures, and we don't take that lightly. Your data isn't shared, isn't pooled with anyone else's, and isn't sold.</p>
+
+  <h2>Where we hope it goes</h2>
+  <p>For now, berthcast helps with purchasing. In time, we'd like it to do more — noticing slow movers before they tie up your cash, flagging suppliers who keep slipping, and helping with the question most distributors live with: where is my money stuck, and what should I do about it? We're not there yet, and we won't pretend otherwise.</p>
+
+  <h2>We're early, and still learning</h2>
+  <p>berthcast is young, and we're figuring things out as we go. If you run a distribution business and you're tired of finding out about a stockout from an unhappy customer, send us your exports.</p>
+
+  <div class="about-cta">
+    <p>We'll show you what berthcast sees — free, and with no commitment.</p>
+    <a class="btn" href="{{ url_for('register') }}">Get a free analysis &rarr;</a>
+  </div>
+</div>
+
+<footer class="legal-footer">
+  <div>&copy; 2026 berthcast &middot; Inventory operations for food distributors</div>
+  <div>
+    <a href="{{ url_for('pricing') }}">Pricing</a>
+    <a href="{{ url_for('contact') }}">Contact</a>
+    <a href="{{ url_for('terms') }}">Terms</a>
+    <a href="{{ url_for('privacy') }}">Privacy</a>
+  </div>
+</footer>
+
+</body>
+</html>
