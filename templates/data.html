@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>About — berthcast</title>
-  <meta name="description" content="berthcast began on the floor of a real distribution business — built to catch stockouts before they cost you a sale. Here's what it is, what it isn't, and how we treat your data.">
+  <title>Your data — berthcast</title>
+  <meta name="description" content="You're trusting berthcast with real figures. Here's exactly what we take in, what we do with it, how it's kept separate and protected, and what we won't pretend.">
   <link rel="icon" type="image/png" href="{{ url_for('static', filename='logo-icon.png') }}">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -71,25 +71,22 @@
       font-family: var(--font-display);
       font-size: 22px; font-weight: 700;
       color: var(--navy-900); letter-spacing: -0.01em;
-      margin: 38px 0 12px;
+      margin: 36px 0 12px;
     }
     .legal-wrap h2:first-of-type { margin-top: 0; }
     .legal-wrap p { margin-bottom: 14px; color: var(--text); }
+    .legal-wrap a { color: var(--brass-3); text-decoration: underline; }
+    .legal-wrap a:hover { color: var(--navy-700); }
 
-    .about-cta {
-      margin-top: 44px; padding: 28px 30px;
-      background: var(--navy-900); border-radius: 14px;
-      color: var(--paper);
+    .data-note {
+      margin-top: 40px;
+      background: var(--paper-2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 18px 22px;
+      font-size: 14px; color: var(--muted); line-height: 1.6;
     }
-    .about-cta p { color: rgba(250,248,243,0.82); margin-bottom: 18px; }
-    .about-cta a.btn {
-      display: inline-flex; align-items: center; gap: 8px;
-      background: var(--brass); color: var(--navy-900);
-      font-weight: 600; font-size: 15px; text-decoration: none;
-      padding: 12px 22px; border-radius: 10px;
-      transition: background 160ms;
-    }
-    .about-cta a.btn:hover { background: var(--brass-2); }
+    .data-note a { color: var(--brass-3); }
 
     .legal-footer {
       margin-top: 80px; padding: 28px 32px;
@@ -118,50 +115,52 @@
     <img src="{{ url_for('static', filename='logo.png') }}" alt="berthcast">
   </a>
   <div>
+    <a href="{{ url_for('about') }}">About</a>
     <a href="{{ url_for('pricing') }}">Pricing</a>
-    <a href="{{ url_for('contact') }}">Contact</a>
     <a href="{{ url_for('login') }}">Sign in</a>
   </div>
 </nav>
 
 <div class="legal-wrap">
-  <div class="legal-eyebrow">About</div>
-  <h1 class="legal-title">About berthcast</h1>
-  <div class="about-lead">It started with a problem, not a plan.</div>
+  <div class="legal-eyebrow">Your data</div>
+  <h1 class="legal-title">Your data, in plain terms</h1>
+  <div class="about-lead">You're trusting us with real figures. Here's exactly how we treat them.</div>
 
-  <p>berthcast began on the floor of a real distribution business. Fast-moving products kept running out while cash sat tied up in stock that wasn't selling. The signs were usually there in the data — but with over a thousand items to check by hand every week, they were easy to miss until a customer had already been let down.</p>
+  <h2>What we take in</h2>
+  <p>Only the files you choose to upload — your inventory, sales, purchase orders, and supplier lists — plus the email address you sign up with. That's it. berthcast doesn't connect to your systems and doesn't pull anything on its own. You decide what to send, and when.</p>
 
-  <p>It felt like something a computer should be able to watch for. So we started building it.</p>
+  <h2>What we do with it</h2>
+  <p>We use your data for one thing: to produce your analysis. We don't browse through it, we don't use it for advertising, and we never sell it.</p>
 
-  <h2>What it does</h2>
-  <p>berthcast reads the exports you already pull from your system — inventory, sales, purchase orders — and tries to tell you, in plain language, what's likely to run out and what to reorder. There's nothing new to install and no integration to set up. You send the files you already have.</p>
+  <h2>It's kept separate from everyone else</h2>
+  <p>Every company's data sits in its own space. Your figures are never mixed with another customer's, and no other customer can see them. When you log in, you only ever see your own organisation's data.</p>
 
-  <h2>We try to be careful with the numbers</h2>
-  <p>The maths — how fast something sells, how much to order — is done in plain code, not guessed. The AI's role is to explain each decision in words you can act on, not to invent figures. When the data isn't enough to be sure, berthcast says so rather than pretending. We'd rather tell you we don't know than hand you a number you can't trust.</p>
+  <h2>The AI part, honestly</h2>
+  <p>To generate the analysis, the relevant figures are sent to our AI provider, Anthropic — the makers of Claude — over an encrypted connection. Anthropic does not use data sent through its API to train its models. We use their tool to do the thinking; your data passes through to get the result and isn't kept by them to build their products.</p>
 
-  <h2>What it isn't</h2>
-  <p>berthcast isn't an ERP, and it isn't trying to replace the system you already have. Your system holds your data. berthcast just tries to help you decide what to do with it.</p>
+  <h2>How it's protected</h2>
+  <p>The connection to berthcast is encrypted (the padlock in your browser). Passwords are stored scrambled, never as plain text, so even we can't read them. Repeated failed login attempts are blocked automatically. Your data lives on a private server, not a public folder.</p>
 
-  <h2>Your data stays yours</h2>
-  <p>berthcast only works because you trust it with real figures, and we don't take that lightly. Your data isn't shared, isn't pooled with anyone else's, and isn't sold. We've written out exactly how we handle it — in plain terms — on our <a href="{{ url_for('data_promise') }}">data page</a>.</p>
+  <h2>You stay in control</h2>
+  <p>Your data is yours. Ask us and we'll delete it. You can stop using berthcast at any time and take your files with you — your own system always remains your source of truth.</p>
 
-  <h2>Where we hope it goes</h2>
-  <p>For now, berthcast helps with purchasing. In time, we'd like it to do more — noticing slow movers before they tie up your cash, flagging suppliers who keep slipping, and helping with the question most distributors live with: where is my money stuck, and what should I do about it? We're not there yet, and we won't pretend otherwise.</p>
+  <h2>What we won't pretend</h2>
+  <p>We're early, and no online service is ever completely secure — anyone who tells you otherwise isn't being straight with you. We do the sensible things, we don't take shortcuts with your data, and if something ever went wrong, we'd tell you rather than hide it. As with any tool, keep your own backups of anything critical.</p>
 
-  <h2>We're early, and still learning</h2>
-  <p>berthcast is young, and we're figuring things out as we go. If you run a distribution business and you're tired of finding out about a stockout from an unhappy customer, send us your exports.</p>
-
-  <div class="about-cta">
-    <p>We'll show you what berthcast sees — free, and with no commitment.</p>
-    <a class="btn" href="{{ url_for('register') }}">Get a free analysis &rarr;</a>
+  <div class="data-note">
+    This page is the plain-English version. For the full legal detail, see our
+    <a href="{{ url_for('privacy') }}">Privacy Policy</a> and
+    <a href="{{ url_for('terms') }}">Terms of Service</a>. If you have a question
+    about your data that isn't answered here, <a href="{{ url_for('contact') }}">ask us</a> —
+    we'll give you a straight answer.
   </div>
 </div>
 
 <footer class="legal-footer">
   <div>&copy; 2026 berthcast &middot; Inventory operations for food distributors</div>
   <div>
+    <a href="{{ url_for('about') }}">About</a>
     <a href="{{ url_for('pricing') }}">Pricing</a>
-    <a href="{{ url_for('contact') }}">Contact</a>
     <a href="{{ url_for('terms') }}">Terms</a>
     <a href="{{ url_for('privacy') }}">Privacy</a>
   </div>
