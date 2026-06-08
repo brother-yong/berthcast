@@ -375,10 +375,10 @@
 
     <!-- Professional -->
     <div class="pricing-card is-featured">
-      <div class="pricing-featured-badge">Most popular</div>
+      <div class="pricing-featured-badge">Recommended</div>
       <div class="pricing-tier">Professional</div>
-      <div class="pricing-price"><sup>$</sup>150</div>
-      <div class="pricing-price-note">per month</div>
+      <div class="pricing-price" style="font-size:22px; padding-top:6px;">Let's talk</div>
+      <div class="pricing-price-note">Priced to your operation, billed monthly</div>
       <p class="pricing-desc">
         For operations teams running monthly procurement reviews who need reliable data every time.
       </p>
@@ -418,7 +418,7 @@
           <span style="color:var(--muted);">Single seat</span>
         </li>
       </ul>
-      <a href="{{ url_for('contact') }}" class="pricing-cta pricing-cta-brass">Get started</a>
+      <a href="{{ url_for('contact') }}" class="pricing-cta pricing-cta-brass">Talk to us</a>
     </div>
 
     <!-- Enterprise -->
@@ -492,13 +492,8 @@
     </div>
 
     <div class="faq-item">
-      <p class="faq-q">Does the quality of the AI analysis differ between plans?</p>
-      <p class="faq-a">Yes. Higher plans use a more capable AI model under the hood, which produces more accurate supplier risk assessments and better handles large or complex catalogues. The free tier is suitable for a first look at your data.</p>
-    </div>
-
-    <div class="faq-item">
       <p class="faq-q">Is my data secure?</p>
-      <p class="faq-a">Your uploaded files are stored on a private server and are only used to run your analysis. They're never shared, sold, or used to train AI models. Contact us if you have specific data handling requirements.</p>
+      <p class="faq-a">Your uploaded files are stored on a private server and are only used to run your analysis. They're never shared, sold, or used to train AI models. See our <a href="{{ url_for('data_promise') }}">data page</a> for exactly how we handle it.</p>
     </div>
   </div>
 
