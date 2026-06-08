@@ -203,6 +203,11 @@ def about():
     return render_template("about.html")
 
 
+@app.route("/data")
+def data_promise():
+    return render_template("data.html")
+
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if "user_id" in session:
