@@ -77,6 +77,32 @@ def _client_ip():
     return request.remote_addr or "unknown"
 
 
+@app.after_request
+def _set_security_headers(resp):
+    """Defence-in-depth headers on every response. Chosen to block clickjacking,
+    MIME-sniffing, and protocol downgrade without breaking the site: templates
+    use inline <style>/<script> (hence 'unsafe-inline'), and the only external
+    origin loaded anywhere is Google Fonts."""
+    resp.headers["X-Frame-Options"] = "SAMEORIGIN"
+    resp.headers["X-Content-Type-Options"] = "nosniff"
+    resp.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    resp.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "font-src 'self' https://fonts.gstatic.com; "
+        "img-src 'self' data:; "
+        "connect-src 'self'; "
+        "form-action 'self'; "
+        "base-uri 'self'; "
+        "frame-ancestors 'self'"
+    )
+    # Force HTTPS for a year — production only, so local http dev still works.
+    if os.environ.get("RENDER"):
+        resp.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return resp
+
+
 
 
 
@@ -264,6 +290,9 @@ def register():
     if "user_id" in session:
         return redirect(url_for("chat"))
     if request.method == "POST":
+        if rate_limit.hit(f"register:{_client_ip()}", 8, 900):
+            return render_template("register.html",
+                error="Too many sign-up attempts from your network. Please wait a few minutes and try again.")
         org_name     = request.form.get("org_name", "").strip()
         email        = request.form.get("email", "").strip().lower()
         password     = request.form.get("password", "")
@@ -368,6 +397,10 @@ def forgot_password():
     if "user_id" in session:
         return redirect(url_for("chat"))
     if request.method == "POST":
+        # Over the limit: show the same neutral page but send nothing. This
+        # throttles reset-email bombing without revealing whether an email exists.
+        if rate_limit.hit(f"forgot:{_client_ip()}", 5, 900):
+            return render_template("forgot_password.html", submitted=True)
         email = request.form.get("email", "").strip().lower()
         if email:
             users = db.query("SELECT id FROM users WHERE email=?", (email,))
@@ -673,6 +706,9 @@ def delete_conversation(conv_id):
 def contact():
     """Public contact form. Stores submission in DB and emails the berthcast inbox."""
     if request.method == "POST":
+        if rate_limit.hit(f"contact:{_client_ip()}", 5, 900):
+            flash("You've sent several messages already. Please wait a few minutes before sending another.", "error")
+            return render_template("contact.html")
         name    = request.form.get("name", "").strip()
         email   = request.form.get("email", "").strip().lower()
         company = request.form.get("company", "").strip()
