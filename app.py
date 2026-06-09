@@ -318,6 +318,21 @@ def register():
             existing = db.query("SELECT id FROM users WHERE email=?", (email,))
             if existing:
                 error = "An account with that email already exists."
+            else:
+                # Org name is the tenant boundary, so a self-registration must
+                # never land inside an existing organisation. Colleagues join an
+                # existing org through the admin invite flow, not here — so a
+                # name that already exists is either a clash or an attempt to
+                # piggyback on someone else's data. Refuse it (case/space-insensitive).
+                org_taken = db.query(
+                    "SELECT id FROM users WHERE LOWER(TRIM(org_name)) = LOWER(TRIM(?)) LIMIT 1",
+                    (org_name,)
+                )
+                if org_taken:
+                    error = ("An organisation with that name is already registered. "
+                             "If you're joining a colleague's account, ask their admin to invite you. "
+                             "Otherwise please use a more specific name — for example, add your "
+                             "full company name or city.")
 
         if error:
             return render_template("register.html", error=error,
