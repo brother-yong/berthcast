@@ -65,3 +65,23 @@ def clear(key):
     """Forget all failures for this key (call on a successful login)."""
     with _lock:
         _failures.pop(key, None)
+
+
+# ── Generic request throttle ────────────────────────────────────────────────
+# Separate store from the login failures above. Used to slow down abuse of
+# public POST endpoints (sign-up, password reset, contact) — e.g. someone
+# spamming reset emails at a victim, or dumping contact-form spam.
+
+_hits = {}                  # key -> list[float timestamps]
+
+
+def hit(key, limit, window_seconds, now=None):
+    """Record one request for `key` and return True if the caller has now
+    EXCEEDED `limit` requests within `window_seconds` (i.e. should be blocked),
+    else False. Deterministic and unit-testable via the injected `now`."""
+    now = _time.time() if now is None else now
+    with _lock:
+        times = [t for t in _hits.get(key, []) if now - t < window_seconds]
+        times.append(now)
+        _hits[key] = times
+        return len(times) > limit
