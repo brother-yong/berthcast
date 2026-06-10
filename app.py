@@ -1,6 +1,7 @@
 import os
 import json
 import secrets
+import hashlib
 import threading
 import time
 import smtplib
@@ -80,6 +81,13 @@ def _client_ip():
     return request.remote_addr or "unknown"
 
 
+def _hash_token(token: str) -> str:
+    """One-way hash for reset/verification tokens stored in the DB. The raw
+    token only ever exists inside the emailed link — if the database ever
+    leaks, the stored hashes can't be replayed as working links."""
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
 @app.after_request
 def _set_security_headers(resp):
     """Defence-in-depth headers on every response. Chosen to block clickjacking,
@@ -89,6 +97,12 @@ def _set_security_headers(resp):
     resp.headers["X-Frame-Options"] = "SAMEORIGIN"
     resp.headers["X-Content-Type-Options"] = "nosniff"
     resp.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    # Browser features the app never uses — deny them outright so an injected
+    # script can't quietly request camera/mic/location.
+    resp.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+    # Keep our windows out of cross-origin browsing groups (blocks tab-napping
+    # style attacks via window.opener).
+    resp.headers["Cross-Origin-Opener-Policy"] = "same-origin"
     resp.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
         "script-src 'self' 'unsafe-inline'; "
@@ -263,6 +277,62 @@ def data_promise():
     return render_template("data.html")
 
 
+# ── Friendly error pages ─────────────────────────────────────────────────────
+# Without these, Flask serves bare default pages. JSON endpoints are unaffected:
+# _verify_session_owner aborts with a ready-made JSON response, which bypasses
+# these handlers.
+
+@app.errorhandler(403)
+def _error_403(e):
+    return render_template("error.html", code=403, title="No access to that page",
+        message="Your account doesn't have access to this. If you think it should, ask your organisation's admin."), 403
+
+
+@app.errorhandler(404)
+def _error_404(e):
+    return render_template("error.html", code=404, title="Page not found",
+        message="That page doesn't exist or has moved. Check the address, or head back and try from there."), 404
+
+
+@app.errorhandler(500)
+def _error_500(e):
+    logger.error("Unhandled server error on %s %s", request.method, request.path)
+    return render_template("error.html", code=500, title="Something went wrong",
+        message="The error is on our side and has been logged. Please try again in a moment."), 500
+
+
+@app.route("/robots.txt")
+def robots_txt():
+    """Keep crawlers on the public pages and out of the app routes (which all
+    redirect to login anyway — this just keeps them out of the index)."""
+    return Response(
+        "User-agent: *\n"
+        "Disallow: /dashboard\n"
+        "Disallow: /upload\n"
+        "Disallow: /results\n"
+        "Disallow: /chat\n"
+        "Disallow: /admin\n"
+        "Disallow: /settings\n"
+        "Disallow: /suppliers\n"
+        "Disallow: /analyse\n"
+        "Disallow: /api/\n"
+        "Allow: /\n",
+        mimetype="text/plain",
+    )
+
+
+@app.route("/.well-known/security.txt")
+def security_txt():
+    """Standard contact point for security researchers (RFC 9116)."""
+    return Response(
+        "Contact: mailto:admin@berthcast.com\n"
+        "Expires: 2027-06-30T00:00:00.000Z\n"
+        "Preferred-Languages: en\n"
+        "Canonical: https://berthcast.com/.well-known/security.txt\n",
+        mimetype="text/plain",
+    )
+
+
 @app.route("/health")
 def health():
     """Liveness + DB connectivity check for Render's health monitor. No auth — the
@@ -280,14 +350,19 @@ def login():
     if "user_id" in session:
         return redirect(url_for("chat"))
     if request.method == "POST":
-        ip = _client_ip()
-        if rate_limit.is_locked(ip):
-            mins = max(1, rate_limit.seconds_until_unlock(ip) // 60)
+        ip       = _client_ip()
+        email    = request.form.get("email", "").strip().lower()
+        password = request.form.get("password", "")
+        # Throttle by client IP AND by the targeted account, so rotating IPs
+        # doesn't buy an attacker unlimited guesses at one mailbox.
+        acct_key = f"acct:{email}" if email else None
+        if rate_limit.is_locked(ip) or (acct_key and rate_limit.is_locked(acct_key)):
+            secs = max(rate_limit.seconds_until_unlock(ip),
+                       rate_limit.seconds_until_unlock(acct_key) if acct_key else 0)
+            mins = max(1, secs // 60)
             flash(f"Too many failed sign-in attempts. Please wait about "
                   f"{mins} minute{'s' if mins != 1 else ''} and try again.", "error")
             return render_template("login.html")
-        email    = request.form.get("email", "").strip().lower()
-        password = request.form.get("password", "")
         users = db.query("SELECT * FROM users WHERE email=?", (email,))
         if users and check_password_hash(users[0]["password_hash"], password):
             u = users[0]
@@ -295,6 +370,8 @@ def login():
                 flash("Please verify your email before signing in. Check your inbox for the verification link.", "error")
                 return render_template("login.html")
             rate_limit.clear(ip)
+            if acct_key:
+                rate_limit.clear(acct_key)
             session["user_id"]  = u["id"]
             session["email"]    = u["email"]
             session["org_name"] = u["org_name"]
@@ -304,6 +381,8 @@ def login():
             session["role"]     = u.get("role") or "admin"
             return redirect(url_for("admin_panel") if u["is_admin"] else url_for("chat"))
         rate_limit.record_failure(ip)
+        if acct_key:
+            rate_limit.record_failure(acct_key)
         flash("Incorrect email or password.", "error")
     return render_template("login.html")
 
@@ -398,7 +477,8 @@ def register():
         new_user = db.query("SELECT id FROM users WHERE email=?", (email,))[0]
 
         if mail_configured:
-            # Issue verification token and email it
+            # Issue verification token and email it. Only the HASH is stored —
+            # the raw token lives solely inside the emailed link.
             db.execute(
                 "DELETE FROM email_verification_tokens WHERE user_id=?",
                 (new_user["id"],)
@@ -406,7 +486,7 @@ def register():
             token = secrets.token_urlsafe(32)
             db.execute(
                 "INSERT INTO email_verification_tokens (user_id, token) VALUES (?,?)",
-                (new_user["id"], token)
+                (new_user["id"], _hash_token(token))
             )
             verify_url = url_for("verify_email", token=token, _external=True)
             threading.Thread(
@@ -437,7 +517,7 @@ def verify_email(token):
            FROM email_verification_tokens evt
            WHERE evt.token=?
              AND evt.created_at >= datetime('now', '-24 hours')""",
-        (token,)
+        (_hash_token(token),)
     )
     if not rows:
         return render_template("verify_email.html", expired=True)
@@ -467,9 +547,10 @@ def forgot_password():
                     (users[0]["id"],)
                 )
                 token = secrets.token_urlsafe(32)
+                # Store only the hash — a DB leak must not yield working links.
                 db.execute(
                     "INSERT INTO password_reset_tokens (user_id, token) VALUES (?,?)",
-                    (users[0]["id"], token)
+                    (users[0]["id"], _hash_token(token))
                 )
                 reset_url = url_for("reset_password", token=token, _external=True)
                 threading.Thread(
@@ -487,13 +568,13 @@ def reset_password(token):
     if "user_id" in session:
         return redirect(url_for("chat"))
 
-    # Validate token — must exist and be less than 1 hour old
+    # Validate token — must exist (compared by hash) and be less than 1 hour old
     rows = db.query(
         """SELECT prt.id, prt.user_id
            FROM password_reset_tokens prt
            WHERE prt.token=?
              AND prt.created_at >= datetime('now', '-1 hour')""",
-        (token,)
+        (_hash_token(token),)
     )
     if not rows:
         return render_template("reset_password.html", invalid=True, token=token)
@@ -513,7 +594,7 @@ def reset_password(token):
             "UPDATE users SET password_hash=? WHERE id=?",
             (generate_password_hash(password), user_id)
         )
-        db.execute("DELETE FROM password_reset_tokens WHERE token=?", (token,))
+        db.execute("DELETE FROM password_reset_tokens WHERE token=?", (_hash_token(token),))
         flash("Password updated. Sign in with your new password.", "success")
         return redirect(url_for("login"))
 

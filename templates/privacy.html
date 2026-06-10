@@ -167,11 +167,7 @@
 <div class="legal-wrap">
   <div class="legal-eyebrow">Legal</div>
   <h1 class="legal-title">Privacy Policy</h1>
-  <div class="legal-meta">Last updated: 25 May 2026 &middot; Effective: 25 May 2026</div>
-
-  <div class="legal-disclaimer">
-    <strong>Heads up.</strong> This document is a starting template for a Singapore-based B2B SaaS service handling business operational data. Before you publish it, have a privacy lawyer review the specifics — particularly any cross-border transfers, retention periods, and the named sub-processors — to confirm fit with Singapore's Personal Data Protection Act (PDPA) and any other regimes your customers operate under (e.g. GDPR if you take EU customers).
-  </div>
+  <div class="legal-meta">Last updated: 10 June 2026 &middot; Effective: 10 June 2026</div>
 
   <div class="legal-toc">
     <div class="legal-toc-title">On this page</div>
@@ -217,11 +213,10 @@
 
   <h3>2.3 Usage and technical data</h3>
   <ul>
-    <li>Pages visited within the Service and basic interaction events</li>
-    <li>Approval and dismissal actions on recommendations (so we can improve relevance over time)</li>
-    <li>IP address, browser type, device type, and similar diagnostic information</li>
-    <li>Server logs for error tracing and security monitoring</li>
+    <li>Server logs: IP address, browser type, requested pages, and timestamps — kept for error tracing and security monitoring (for example, blocking repeated failed sign-ins)</li>
+    <li>Approval, dismissal, and outcome actions on recommendations — stored as part of your organisation's records so your team can see its own decision history</li>
   </ul>
+  <p>We do not run third-party analytics, advertising trackers, or session-recording tools anywhere in the Service.</p>
 
   <h2 id="use">3. How we use your data</h2>
   <p>We use your data to:</p>
@@ -240,7 +235,7 @@
       </tr>
       <tr>
         <td>Improve the Service</td>
-        <td>Aggregate, anonymised usage analytics. We do not use your uploaded business data to train publicly available AI models.</td>
+        <td>Aggregated, anonymised statistics (for example, how many analyses run per week). We do not use your uploaded business data to train AI models — ours or anyone else's.</td>
       </tr>
       <tr>
         <td>Keep the Service safe</td>
@@ -287,7 +282,8 @@
   <p>We retain your data for as long as your account is active and for a reasonable period afterwards to meet legal, accounting, and dispute-resolution obligations. Specifically:</p>
   <ul>
     <li><strong>Account records:</strong> kept while the account is active and for up to 12 months after closure.</li>
-    <li><strong>Uploaded data and analyses:</strong> kept while you have a paid plan, and for 90 days after downgrade or closure unless you ask us to delete sooner.</li>
+    <li><strong>Uploaded data and analyses:</strong> kept while your account is active; deleted from the live system within 30 days of a verified deletion request or account closure.</li>
+    <li><strong>Backups:</strong> encrypted database snapshots are kept on a rolling basis and age out automatically within approximately two weeks, so deleted data also leaves the backups within that window.</li>
     <li><strong>Server logs:</strong> retained for up to 90 days, then deleted or aggregated.</li>
     <li><strong>Billing records:</strong> retained for 7 years to meet Singapore tax and accounting requirements.</li>
   </ul>
@@ -296,11 +292,13 @@
   <h2 id="security">7. Security</h2>
   <p>We use commercially reasonable technical and organisational measures to protect your data, including:</p>
   <ul>
-    <li>Encryption in transit (HTTPS/TLS) between your browser and our servers.</li>
+    <li>Encryption in transit (HTTPS/TLS, enforced with HSTS) between your browser and our servers.</li>
     <li>Encryption at rest for stored data on our hosting platform.</li>
-    <li>Hashed passwords (we never store or transmit plain passwords).</li>
-    <li>Access controls limiting which berthcast personnel can access production data, and only for legitimate operational reasons.</li>
-    <li>Logging and monitoring of administrative actions.</li>
+    <li>Hashed passwords and hashed password-reset tokens — neither is ever stored in plain text.</li>
+    <li>Automatic blocking of repeated failed sign-in attempts, request throttling on public forms, and security response headers on every page.</li>
+    <li>Strict separation between customer organisations: your team only ever sees your organisation's data.</li>
+    <li>Daily encrypted database backups, retained on a rolling basis.</li>
+    <li>Application logging of security-relevant events, and production access limited to berthcast's operator for legitimate operational reasons only.</li>
   </ul>
   <p>No online service is fully secure. If we become aware of a personal data breach that is likely to result in significant harm to you or to the individuals whose data you have uploaded, we will notify you and the Personal Data Protection Commission as required by Singapore law.</p>
 
@@ -325,8 +323,8 @@
   <p>We may update this Privacy Policy from time to time. When we make a material change, we will notify account holders by email or via the Service at least 14 days before the change takes effect. The "Last updated" date at the top of this page always reflects the current version.</p>
 
   <h2 id="contact">12. Contact and Data Protection Officer</h2>
-  <p>Questions about this policy, or any request to exercise your rights under the PDPA, can be sent through our <a href="{{ url_for('contact') }}">contact page</a>. Mark your message "Privacy request" so we route it correctly.</p>
-  <p>Our designated Data Protection Officer can be reached at the same address.</p>
+  <p>Questions about this policy, or any request to exercise your rights under the PDPA, can be sent through our <a href="{{ url_for('contact') }}">contact page</a> or emailed to <a href="mailto:admin@berthcast.com">admin@berthcast.com</a>. Mark your message "Privacy request" so we route it correctly.</p>
+  <p>Our designated Data Protection Officer (DPO) under section 11(3) of the PDPA can be contacted directly at <a href="mailto:admin@berthcast.com">admin@berthcast.com</a>.</p>
 </div>
 
 <footer class="legal-footer">
