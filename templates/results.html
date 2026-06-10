@@ -3,9 +3,9 @@
 
 {% block content %}
 <div class="page-wrap">
-  <section class="hero" style="padding: 40px 0 16px;">
+  <section class="hero" style="padding: 20px 0 8px;">
     <div class="hero-eyebrow">Analysis results · {{ org_name }}</div>
-    <h1 style="font-size: clamp(40px, 5.5vw, 60px);">Recommendations <em>&amp;</em> inventory health</h1>
+    <h1 style="font-size: 30px; font-weight: 700; letter-spacing: -0.02em;">Recommendations <em>&amp;</em> inventory health</h1>
     <div class="hero-byline">
       {% if generated_at %}
       <span>Generated · {{ generated_at[:10] }}</span>
@@ -121,27 +121,23 @@
             Undo
           </button>
           {% endif %}
+          <div class="mc-export-group no-print">
           {% if user_tier != 'free' %}
           <a href="{{ url_for('export_csv', upload_session_id=upload_session_id) }}"
-             class="btn btn-outline btn-sm no-print" title="Download as CSV for Excel">
-            ↓ CSV
-          </a>
+             class="btn btn-outline btn-sm" title="Download as CSV for Excel">CSV</a>
           <a href="{{ url_for('export_pdf', upload_session_id=upload_session_id) }}"
-             class="btn btn-outline btn-sm no-print" title="Download formatted PDF">
-            ↓ PDF
-          </a>
+             class="btn btn-outline btn-sm" title="Download formatted PDF">PDF</a>
           {% else %}
-          <span class="btn btn-outline btn-sm no-print"
+          <span class="btn btn-outline btn-sm"
                 style="opacity:0.45;cursor:default;pointer-events:none;"
-                title="Upgrade to Professional or Enterprise to export">↓ CSV</span>
-          <span class="btn btn-outline btn-sm no-print"
+                title="Upgrade to Professional or Enterprise to export">CSV</span>
+          <span class="btn btn-outline btn-sm"
                 style="opacity:0.45;cursor:default;pointer-events:none;"
-                title="Upgrade to Professional or Enterprise to export">↓ PDF</span>
+                title="Upgrade to Professional or Enterprise to export">PDF</span>
           {% endif %}
           <a href="{{ url_for('print_results', upload_session_id=upload_session_id) }}"
-             target="_blank" class="btn btn-success btn-sm no-print">
-            Print approved
-          </a>
+             target="_blank" class="btn btn-outline btn-sm">Print approved</a>
+          </div>
         </div>
 
         <!-- Keyboard shortcut hint bar -->
@@ -540,6 +536,16 @@
 .outcome-good { color: var(--success, #2D6A4F); background: rgba(45,106,79,0.08); }
 .outcome-bad { color: var(--danger, #8B2C2C); background: rgba(139,44,44,0.08); }
 .rec-supplier-score { font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* ── Export cluster: quiet, grouped right of the action bar ── */
+.mc-export-group {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-left: auto;
+  padding-left: 14px;
+  border-left: 1px solid var(--border);
+}
 .score-good { color: var(--success, #2D6A4F); }
 .score-ok { color: var(--brass); }
 .score-bad { color: var(--danger, #8B2C2C); }
@@ -557,7 +563,7 @@
 .rec-stake.is-positive .rec-stake-label { color: var(--muted); }
 
 /* ── Mitigation: amber strip, shown only for high-risk suppliers ── */
-.rec-mitigation { margin-top: 10px; font-size: 13px; line-height: 1.45; color: var(--text); border-left: 3px solid var(--brass, #c8924c); background: rgba(200,146,76,0.10); padding: 8px 12px; border-radius: 0 8px 8px 0; }
+.rec-mitigation { margin-top: 10px; font-size: 13px; line-height: 1.45; color: var(--text); border: 1px solid rgba(200,146,76,0.4); background: rgba(200,146,76,0.10); padding: 8px 12px; border-radius: 8px; }
 .rec-mitigation-label { font-weight: 700; color: var(--brass, #c8924c); }
 
 @media (max-width: 560px) { .rec-stakes { grid-template-columns: 1fr; } }
