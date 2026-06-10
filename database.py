@@ -241,6 +241,65 @@ def init_db():
     conn.close()
 
 
+# ── Upload safety limits ─────────────────────────────────────────────────────
+# An .xlsx is a ZIP, so the 100 MB upload cap (MAX_CONTENT_LENGTH) does NOT bound
+# how much data it expands to: a few-KB file can decompress to gigabytes ("zip
+# bomb") and OOM the single 512 MB worker — a full outage triggered by one upload.
+# These cap the *decompressed* work. The byte caps are enforced by counting the
+# bytes the decompressor actually produces (see _LimitedReader), NOT by trusting
+# the sizes the file declares in its own header — a malicious file can lie about
+# those, but it cannot fake bytes it never produced.
+MAX_XLSX_SHARED_STRINGS_BYTES = 64 * 1024 * 1024     # RAM-critical: accumulated in a list
+MAX_XLSX_WORKSHEET_BYTES      = 1024 * 1024 * 1024    # streamed + discarded; final stop only
+MAX_XLSX_ROWS                 = 2_000_000             # bounds disk use + processing time
+MAX_COLUMNS                   = 16_384                # Excel's own hard column ceiling
+MAX_CELLS_PER_ROW             = 16_384
+MAX_CELL_CHARS                = 100_000               # one cell can't be a multi-MB blob
+
+_OVERSIZE_MSG = (
+    "This file expands to far more data than expected when opened — it may be "
+    "corrupted or malformed. Please re-export it from your system and try again."
+)
+_TOO_MANY_ROWS_MSG = (
+    f"This file has more than {MAX_XLSX_ROWS:,} rows. Please split it into smaller "
+    "files and upload them one at a time."
+)
+_TOO_MANY_COLS_MSG = (
+    "This file has an unusual number of columns — more than a spreadsheet can hold. "
+    "Please check the export and try again."
+)
+
+
+class _DecompressionLimitExceeded(Exception):
+    """Raised when a zip member produces more decompressed bytes than allowed."""
+
+
+class _LimitedReader:
+    """Wrap a binary stream and stop once more than `limit` bytes have actually
+    been read from it.
+
+    ElementTree pulls XML through .read(size); by counting the real bytes it
+    returns we bound memory and CPU regardless of what the zip's headers claim the
+    uncompressed size is. The overshoot is at most one read chunk (ElementTree
+    uses 16 KB), so the bound is tight.
+    """
+
+    def __init__(self, fp, limit):
+        self._fp = fp
+        self._limit = limit
+        self._read = 0
+
+    def read(self, size=-1):
+        chunk = self._fp.read(size)
+        self._read += len(chunk)
+        if self._read > self._limit:
+            raise _DecompressionLimitExceeded()
+        return chunk
+
+    def close(self):
+        pass
+
+
 def excel_to_sqlite(filepath: str, table_name: str, session_id: int):
     """Dispatch by extension. CSV stream-parses (low RAM). XLSX uses iterparse."""
     ext = os.path.splitext(filepath)[1].lower()
@@ -316,6 +375,9 @@ def _csv_to_sqlite(filepath: str, table_name: str, session_id: int):
                 vals.append(str(session_id))
                 batch.append(vals)
 
+                if total + len(batch) > MAX_XLSX_ROWS:
+                    return {"ok": False, "error": _TOO_MANY_ROWS_MSG}
+
                 if len(batch) >= BATCH:
                     conn.executemany(insert_sql, batch)
                     conn.commit()
@@ -363,9 +425,15 @@ def _xlsx_to_sqlite(filepath: str, table_name: str, session_id: int):
             shared_strings = []
             if "xl/sharedStrings.xml" in zf.namelist():
                 with zf.open("xl/sharedStrings.xml") as f:
-                    for event, elem in ET.iterparse(f, events=("end",)):
+                    # Cap the decompressed size of the shared-strings table — it is
+                    # accumulated in memory, so this is the main zip-bomb sink.
+                    for event, elem in ET.iterparse(
+                            _LimitedReader(f, MAX_XLSX_SHARED_STRINGS_BYTES),
+                            events=("end",)):
                         if elem.tag == TAG_SI:
                             text = "".join(t.text or "" for t in elem.iter(TAG_T))
+                            if len(text) > MAX_CELL_CHARS:
+                                text = text[:MAX_CELL_CHARS]
                             shared_strings.append(text)
                             elem.clear()
 
@@ -385,7 +453,9 @@ def _xlsx_to_sqlite(filepath: str, table_name: str, session_id: int):
 
             with zf.open(sheet_path) as f:
                 ws_root = None
-                for event, elem in ET.iterparse(f, events=("start", "end")):
+                for event, elem in ET.iterparse(
+                        _LimitedReader(f, MAX_XLSX_WORKSHEET_BYTES),
+                        events=("start", "end")):
                     if event == "start":
                         if elem.tag == f"{{{NS}}}worksheet":
                             ws_root = elem
@@ -398,6 +468,8 @@ def _xlsx_to_sqlite(filepath: str, table_name: str, session_id: int):
                     for cell in elem:
                         if cell.tag != TAG_C:
                             continue
+                        if len(row_vals) >= MAX_CELLS_PER_ROW:
+                            break
                         ref = cell.get("r", "")
                         col_letter = re.sub(r"\d", "", ref)
                         if not col_letter:
@@ -420,7 +492,10 @@ def _xlsx_to_sqlite(filepath: str, table_name: str, session_id: int):
                             val = None
 
                         if val is not None and str(val).strip():
-                            row_vals[ci] = str(val).strip()
+                            sval = str(val).strip()
+                            if len(sval) > MAX_CELL_CHARS:
+                                sval = sval[:MAX_CELL_CHARS]
+                            row_vals[ci] = sval
 
                     if ws_root is not None:
                         ws_root.clear()
@@ -433,6 +508,8 @@ def _xlsx_to_sqlite(filepath: str, table_name: str, session_id: int):
                             continue
                         min_ci = min(row_vals.keys())
                         max_ci = max(row_vals.keys())
+                        if max_ci - min_ci + 1 > MAX_COLUMNS:
+                            return {"ok": False, "error": _TOO_MANY_COLS_MSG}
                         seen   = {}
                         headers = []
                         for ci in range(min_ci, max_ci + 1):
@@ -464,6 +541,9 @@ def _xlsx_to_sqlite(filepath: str, table_name: str, session_id: int):
                         values.append(str(session_id))
                         batch.append(values)
 
+                        if total + len(batch) > MAX_XLSX_ROWS:
+                            return {"ok": False, "error": _TOO_MANY_ROWS_MSG}
+
                         if len(batch) >= BATCH:
                             conn.executemany(insert_sql, batch)
                             conn.commit()
@@ -479,6 +559,8 @@ def _xlsx_to_sqlite(filepath: str, table_name: str, session_id: int):
             return {"ok": False, "error": "Could not find data headers in xlsx."}
         return {"ok": True, "rows": total, "table": scoped_table}
 
+    except _DecompressionLimitExceeded:
+        return {"ok": False, "error": _OVERSIZE_MSG}
     except Exception as e:
         return {"ok": False, "error": str(e)}
     finally:
