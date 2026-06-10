@@ -2,8 +2,6 @@
 {% block title %}Dashboard — berthcast{% endblock %}
 
 {% block content %}
-<div class="sunrise-gradient" aria-hidden="true"></div>
-
 <div class="page-wrap">
 
   {% if not past_sessions %}
@@ -274,15 +272,15 @@
 
 .dash-split {
   display: grid;
-  grid-template-columns: 220px 1fr;
-  gap: 20px;
+  grid-template-columns: 248px 1fr;
+  gap: 28px;
   align-items: start;
   margin-top: 32px;
 }
 .dash-left {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 18px;
 }
 .dash-org-header { margin-bottom: 4px; }
 .dash-org-name {
@@ -299,15 +297,20 @@
 .dash-stat-col {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
 }
 .dash-stat-tile {
-  background: var(--paper);
-  border: 0.5px solid var(--border);
-  border-radius: 10px;
-  padding: 12px 14px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 14px 16px;
 }
-.dash-stat-tile.is-warn { border-color: var(--danger, #e74c3c); }
+.dash-stat-tile + .dash-stat-tile { border-top: 1px solid var(--border); }
 .dash-stat-tile-label {
   font-size: 11px;
   text-transform: uppercase;
@@ -328,10 +331,11 @@
   margin-top: 3px;
 }
 .dash-last-card {
-  background: var(--paper-2, var(--paper));
-  border: 0.5px solid var(--border);
-  border-radius: 10px;
-  padding: 12px 14px;
+  background: transparent;
+  border: none;
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+  padding: 14px 4px 0;
 }
 .dash-last-card-label {
   font-size: 11px;
@@ -378,7 +382,7 @@
   margin-top: 8px;
   padding: 4px 10px;
   background: var(--paper);
-  border: 0.5px solid var(--border);
+  border: 1px solid var(--border);
   border-radius: 6px;
 }
 .dash-synced-dot {
@@ -396,8 +400,11 @@
 
 /* ROI tracking card */
 .dash-roi-card {
-  background: var(--paper); border: 0.5px solid var(--border);
-  border-radius: 10px; padding: 12px 14px;
+  background: transparent;
+  border: none;
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+  padding: 14px 4px 0;
 }
 .dash-roi-label {
   font-size: 11px; text-transform: uppercase;
@@ -416,7 +423,7 @@
 /* Free usage card */
 .free-usage-card {
   background: var(--paper);
-  border: 0.5px solid var(--border);
+  border: 1px solid var(--border);
   border-radius: 10px;
   padding: 12px 14px;
   display: flex;

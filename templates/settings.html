@@ -8,12 +8,6 @@
     <p>Manage supplier profiles for {{ session.org_name }}. These inform how the AI assesses risk and lead times in every analysis.</p>
   </div>
 
-  {% with messages = get_flashed_messages(with_categories=true) %}
-    {% for category, message in messages %}
-    <div class="flash flash-{{ category }}">{{ message }}</div>
-    {% endfor %}
-  {% endwith %}
-
   <!-- Supplier profiles -->
   <div class="card">
     <div class="card-title">Supplier profiles</div>
