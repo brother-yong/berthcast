@@ -8,6 +8,19 @@
     <p>Create and manage organisation accounts. Users can only be added by you.</p>
   </div>
 
+  <!-- Database backup -->
+  <div class="card">
+    <div class="card-title">Database backup</div>
+    <p style="margin:0 0 14px; color:var(--muted); font-size:14px; line-height:1.5;">
+      The server keeps automatic daily snapshots, but those live on the same disk
+      as the live data. Download a copy now and again and keep it somewhere safe —
+      this is the copy that survives if the server's disk is ever lost.
+    </p>
+    <a href="{{ url_for('admin_backup_download') }}" class="btn btn-primary btn-sm">
+      Download backup
+    </a>
+  </div>
+
   <!-- Contact requests -->
   {% if contact_requests %}
   {% set new_count = contact_requests | selectattr('status', 'equalto', 'new') | list | length %}

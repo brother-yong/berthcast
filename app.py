@@ -10,7 +10,7 @@ from email.mime.multipart import MIMEMultipart
 from functools import wraps
 from flask import (
     Flask, render_template, request, redirect,
-    url_for, session, flash, jsonify, Response, stream_with_context
+    url_for, session, flash, jsonify, Response, stream_with_context, send_file
 )
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
@@ -20,6 +20,8 @@ import anthropic as _anthropic
 import database as db
 import rate_limit
 import validators
+import quantity
+import backup
 from agents import (
     run_normalization_agent,
     run_pipeline,
@@ -137,6 +139,16 @@ def _ensure_admin():
         )
 
 _ensure_admin()
+
+
+# Automatic database backups — production only. Local dev has nothing to protect
+# and doesn't stay running. Snapshots land in a backups/ folder on the persistent
+# disk, beside the DB; the founder pulls an off-disk copy via the admin panel.
+if os.environ.get("RENDER"):
+    backup.start_backup_scheduler(
+        db.DB_PATH,
+        backup.default_backups_dir(db.DB_PATH),
+    )
 
 
 @app.context_processor
@@ -895,6 +907,28 @@ def admin_panel():
         orgs=orgs,
         org_configs=org_configs,
         supplier_profiles=supplier_profiles_map,
+    )
+
+
+@app.route("/admin/backup/download")
+@login_required
+@admin_required
+def admin_backup_download():
+    """Stream a fresh, consistent snapshot of the whole database to the admin's
+    machine. This is the off-disk copy that survives a total loss of the Render
+    disk. Making it also retains the snapshot on disk (then prunes old ones)."""
+    backups_dir = backup.default_backups_dir(db.DB_PATH)
+    try:
+        path = backup.backup_database(db.DB_PATH, backups_dir)
+        backup.prune_backups(backups_dir)
+    except Exception as e:
+        flash(f"Could not create a backup: {e}", "error")
+        return redirect(url_for("admin_panel"))
+    return send_file(
+        path,
+        as_attachment=True,
+        download_name=os.path.basename(path),
+        mimetype="application/octet-stream",
     )
 
 
@@ -2372,45 +2406,41 @@ def recommend_action():
     if not rows or rows[0]["org_name"] != session.get("org_name"):
         return jsonify({"ok": False, "error": "Forbidden"}), 403
 
-    ar = db.query("SELECT recommendations_json FROM analysis_results WHERE session_id=?", (session_id,))
-    if not ar:
-        return jsonify({"ok": False, "error": "No results for this session"}), 404
+    # A user-entered order quantity must never reach the PO sheet unless it's a
+    # real, non-negative number. Reject garbage up front.
+    if edited_qty is not None and str(edited_qty).strip():
+        _q = quantity.parse_quantity(edited_qty)
+        if _q is None or _q < 0:
+            return jsonify({"ok": False, "error": "Order quantity must be a number (0 or more)."}), 400
 
-    try:
-        recs = json.loads(ar[0]["recommendations_json"] or "[]")
-    except Exception:
-        return jsonify({"ok": False, "error": "Corrupt data"}), 500
+    def _mutate(recs):
+        for rec in recs:
+            if isinstance(rec, dict) and rec.get("item", "").strip() == item:
+                rec["approved"]  = (action == "approve")
+                rec["dismissed"] = (action == "dismiss")
+                if note:
+                    rec["note"] = note
+                # Save edits if they differ from the original suggestion.
+                if edited_qty is not None:
+                    eq = str(edited_qty).strip()
+                    if eq and eq != str(rec.get("suggested_quantity", "")).strip():
+                        rec["edited_quantity"] = eq
+                    elif not eq:
+                        rec.pop("edited_quantity", None)
+                if edited_supplier is not None:
+                    es = str(edited_supplier).strip()
+                    if es and es != str(rec.get("supplier", "")).strip():
+                        rec["edited_supplier"] = es
+                    elif not es:
+                        rec.pop("edited_supplier", None)
+                return {"updated": True}
+        return {"updated": False}
 
-    updated = False
-    for rec in recs:
-        if isinstance(rec, dict) and rec.get("item", "").strip() == item:
-            rec["approved"]  = (action == "approve")
-            rec["dismissed"] = (action == "dismiss")
-            if note:
-                rec["note"] = note
-            # Save edits if they differ from the original suggestion.
-            if edited_qty is not None:
-                eq = str(edited_qty).strip()
-                if eq and eq != str(rec.get("suggested_quantity", "")).strip():
-                    rec["edited_quantity"] = eq
-                elif not eq:
-                    rec.pop("edited_quantity", None)
-            if edited_supplier is not None:
-                es = str(edited_supplier).strip()
-                if es and es != str(rec.get("supplier", "")).strip():
-                    rec["edited_supplier"] = es
-                elif not es:
-                    rec.pop("edited_supplier", None)
-            updated = True
-            break
-
-    if not updated:
+    res = db.update_recommendations(session_id, _mutate)
+    if not res["ok"]:
+        return jsonify({"ok": False, "error": res["error"]}), res["code"]
+    if not res["result"]["updated"]:
         return jsonify({"ok": False, "error": "Item not found in recommendations"}), 404
-
-    db.execute(
-        "UPDATE analysis_results SET recommendations_json=? WHERE session_id=?",
-        (json.dumps(recs), session_id)
-    )
     return jsonify({"ok": True})
 
 
@@ -2434,40 +2464,35 @@ def recommend_edit():
     if not rows or rows[0]["org_name"] != session.get("org_name"):
         return jsonify({"ok": False, "error": "Forbidden"}), 403
 
-    ar = db.query("SELECT recommendations_json FROM analysis_results WHERE session_id=?", (session_id,))
-    if not ar:
-        return jsonify({"ok": False, "error": "No results for this session"}), 404
+    # Same guard as the action route — no non-numeric/negative quantity gets saved.
+    if edited_qty is not None and str(edited_qty).strip():
+        _q = quantity.parse_quantity(edited_qty)
+        if _q is None or _q < 0:
+            return jsonify({"ok": False, "error": "Order quantity must be a number (0 or more)."}), 400
 
-    try:
-        recs = json.loads(ar[0]["recommendations_json"] or "[]")
-    except Exception:
-        return jsonify({"ok": False, "error": "Corrupt data"}), 500
+    def _mutate(recs):
+        for rec in recs:
+            if isinstance(rec, dict) and rec.get("item", "").strip() == item:
+                if edited_qty is not None:
+                    eq = str(edited_qty).strip()
+                    if eq and eq != str(rec.get("suggested_quantity", "")).strip():
+                        rec["edited_quantity"] = eq
+                    else:
+                        rec.pop("edited_quantity", None)
+                if edited_supplier is not None:
+                    es = str(edited_supplier).strip()
+                    if es and es != str(rec.get("supplier", "")).strip():
+                        rec["edited_supplier"] = es
+                    else:
+                        rec.pop("edited_supplier", None)
+                return {"updated": True}
+        return {"updated": False}
 
-    updated = False
-    for rec in recs:
-        if isinstance(rec, dict) and rec.get("item", "").strip() == item:
-            if edited_qty is not None:
-                eq = str(edited_qty).strip()
-                if eq and eq != str(rec.get("suggested_quantity", "")).strip():
-                    rec["edited_quantity"] = eq
-                else:
-                    rec.pop("edited_quantity", None)
-            if edited_supplier is not None:
-                es = str(edited_supplier).strip()
-                if es and es != str(rec.get("supplier", "")).strip():
-                    rec["edited_supplier"] = es
-                else:
-                    rec.pop("edited_supplier", None)
-            updated = True
-            break
-
-    if not updated:
+    res = db.update_recommendations(session_id, _mutate)
+    if not res["ok"]:
+        return jsonify({"ok": False, "error": res["error"]}), res["code"]
+    if not res["result"]["updated"]:
         return jsonify({"ok": False, "error": "Item not found"}), 404
-
-    db.execute(
-        "UPDATE analysis_results SET recommendations_json=? WHERE session_id=?",
-        (json.dumps(recs), session_id)
-    )
     return jsonify({"ok": True})
 
 
@@ -2491,30 +2516,22 @@ def recommend_approve_all():
     if not rows or rows[0]["org_name"] != session.get("org_name"):
         return jsonify({"ok": False, "error": "Forbidden"}), 403
 
-    ar = db.query("SELECT recommendations_json FROM analysis_results WHERE session_id=?", (session_id,))
-    if not ar:
-        return jsonify({"ok": False, "error": "No results for this session"}), 404
+    def _mutate(recs):
+        newly = []
+        for rec in recs:
+            if not isinstance(rec, dict) or rec.get("error"):
+                continue
+            if items_filter and rec.get("item", "") not in items_filter:
+                continue
+            if not rec.get("dismissed") and not rec.get("approved"):
+                rec["approved"] = True
+                newly.append(rec.get("item", ""))
+        return newly
 
-    try:
-        recs = json.loads(ar[0]["recommendations_json"] or "[]")
-    except Exception:
-        return jsonify({"ok": False, "error": "Corrupt data"}), 500
-
-    newly_approved = []
-    for rec in recs:
-        if not isinstance(rec, dict) or rec.get("error"):
-            continue
-        if items_filter and rec.get("item", "") not in items_filter:
-            continue
-        if not rec.get("dismissed") and not rec.get("approved"):
-            rec["approved"] = True
-            newly_approved.append(rec.get("item", ""))
-
-    db.execute(
-        "UPDATE analysis_results SET recommendations_json=? WHERE session_id=?",
-        (json.dumps(recs), session_id)
-    )
-    return jsonify({"ok": True, "newly_approved_items": newly_approved})
+    res = db.update_recommendations(session_id, _mutate)
+    if not res["ok"]:
+        return jsonify({"ok": False, "error": res["error"]}), res["code"]
+    return jsonify({"ok": True, "newly_approved_items": res["result"]})
 
 
 @app.route("/recommend/undo_approve_all", methods=["POST"])
@@ -2533,29 +2550,22 @@ def recommend_undo_approve_all():
     if not rows or rows[0]["org_name"] != session.get("org_name"):
         return jsonify({"ok": False, "error": "Forbidden"}), 403
 
-    ar = db.query("SELECT recommendations_json FROM analysis_results WHERE session_id=?", (session_id,))
-    if not ar:
-        return jsonify({"ok": False, "error": "No results for this session"}), 404
-
-    try:
-        recs = json.loads(ar[0]["recommendations_json"] or "[]")
-    except Exception:
-        return jsonify({"ok": False, "error": "Corrupt data"}), 500
-
     items_set = set(items)
-    undone = []
-    for rec in recs:
-        if not isinstance(rec, dict) or rec.get("error"):
-            continue
-        if rec.get("item", "") in items_set and rec.get("approved"):
-            rec["approved"] = False
-            undone.append(rec.get("item", ""))
 
-    db.execute(
-        "UPDATE analysis_results SET recommendations_json=? WHERE session_id=?",
-        (json.dumps(recs), session_id)
-    )
-    return jsonify({"ok": True, "undone_items": undone})
+    def _mutate(recs):
+        undone = []
+        for rec in recs:
+            if not isinstance(rec, dict) or rec.get("error"):
+                continue
+            if rec.get("item", "") in items_set and rec.get("approved"):
+                rec["approved"] = False
+                undone.append(rec.get("item", ""))
+        return undone
+
+    res = db.update_recommendations(session_id, _mutate)
+    if not res["ok"]:
+        return jsonify({"ok": False, "error": res["error"]}), res["code"]
+    return jsonify({"ok": True, "undone_items": res["result"]})
 
 
 # ---------------------------------------------------------------------------
@@ -2581,37 +2591,27 @@ def recommend_outcome():
     if not rows or rows[0]["org_name"] != session.get("org_name"):
         return jsonify({"ok": False, "error": "Forbidden"}), 403
 
-    ar = db.query("SELECT recommendations_json FROM analysis_results WHERE session_id=?", (session_id,))
-    if not ar:
-        return jsonify({"ok": False, "error": "No results"}), 404
+    # Reject a bad outcome_status before we take the write lock.
+    if field == "outcome_status" and value not in ("stockout_avoided", "stockout_happened", ""):
+        return jsonify({"ok": False, "error": "Invalid outcome_status"}), 400
 
-    try:
-        recs = json.loads(ar[0]["recommendations_json"] or "[]")
-    except Exception:
-        return jsonify({"ok": False, "error": "Corrupt data"}), 500
-
-    updated = False
-    for rec in recs:
-        if isinstance(rec, dict) and rec.get("item", "").strip() == item:
-            if field == "order_placed":
-                rec["order_placed"] = bool(value)
-                rec["order_placed_at"] = datetime.utcnow().isoformat() if value else None
-            elif field == "outcome_status":
-                if value in ("stockout_avoided", "stockout_happened", ""):
+    def _mutate(recs):
+        for rec in recs:
+            if isinstance(rec, dict) and rec.get("item", "").strip() == item:
+                if field == "order_placed":
+                    rec["order_placed"] = bool(value)
+                    rec["order_placed_at"] = datetime.utcnow().isoformat() if value else None
+                elif field == "outcome_status":
                     rec["outcome_status"] = value
                     rec["outcome_recorded_at"] = datetime.utcnow().isoformat() if value else None
-                else:
-                    return jsonify({"ok": False, "error": "Invalid outcome_status"}), 400
-            updated = True
-            break
+                return {"updated": True}
+        return {"updated": False}
 
-    if not updated:
+    res = db.update_recommendations(session_id, _mutate)
+    if not res["ok"]:
+        return jsonify({"ok": False, "error": res["error"]}), res["code"]
+    if not res["result"]["updated"]:
         return jsonify({"ok": False, "error": "Item not found"}), 404
-
-    db.execute(
-        "UPDATE analysis_results SET recommendations_json=? WHERE session_id=?",
-        (json.dumps(recs), session_id)
-    )
 
     # Recalculate supplier scores in the background
     org_name = session.get("org_name")

@@ -507,6 +507,65 @@ def execute(sql: str, params=()):
         conn.close()
 
 
+def update_recommendations(session_id, mutator):
+    """Atomically read → modify → write analysis_results.recommendations_json.
+
+    Every approve/dismiss/edit/outcome action used to do this as three separate
+    connections (SELECT, then json.loads in Python, then UPDATE) with a gap in
+    between. Two teammates acting on the same results page at the same time would
+    both read the same blob and both write it back — the second write silently
+    wiped the first (lost update). Outcome tracking, the proof data, was the most
+    likely casualty.
+
+    This runs the whole read-modify-write inside ONE connection under
+    BEGIN IMMEDIATE, which takes SQLite's write lock up front. A second caller
+    blocks (up to the 30s busy timeout) until the first commits, so it always
+    reads the latest committed blob before changing it. No lost updates.
+
+    `mutator(recs)` receives the parsed list and MUST mutate it in place. Whatever
+    it returns is handed back to the caller as the "result" payload (e.g. a list of
+    items it touched, or a flag saying the target item wasn't found).
+
+    Returns one of:
+      {"ok": True,  "result": <mutator return value>}
+      {"ok": False, "code": 404, "error": "No results for this session"}
+      {"ok": False, "code": 500, "error": "Corrupt data"}
+    """
+    conn = get_db()
+    try:
+        conn.isolation_level = None          # we drive the transaction by hand
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT recommendations_json FROM analysis_results WHERE session_id=?",
+            (session_id,)
+        ).fetchone()
+        if row is None:
+            conn.execute("ROLLBACK")
+            return {"ok": False, "code": 404, "error": "No results for this session"}
+        try:
+            recs = json.loads(row["recommendations_json"] or "[]")
+        except Exception:
+            conn.execute("ROLLBACK")
+            return {"ok": False, "code": 500, "error": "Corrupt data"}
+
+        payload = mutator(recs)
+
+        conn.execute(
+            "UPDATE analysis_results SET recommendations_json=? WHERE session_id=?",
+            (json.dumps(recs), session_id)
+        )
+        conn.execute("COMMIT")
+        return {"ok": True, "result": payload}
+    except Exception:
+        try:
+            conn.execute("ROLLBACK")
+        except Exception:
+            pass
+        raise
+    finally:
+        conn.close()
+
+
 def get_conversion_status(session_id: int) -> dict:
     rows = query("SELECT conversion_status_json FROM upload_sessions WHERE id=?", (session_id,))
     if not rows or not rows[0]["conversion_status_json"]:
