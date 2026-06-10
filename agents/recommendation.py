@@ -22,6 +22,7 @@ from .shared import (
     _num_sql,
     LEAD_TIME_BY_TYPE,
 )
+from quantity import sanitize_suggested_quantity
 
 
 def run_recommendation_agent(session_id: int, model: str, inventory_report: list, context: dict, progress_emit=None) -> list:
@@ -173,7 +174,6 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
         avg_monthly = sales_velocity.get(iname, 0)
         uom = uom_by_item_r.get(iname.lower(), "")
         uom_label = f" {uom}" if uom else " units"
-        qty_basis_by_item[iname] = (avg_monthly, uom_label)
         if avg_monthly > 0:
             lt_months = (lt_days / 30) if lt_days else 2.0
             if delay_prob <= 0.15:
@@ -185,7 +185,11 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
             suggested_qty = round(avg_monthly * (lt_months + safety_buffer))
             suggested_qty_str = f"{suggested_qty}{uom_label}"
         else:
+            suggested_qty = None
             suggested_qty_str = None
+        # Keep the Python-computed figure so we can sanity-check whatever the
+        # model echoes back (see sanitize_suggested_quantity below).
+        qty_basis_by_item[iname] = (avg_monthly, uom_label, suggested_qty)
 
         enriched_lines.append(
             f"---\n"
@@ -292,11 +296,23 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
         # Save outcome stubs for future learning, and attach the quantity
         # basis (monthly sales + unit) so the results page can explain the
         # suggested number. Matched by item name — the LLM echoes it back.
+        # While we have the Python figure to hand, sanity-check the model's
+        # suggested quantity against it so a hallucinated or missing number can
+        # never reach the printed PO sheet.
+        qty_corrections = 0
         for rec in recs:
             if isinstance(rec, dict):
                 basis = qty_basis_by_item.get(rec.get("item", ""))
                 if basis:
-                    rec["avg_monthly_sales"], rec["uom_label"] = basis
+                    avg_m, uom_lbl, precomputed = basis
+                    rec["avg_monthly_sales"] = avg_m
+                    rec["uom_label"] = uom_lbl
+                    clean, corrected = sanitize_suggested_quantity(
+                        rec.get("suggested_quantity"), precomputed, uom_lbl)
+                    rec["suggested_quantity"] = clean
+                    if corrected:
+                        rec["_quantity_corrected"] = True
+                        qty_corrections += 1
             try:
                 save_recommendation_outcome(
                     session_id=session_id,
@@ -309,6 +325,11 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
                 )
             except Exception:
                 pass
+
+        if qty_corrections:
+            _emit(progress_emit,
+                  f"Safety check: adjusted {qty_corrections} suggested "
+                  f"quantit{'ies' if qty_corrections != 1 else 'y'} that were missing or out of range")
 
         flagged = sum(1 for r in recs if r.get("flags"))
         high_risk_count = sum(1 for r in recs if r.get("supplier_risk") == "HIGH")
