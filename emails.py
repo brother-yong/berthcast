@@ -16,6 +16,25 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
 import database as db
+from logging_setup import logger
+
+
+def _deliver(msg, sender, password, recipient):
+    """Send a prepared MIME message via Gmail SMTP. Returns True on success.
+
+    Logs (and never raises) on failure. Email used to fail with a silent
+    `except: pass`, so a critical-stock alert could quietly never arrive — now a
+    dropped email is at least visible in the logs, with the subject and recipient.
+    """
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as smtp:
+            smtp.login(os.environ.get("MAIL_USERNAME") or sender, password)
+            smtp.sendmail(sender, recipient, msg.as_string())
+        logger.info("Sent email %r to %s", msg.get("Subject"), recipient)
+        return True
+    except Exception:
+        logger.warning("Failed to send email %r to %s", msg.get("Subject"), recipient, exc_info=True)
+        return False
 
 
 def _send_critical_alert(user_id: int, upload_session_id: int, new_critical: list,
@@ -97,12 +116,7 @@ def _send_critical_alert(user_id: int, upload_session_id: int, new_critical: lis
     msg.attach(MIMEText(text, "plain"))
     msg.attach(MIMEText(html, "html"))
 
-    try:
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as smtp:
-            smtp.login(os.environ.get("MAIL_USERNAME") or sender, password)
-            smtp.sendmail(sender, to_email, msg.as_string())
-    except Exception:
-        pass
+    _deliver(msg, sender, password, to_email)
 
 
 def _send_reset_email(to_email: str, reset_url: str) -> None:
@@ -145,12 +159,7 @@ def _send_reset_email(to_email: str, reset_url: str) -> None:
     msg.attach(MIMEText(text, "plain"))
     msg.attach(MIMEText(html, "html"))
 
-    try:
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as smtp:
-            smtp.login(os.environ.get("MAIL_USERNAME") or sender, password)
-            smtp.sendmail(sender, to_email, msg.as_string())
-    except Exception:
-        pass
+    _deliver(msg, sender, password, to_email)
 
 
 def _send_analysis_ready_email(user_id: int, upload_session_id: int,
@@ -216,12 +225,7 @@ def _send_analysis_ready_email(user_id: int, upload_session_id: int,
     msg.attach(MIMEText(text, "plain"))
     msg.attach(MIMEText(html, "html"))
 
-    try:
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as smtp:
-            smtp.login(os.environ.get("MAIL_USERNAME") or sender, password)
-            smtp.sendmail(sender, to_email, msg.as_string())
-    except Exception:
-        pass
+    _deliver(msg, sender, password, to_email)
 
 
 def _send_verification_email(to_email: str, verify_url: str) -> None:
@@ -267,12 +271,7 @@ def _send_verification_email(to_email: str, verify_url: str) -> None:
     msg.attach(MIMEText(text, "plain"))
     msg.attach(MIMEText(html, "html"))
 
-    try:
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as smtp:
-            smtp.login(os.environ.get("MAIL_USERNAME") or sender, password)
-            smtp.sendmail(sender, to_email, msg.as_string())
-    except Exception:
-        pass
+    _deliver(msg, sender, password, to_email)
 
 
 def _send_invite_email(to_email: str, org_name: str, temp_password: str, login_url: str) -> None:
@@ -322,12 +321,7 @@ def _send_invite_email(to_email: str, org_name: str, temp_password: str, login_u
     msg.attach(MIMEText(text, "plain"))
     msg.attach(MIMEText(html, "html"))
 
-    try:
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as smtp:
-            smtp.login(os.environ.get("MAIL_USERNAME") or sender, password)
-            smtp.sendmail(sender, to_email, msg.as_string())
-    except Exception:
-        pass
+    _deliver(msg, sender, password, to_email)
 
 
 def _send_contact_email(name: str, email: str, company: str, message: str) -> None:
@@ -355,9 +349,4 @@ def _send_contact_email(name: str, email: str, company: str, message: str) -> No
     msg["Reply-To"] = email
     msg.attach(MIMEText(body, "plain"))
 
-    try:
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as smtp:
-            smtp.login(os.environ.get("MAIL_USERNAME") or sender, password)
-            smtp.sendmail(sender, recipient, msg.as_string())
-    except Exception:
-        pass  # Never surface email errors to the user
+    _deliver(msg, sender, password, recipient)

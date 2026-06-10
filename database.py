@@ -192,6 +192,8 @@ def init_db():
         "ALTER TABLE upload_sessions ADD COLUMN file_names_json TEXT",
         "ALTER TABLE upload_sessions ADD COLUMN conversion_status_json TEXT",
         "ALTER TABLE upload_sessions ADD COLUMN scope TEXT DEFAULT 'all'",
+        # When a run started — lets us detect analyses orphaned by a worker restart.
+        "ALTER TABLE upload_sessions ADD COLUMN analysis_started_at TIMESTAMP",
         "ALTER TABLE company_config ADD COLUMN industry TEXT DEFAULT 'general'",
         "ALTER TABLE company_config ADD COLUMN company_description TEXT",
         "ALTER TABLE supplier_profiles ADD COLUMN supplier_type TEXT DEFAULT 'other'",
@@ -679,6 +681,17 @@ def get_session_tables(session_id: int) -> dict:
         name: table_exists(f"{name}_{session_id}")
         for name in expected
     }
+
+
+def fail_orphaned_analyses() -> int:
+    """Mark any session still stuck in 'analyzing' as 'failed'. Called at boot:
+    an analysis run lives in a background thread + an in-memory progress dict, so
+    if the worker restarts mid-run the thread dies and the session would otherwise
+    sit in 'analyzing' forever. Returns how many it cleaned up."""
+    rows = query("SELECT id FROM upload_sessions WHERE status='analyzing'")
+    if rows:
+        execute("UPDATE upload_sessions SET status='failed' WHERE status='analyzing'")
+    return len(rows)
 
 
 # ---------------------------------------------------------------------------
