@@ -22,6 +22,7 @@ import rate_limit
 import validators
 import quantity
 import backup
+from logging_setup import logger
 from agents import (
     run_normalization_agent,
     run_pipeline,
@@ -140,6 +141,21 @@ def _ensure_admin():
 
 _ensure_admin()
 
+# How long a session can sit in 'analyzing' with no in-memory progress before we
+# declare it dead (the worker that was running it restarted/crashed). The progress
+# dict is created synchronously before the page is served, so its absence already
+# means the run is gone; the window is just a safety margin against timing races.
+STUCK_ANALYSIS_SECONDS = 120
+
+# Clean up analyses orphaned by a previous worker dying mid-run, so they don't sit
+# in 'analyzing' forever. Runs once at boot.
+try:
+    _orphaned = db.fail_orphaned_analyses()
+    if _orphaned:
+        logger.warning("Marked %d interrupted analysis run(s) as failed at startup", _orphaned)
+except Exception:
+    logger.exception("Startup sweep of orphaned analyses failed")
+
 
 # Automatic database backups — production only. Local dev has nothing to protect
 # and doesn't stay running. Snapshots land in a backups/ folder on the persistent
@@ -148,6 +164,7 @@ if os.environ.get("RENDER"):
     backup.start_backup_scheduler(
         db.DB_PATH,
         backup.default_backups_dir(db.DB_PATH),
+        logger=logger.info,
     )
 
 
@@ -244,6 +261,18 @@ def about():
 @app.route("/data")
 def data_promise():
     return render_template("data.html")
+
+
+@app.route("/health")
+def health():
+    """Liveness + DB connectivity check for Render's health monitor. No auth — the
+    platform hits it unauthenticated. 200 = healthy, 503 = the DB is unreachable."""
+    try:
+        db.query("SELECT 1")
+        return jsonify({"status": "ok"}), 200
+    except Exception:
+        logger.exception("Health check failed: database unreachable")
+        return jsonify({"status": "error"}), 503
 
 
 @app.route("/login", methods=["GET", "POST"])
@@ -1420,15 +1449,21 @@ def upload():
 
 def _start_processing(filepath, table, session_id, slot, orig_name):
     def _process():
-        result = db.excel_to_sqlite(filepath, table, session_id)
-        if result.get("ok"):
-            db.set_conversion_status(session_id, slot, "done", rows_count=result.get("rows", 0))
-            names_row = db.query("SELECT file_names_json FROM upload_sessions WHERE id=?", (session_id,))
-            names = json.loads(names_row[0]["file_names_json"] or "{}") if names_row and names_row[0]["file_names_json"] else {}
-            names[slot] = orig_name
-            db.execute("UPDATE upload_sessions SET file_names_json=? WHERE id=?", (json.dumps(names), session_id))
-        else:
-            db.set_conversion_status(session_id, slot, "error", error=result.get("error", "Unknown error"))
+        try:
+            result = db.excel_to_sqlite(filepath, table, session_id)
+            if result.get("ok"):
+                db.set_conversion_status(session_id, slot, "done", rows_count=result.get("rows", 0))
+                names_row = db.query("SELECT file_names_json FROM upload_sessions WHERE id=?", (session_id,))
+                names = json.loads(names_row[0]["file_names_json"] or "{}") if names_row and names_row[0]["file_names_json"] else {}
+                names[slot] = orig_name
+                db.execute("UPDATE upload_sessions SET file_names_json=? WHERE id=?", (json.dumps(names), session_id))
+            else:
+                logger.warning("File conversion failed (session %s, slot %s): %s",
+                               session_id, slot, result.get("error"))
+                db.set_conversion_status(session_id, slot, "error", error=result.get("error", "Unknown error"))
+        except Exception:
+            logger.exception("File conversion crashed (session %s, slot %s)", session_id, slot)
+            db.set_conversion_status(session_id, slot, "error", error="Processing failed unexpectedly.")
     t = threading.Thread(target=_process, daemon=True)
     t.start()
 
@@ -1820,6 +1855,8 @@ def run_analysis(upload_session_id):
                 emit=_emit, mark=_mark_agent,
             )
             if "error" in result:
+                logger.error("Analysis %s failed: %s", upload_session_id, result["error"])
+                db.execute("UPDATE upload_sessions SET status='failed' WHERE id=?", (upload_session_id,))
                 with analysis_progress_lock:
                     analysis_progress[upload_session_id]["status"] = "error"
                     analysis_progress[upload_session_id]["error"]  = result["error"]
@@ -1882,7 +1919,9 @@ def run_analysis(upload_session_id):
                                     daemon=True,
                                 ).start()
             except Exception:
-                pass  # Never let alert logic break the analysis
+                # Never let alert logic break the analysis — but don't hide it.
+                logger.warning("Critical-stock alert step failed for session %s",
+                               upload_session_id, exc_info=True)
 
             # ── Analysis-ready notification ─────────────────────────────────
             # Always email when an analysis completes so users can close the tab.
@@ -1900,15 +1939,31 @@ def run_analysis(upload_session_id):
                     daemon=True,
                 ).start()
             except Exception:
-                pass  # Email failure must not block the analysis
+                # Email failure must not block the analysis — but log it.
+                logger.warning("Analysis-ready email step failed for session %s",
+                               upload_session_id, exc_info=True)
 
             _emit("Saving results and redirecting...")
             with analysis_progress_lock:
                 analysis_progress[upload_session_id]["status"] = "done"
         except Exception as e:
+            logger.exception("Analysis %s crashed", upload_session_id)
+            try:
+                db.execute("UPDATE upload_sessions SET status='failed' WHERE id=?", (upload_session_id,))
+            except Exception:
+                logger.exception("Could not mark analysis %s failed", upload_session_id)
             with analysis_progress_lock:
                 analysis_progress[upload_session_id]["status"] = "error"
                 analysis_progress[upload_session_id]["error"]  = str(e)
+
+    # Mark the run as in progress in the DB too, with a start time. If the worker
+    # dies mid-run, the in-memory entry vanishes but this row remains — that's how
+    # analysis_status (and the boot sweep) detect and report a dead run instead of
+    # leaving the user on a spinner forever.
+    db.execute(
+        "UPDATE upload_sessions SET status='analyzing', analysis_started_at=? WHERE id=?",
+        (datetime.utcnow().isoformat(), upload_session_id)
+    )
 
     threading.Thread(target=_run, daemon=True).start()
     return render_template("analysis_progress.html", upload_session_id=upload_session_id)
@@ -1939,8 +1994,9 @@ def analysis_status(upload_session_id):
 
     # No in-memory entry — check DB. Worker may have restarted, or analysis
     # completed before this session started polling.
-    rows = db.query("SELECT status FROM upload_sessions WHERE id=?", (upload_session_id,))
-    if rows and rows[0]["status"] == "complete":
+    rows = db.query("SELECT status, analysis_started_at FROM upload_sessions WHERE id=?", (upload_session_id,))
+    status = rows[0]["status"] if rows else None
+    if status == "complete":
         # All three agents must already be done if the session is complete.
         all_done = {
             "normalization":  {"status":"done","summary":"Item names mapped, duplicates merged","started_at":None,"ended_at":None},
@@ -1948,6 +2004,35 @@ def analysis_status(upload_session_id):
             "recommendation": {"status":"done","summary":"Completed","started_at":None,"ended_at":None},
         }
         return jsonify({"status": "done", "log": [], "elapsed": 0, "agents": all_done, "current_agent": None})
+
+    _interrupted = {
+        "status": "error",
+        "error": "The analysis stopped unexpectedly — the server may have restarted. Please run it again.",
+        "log": [], "elapsed": 0, "agents": {}, "current_agent": None,
+    }
+    if status == "failed":
+        return jsonify(_interrupted)
+
+    if status == "analyzing":
+        # DB says it's running but there's no in-memory progress. On a single
+        # worker that means the worker running it died. Give a short grace window
+        # for timing races, then declare it dead so the page stops spinning.
+        started = rows[0]["analysis_started_at"]
+        dead = True
+        if started:
+            try:
+                age = (datetime.utcnow() - datetime.fromisoformat(str(started))).total_seconds()
+                dead = age > STUCK_ANALYSIS_SECONDS
+            except (TypeError, ValueError):
+                dead = True
+        if dead:
+            db.execute("UPDATE upload_sessions SET status='failed' WHERE id=?", (upload_session_id,))
+            logger.warning("Analysis %s marked failed: no in-memory progress (worker likely restarted)",
+                           upload_session_id)
+            return jsonify(_interrupted)
+        # Within grace — tell the page to keep waiting.
+        return jsonify({"status": "running", "log": [], "elapsed": 0, "agents": {}, "current_agent": None})
+
     return jsonify({"status": "not_found", "log": [], "elapsed": 0, "agents": {}, "current_agent": None})
 
 
@@ -2618,7 +2703,7 @@ def recommend_outcome():
     try:
         db.update_supplier_scores(org_name)
     except Exception:
-        pass  # Non-blocking
+        logger.warning("Supplier-score recalc failed for org %s", org_name, exc_info=True)  # Non-blocking
 
     return jsonify({"ok": True})
 
