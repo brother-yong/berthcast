@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}{{ code }} — berthcast{% endblock %}
+
+{% block content %}
+<div class="page-wrap" style="display:flex; justify-content:center; padding-top:72px;">
+  <div class="card" style="max-width:440px; width:100%; text-align:center; padding:44px 36px;">
+    <div style="font-family:var(--font-display); font-size:52px; font-weight:700; color:var(--brass-3); line-height:1; margin-bottom:14px;">{{ code }}</div>
+    <h1 style="font-family:var(--font-display); font-size:20px; font-weight:600; color:var(--navy-800); margin-bottom:10px;">
+      {{ title }}
+    </h1>
+    <p style="font-size:14px; color:var(--muted); line-height:1.6; margin-bottom:26px;">{{ message }}</p>
+    {% if session.user_id %}
+    <a href="{{ url_for('dashboard') }}" class="btn btn-primary btn-sm">Back to dashboard</a>
+    {% else %}
+    <a href="{{ url_for('landing') }}" class="btn btn-primary btn-sm">Back to the homepage</a>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

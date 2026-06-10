@@ -169,11 +169,7 @@
 <div class="legal-wrap">
   <div class="legal-eyebrow">Legal</div>
   <h1 class="legal-title">Terms of Service</h1>
-  <div class="legal-meta">Last updated: 25 May 2026 &middot; Effective: 25 May 2026</div>
-
-  <div class="legal-disclaimer">
-    <strong>Heads up.</strong> This document is a starting template for a Singapore-based B2B SaaS service. Before you rely on it for any real contract, dispute, or commercial relationship, have it reviewed by a qualified lawyer admitted to practice in Singapore. Specific terms (fees, refund policy, SLA, indemnity limits) may need to be tightened or adjusted based on your actual customer arrangements.
-  </div>
+  <div class="legal-meta">Last updated: 10 June 2026 &middot; Effective: 10 June 2026</div>
 
   <div class="legal-toc">
     <div class="legal-toc-title">On this page</div>
@@ -192,12 +188,13 @@
       <li><a href="#termination">Termination</a></li>
       <li><a href="#changes">Changes to these terms</a></li>
       <li><a href="#law">Governing law and jurisdiction</a></li>
+      <li><a href="#general">General</a></li>
       <li><a href="#contact">Contact</a></li>
     </ol>
   </div>
 
   <h2 id="acceptance">1. Acceptance of these terms</h2>
-  <p>These Terms of Service (the "Terms") govern your access to and use of the berthcast website, application, and related services (collectively, the "Service") provided by berthcast ("we", "us", or "our"). By creating an account, uploading data, or otherwise using the Service, you agree to be bound by these Terms. If you do not agree, do not use the Service.</p>
+  <p>These Terms of Service (the "Terms") govern your access to and use of the berthcast website, application, and related services (collectively, the "Service") provided by berthcast, operated from Singapore ("we", "us", or "our"). By creating an account, uploading data, or otherwise using the Service, you agree to be bound by these Terms. If you do not agree, do not use the Service.</p>
   <p>You confirm that you have authority to bind the company or entity on whose behalf you are using the Service. References to "you" mean both you personally and the entity you represent.</p>
 
   <h2 id="service">2. Description of the service</h2>
@@ -226,8 +223,8 @@
   </ul>
 
   <h2 id="customer-data">5. Your data and confidentiality</h2>
-  <p>The data you upload to the Service (inventory exports, sales records, supplier lists, and related operational data) remains your property. You grant us a non-exclusive, limited licence to process that data solely for the purpose of providing the Service to you and improving the Service.</p>
-  <p>We will not sell your data, share it with advertisers, or use it to train publicly available AI models. We may pass your data to our infrastructure providers and AI model providers (currently Anthropic, used to generate recommendations) under written confidentiality terms.</p>
+  <p>The data you upload to the Service (inventory exports, sales records, supplier lists, and related operational data) remains your property. You grant us a non-exclusive, limited licence to process that data solely to provide the Service to you. We do not use your data to train AI models — ours or anyone else's — and we never use one customer's data to generate results for another customer.</p>
+  <p>We will not sell your data or share it with advertisers. We pass your data only to the infrastructure and AI providers needed to run the Service (listed in our <a href="{{ url_for('privacy') }}">Privacy Policy</a>, currently Anthropic for AI inference), each bound by confidentiality and limited-use terms.</p>
   <p>For information on how we collect, store, and protect personal data, see our <a href="{{ url_for('privacy') }}">Privacy Policy</a>.</p>
   <p>We use commercially reasonable technical and organisational measures to protect your data, but no system is fully secure. You acknowledge that uploading data to any online service carries inherent risk, and you agree to maintain your own backups of any critical operational data.</p>
 
@@ -265,16 +262,26 @@
 
   <h2 id="termination">12. Termination</h2>
   <p>You may close your account at any time by contacting us. We may suspend or terminate your access if you breach these Terms, fail to pay fees when due, or use the Service in a manner that exposes us to legal or reputational risk.</p>
-  <p>On termination, your right to use the Service ends immediately. We will retain your data for a reasonable period to allow for export and as required for our legitimate business and legal purposes, after which it may be deleted in accordance with our data retention practices.</p>
+  <p>On termination, your right to use the Service ends immediately. For 30 days after closure we will, on request, make your uploaded data available for export. After that window we delete your uploaded data and analyses from the live system within a further 30 days, except where the law requires us to keep specific records longer. Backup copies age out automatically on a rolling basis.</p>
 
   <h2 id="changes">13. Changes to these terms</h2>
   <p>We may amend these Terms from time to time. If we make a material change, we will notify you by email or through the Service before the change takes effect. Continued use of the Service after the effective date constitutes acceptance of the updated Terms. If you do not accept the changes, your only remedy is to stop using the Service and close your account.</p>
 
   <h2 id="law">14. Governing law and jurisdiction</h2>
-  <p>These Terms are governed by the laws of Singapore. Any dispute arising out of or in connection with these Terms shall be referred to and finally resolved by the Singapore International Arbitration Centre in accordance with its rules. The seat of arbitration shall be Singapore. The language of the arbitration shall be English. Each party shall bear its own costs.</p>
+  <p>These Terms are governed by the laws of Singapore. The courts of Singapore have exclusive jurisdiction over any dispute arising out of or in connection with these Terms, and both parties submit to that jurisdiction. Before starting formal proceedings, both parties agree to first attempt in good faith to resolve the dispute directly within 30 days of one party notifying the other in writing.</p>
 
-  <h2 id="contact">15. Contact</h2>
-  <p>Questions about these Terms can be sent through our <a href="{{ url_for('contact') }}">contact page</a>.</p>
+  <h2 id="general">15. General</h2>
+  <ul>
+    <li><strong>Entire agreement.</strong> These Terms, together with the Privacy Policy and any written order form we both sign, are the entire agreement between us about the Service and replace any earlier discussions.</li>
+    <li><strong>Severability.</strong> If any part of these Terms is found unenforceable, the rest remains in full effect.</li>
+    <li><strong>No waiver.</strong> If we don't enforce a provision immediately, we haven't given up the right to enforce it later.</li>
+    <li><strong>Assignment.</strong> You may not transfer your rights under these Terms without our written consent. We may assign these Terms as part of a merger, acquisition, or sale of the business, and will notify you if we do.</li>
+    <li><strong>Force majeure.</strong> Neither party is liable for delay or failure caused by events beyond its reasonable control (including outages of third-party AI or hosting providers), except for your obligation to pay fees already due.</li>
+    <li><strong>Notices.</strong> We give notices to the email address on your account; you give notices to the contact address below. A notice is treated as received one business day after sending.</li>
+  </ul>
+
+  <h2 id="contact">16. Contact</h2>
+  <p>Questions about these Terms can be sent through our <a href="{{ url_for('contact') }}">contact page</a> or emailed to <a href="mailto:admin@berthcast.com">admin@berthcast.com</a>.</p>
 </div>
 
 <footer class="legal-footer">

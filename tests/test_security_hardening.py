@@ -73,6 +73,11 @@ def _test_headers():
     _check("CSP allows Google Fonts stylesheet", "https://fonts.googleapis.com" in csp)
     _check("CSP allows Google Fonts files", "https://fonts.gstatic.com" in csp)
 
+    _check("Permissions-Policy denies unused browser features",
+           "camera=()" in h.get("Permissions-Policy", ""))
+    _check("Cross-Origin-Opener-Policy set",
+           h.get("Cross-Origin-Opener-Policy") == "same-origin")
+
     # HSTS must be OFF when not on Render (we didn't set RENDER), so local
     # http development isn't pinned to https.
     _check("HSTS off outside production", "Strict-Transport-Security" not in h)
