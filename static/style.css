@@ -280,7 +280,6 @@ textarea { resize: vertical; min-height: 96px; line-height: 1.55; }
 }
 
 .upload-slot-icon {
-  font-size: 18px;
   flex-shrink: 0;
   width: 44px;
   height: 44px;
@@ -290,14 +289,36 @@ textarea { resize: vertical; min-height: 96px; line-height: 1.55; }
   border-radius: var(--radius-sm);
   background: var(--paper-2);
   transition: background 200ms var(--ease-out), transform 200ms var(--ease-out);
-  /* Emoji glyphs are neutralised to match the paper/brass palette; done and
-     error states get their colour back below because there it signals state. */
-  filter: grayscale(1) contrast(0.9);
-  opacity: 0.8;
 }
-.upload-slot.done      .upload-slot-icon { background: #dcfce7; filter: none; opacity: 1; }
-.upload-slot.error     .upload-slot-icon { background: #fee2e2; filter: none; opacity: 1; }
+/* The pictogram is pure CSS: --icon (set per slot in the template) is masked
+   and tinted to the palette. The done/uploading/error classes swap both the
+   symbol and the colour — JS only toggles the state class. */
+.upload-slot-icon::before {
+  content: '';
+  width: 22px;
+  height: 22px;
+  background: var(--navy-700);
+  -webkit-mask: var(--icon) center / contain no-repeat;
+          mask: var(--icon) center / contain no-repeat;
+}
 .upload-slot.uploading .upload-slot-icon { background: #fde9c8; }
+.upload-slot.uploading .upload-slot-icon::before {
+  background: var(--brass-3);
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cg fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4'/%3E%3Cpath d='m17 8-5-5-5 5'/%3E%3Cpath d='M12 3v15'/%3E%3C/g%3E%3C/svg%3E");
+          mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cg fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4'/%3E%3Cpath d='m17 8-5-5-5 5'/%3E%3Cpath d='M12 3v15'/%3E%3C/g%3E%3C/svg%3E");
+}
+.upload-slot.done .upload-slot-icon { background: #dcfce7; }
+.upload-slot.done .upload-slot-icon::before {
+  background: var(--success);
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round' d='M20 6 9 17l-5-5'/%3E%3C/svg%3E");
+          mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round' d='M20 6 9 17l-5-5'/%3E%3C/svg%3E");
+}
+.upload-slot.error .upload-slot-icon { background: #fee2e2; }
+.upload-slot.error .upload-slot-icon::before {
+  background: var(--danger);
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round' d='M18 6 6 18M6 6l12 12'/%3E%3C/svg%3E");
+          mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round' d='M18 6 6 18M6 6l12 12'/%3E%3C/svg%3E");
+}
 
 .upload-slot-info { flex: 1; min-width: 0; }
 .upload-slot-info strong {

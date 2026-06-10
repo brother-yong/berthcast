@@ -139,8 +139,26 @@
 
     /* ── Hero ── */
     .hero {
-      max-width: 1120px; margin: 0 auto; padding: 92px 40px 64px;
-      display: grid; grid-template-columns: 1.05fr 1fr; gap: 60px; align-items: center;
+      max-width: 1120px; margin: 0 auto; padding: clamp(76px, 9vw, 108px) 40px 72px;
+      display: grid; grid-template-columns: 1.05fr 1fr; gap: 56px; align-items: center;
+      position: relative;
+    }
+    /* Static brass wash behind the terminal — depth without motion */
+    .hero::before {
+      content: '';
+      position: absolute;
+      top: -60px; right: -140px;
+      width: 580px; height: 580px;
+      background: radial-gradient(circle, rgba(200,155,92,0.16), transparent 62%);
+      pointer-events: none;
+    }
+    /* FT-style double rule above the kicker — the editorial signature */
+    .hero-rule {
+      width: 56px;
+      border-top: 2px solid var(--brass);
+      border-bottom: 1px solid var(--border);
+      height: 7px;
+      margin-bottom: 22px;
     }
     .hero-label {
       display: inline-flex; align-items: center; gap: 8px;
@@ -152,26 +170,74 @@
     .hero-label-dot { width: 6px; height: 6px; background: var(--brass); border-radius: 50%; animation: pulse 2.4s infinite; }
     @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.35} }
     .hero h1 {
-      font-family: var(--font-display); font-size: clamp(40px, 5.2vw, 60px); line-height: 1.06;
-      color: var(--navy-900); letter-spacing: -0.025em; margin-bottom: 22px;
+      font-family: var(--font-display); font-size: clamp(44px, 5.6vw, 70px); line-height: 1.04;
+      color: var(--navy-900); letter-spacing: -0.028em; margin-bottom: 24px;
     }
+    .hero h1 em { font-size: 1.05em; }
     .hero-sub { font-size: 18px; color: var(--muted); line-height: 1.62; margin-bottom: 34px; max-width: 470px; }
     .hero-ctas { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
     .hero-note { margin-top: 18px; font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 7px; }
     .hero-note svg { color: var(--success); flex-shrink: 0; }
 
-    /* Hero product card */
-    .hero-visual { display: flex; flex-direction: column; gap: 12px; }
-    .card {
-      background: #fff; border: 1px solid var(--border); border-radius: 16px;
-      box-shadow: 0 6px 28px rgba(15,27,45,0.07);
+    /* ── Hero terminal board — one committed navy panel, Bloomberg-desk read ── */
+    .hero-visual { position: relative; }
+    .terminal {
+      background: var(--navy-900);
+      border: 1px solid var(--navy-700);
+      border-radius: 18px;
+      overflow: hidden;
+      box-shadow: 0 30px 80px rgba(11,20,36,0.32), 0 4px 16px rgba(11,20,36,0.16);
+      animation: termIn 760ms var(--ease-out) 140ms both;
     }
-    .hero-card { padding: 20px 22px; }
-    .card-label {
-      font-family: var(--font-mono); font-size: 10.5px; font-weight: 500; letter-spacing: 0.1em;
-      text-transform: uppercase; color: var(--muted); margin-bottom: 12px;
-      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    @keyframes termIn { from { opacity: 0; transform: translateY(20px) scale(0.985); } }
+    .term-head {
+      display: flex; align-items: center; gap: 10px;
+      background: var(--navy-800);
+      padding: 13px 20px;
+      border-bottom: 1px solid var(--navy-700);
+      position: relative;
     }
+    .term-head::after {
+      content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 1px;
+      background: linear-gradient(90deg, transparent, var(--brass), transparent);
+      opacity: 0.6;
+    }
+    .term-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--brass); animation: pulse 2.4s infinite; flex-shrink: 0; }
+    .term-title { font-family: var(--font-mono); font-size: 11px; font-weight: 500; letter-spacing: 0.14em; text-transform: uppercase; color: var(--brass-2); }
+    .term-tag { margin-left: auto; font-family: var(--font-serif); font-style: italic; font-size: 14px; color: rgba(255,255,255,0.42); }
+    .term-body { padding: 22px; }
+    .term-divider {
+      display: flex; align-items: center; justify-content: space-between;
+      margin: 20px 0 12px; padding-top: 18px;
+      border-top: 1px solid rgba(255,255,255,0.08);
+      font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.12em;
+      text-transform: uppercase; color: rgba(255,255,255,0.5);
+    }
+    .term-foot {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      padding: 12px 20px;
+      border-top: 1px solid rgba(255,255,255,0.08);
+      background: rgba(255,255,255,0.02);
+      font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.1em;
+      text-transform: uppercase; color: rgba(255,255,255,0.4);
+    }
+    .term-live { display: inline-flex; align-items: center; gap: 7px; color: #7FC8A4; font-weight: 600; }
+    .term-live-dot { width: 7px; height: 7px; border-radius: 50%; background: #34D399; box-shadow: 0 0 10px rgba(52,211,153,0.7); animation: pulse 2.4s infinite; }
+    /* Light-on-navy recolour of the shared metric / bar / rec components */
+    .terminal .metric-value { color: #fff; }
+    .terminal .metric-value.is-danger { color: #E58B8B; }
+    .terminal .metric-value.is-success { color: #7FC8A4; }
+    .terminal .metric-sub { color: rgba(255,255,255,0.45); }
+    .terminal .bar { background: rgba(255,255,255,0.08); }
+    .terminal .bar.hi { background: #5C9C7D; }
+    .terminal .bar.md { background: var(--brass); }
+    .terminal .bar.lo { background: #C76E6E; }
+    .terminal .rec-item { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.07); }
+    .terminal .rec-name { color: rgba(255,255,255,0.92); }
+    .terminal .rec-qty { color: var(--brass-2); }
+    .terminal .badge.ok { background: rgba(45,106,79,0.3); color: #7FC8A4; }
+    .terminal .badge.warn { background: rgba(184,92,0,0.3); color: #E2B97A; }
+    .terminal .badge.danger { background: rgba(139,44,44,0.32); color: #E58B8B; }
     .metric-row { display: flex; gap: 20px; }
     .metric { flex: 1; }
     .metric-value { font-family: var(--font-display); font-size: 28px; font-weight: 700; color: var(--navy-900); line-height: 1; font-variant-numeric: tabular-nums; }
@@ -366,6 +432,7 @@
 <!-- ── Hero ── -->
 <section class="hero" id="top">
   <div class="hero-copy">
+    <div class="hero-rule" aria-hidden="true"></div>
     <div class="hero-label"><span class="hero-label-dot"></span> AI inventory operations for food distributors</div>
     <h1>Stop losing revenue to <em>stockouts</em> you could have seen coming.</h1>
     <p class="hero-sub">berthcast reads your inventory, purchase orders, and sales exports, ranks what's going critical, and tells you exactly what to reorder — before the gap shows up as an order you can't fill.</p>
@@ -379,26 +446,34 @@
     </div>
   </div>
   <div class="hero-visual">
-    <div class="card hero-card" id="heroCard1">
-      <div class="card-label">Inventory snapshot <span style="font-style:italic;text-transform:none;letter-spacing:0;color:rgba(15,27,45,0.4)">sample output</span></div>
-      <div class="metric-row">
-        <div class="metric"><div class="metric-value" data-count="412">0</div><div class="metric-sub">SKUs tracked</div></div>
-        <div class="metric"><div class="metric-value is-danger" data-count="23">0</div><div class="metric-sub">Critical</div></div>
-        <div class="metric"><div class="metric-value is-success" data-count="47">0</div><div class="metric-sub">Reorder recs</div></div>
+    <div class="terminal">
+      <div class="term-head">
+        <span class="term-dot"></span>
+        <span class="term-title">Inventory desk · live read</span>
+        <span class="term-tag">sample output</span>
       </div>
-      <div class="bar-row" id="barRow">
-        <div class="bar hi" data-h="30"></div><div class="bar hi" data-h="36"></div><div class="bar md" data-h="24"></div>
-        <div class="bar hi" data-h="40"></div><div class="bar lo" data-h="16"></div><div class="bar md" data-h="28"></div>
-        <div class="bar hi" data-h="34"></div><div class="bar lo" data-h="12"></div><div class="bar hi" data-h="38"></div>
-        <div class="bar md" data-h="22"></div><div class="bar hi" data-h="32"></div><div class="bar lo" data-h="18"></div>
+      <div class="term-body">
+        <div class="metric-row">
+          <div class="metric"><div class="metric-value" data-count="412">0</div><div class="metric-sub">SKUs tracked</div></div>
+          <div class="metric"><div class="metric-value is-danger" data-count="23">0</div><div class="metric-sub">Critical</div></div>
+          <div class="metric"><div class="metric-value is-success" data-count="47">0</div><div class="metric-sub">Reorder recs</div></div>
+        </div>
+        <div class="bar-row" id="barRow">
+          <div class="bar hi" data-h="30"></div><div class="bar hi" data-h="36"></div><div class="bar md" data-h="24"></div>
+          <div class="bar hi" data-h="40"></div><div class="bar lo" data-h="16"></div><div class="bar md" data-h="28"></div>
+          <div class="bar hi" data-h="34"></div><div class="bar lo" data-h="12"></div><div class="bar hi" data-h="38"></div>
+          <div class="bar md" data-h="22"></div><div class="bar hi" data-h="32"></div><div class="bar lo" data-h="18"></div>
+        </div>
+        <div class="term-divider"><span>Top reorders</span><span class="badge ok">47 ready</span></div>
+        <div class="rec-row" id="recRow">
+          <div class="rec-item"><span class="rec-name">Bottled Water 1.5L (case)</span><span style="display:flex;align-items:center;gap:8px"><span class="badge danger">CRITICAL</span><span class="rec-qty">120 cs</span></span></div>
+          <div class="rec-item"><span class="rec-name">Long-grain Rice 50kg</span><span style="display:flex;align-items:center;gap:8px"><span class="badge warn">LOW</span><span class="rec-qty">15 bags</span></span></div>
+          <div class="rec-item"><span class="rec-name">Cooking Oil 5L</span><span style="display:flex;align-items:center;gap:8px"><span class="badge ok">NORMAL</span><span class="rec-qty">40 btl</span></span></div>
+        </div>
       </div>
-    </div>
-    <div class="card hero-card" id="heroCard2">
-      <div class="card-label">Top reorder recommendations <span class="badge ok">47 ready</span></div>
-      <div class="rec-row" id="recRow">
-        <div class="rec-item"><span class="rec-name">Bottled Water 1.5L (case)</span><span style="display:flex;align-items:center;gap:8px"><span class="badge danger">CRITICAL</span><span class="rec-qty">120 cs</span></span></div>
-        <div class="rec-item"><span class="rec-name">Long-grain Rice 50kg</span><span style="display:flex;align-items:center;gap:8px"><span class="badge warn">LOW</span><span class="rec-qty">15 bags</span></span></div>
-        <div class="rec-item"><span class="rec-name">Cooking Oil 5L</span><span style="display:flex;align-items:center;gap:8px"><span class="badge ok">NORMAL</span><span class="rec-qty">40 btl</span></span></div>
+      <div class="term-foot">
+        <span>3 agents · normalise → health → reorder</span>
+        <span class="term-live"><span class="term-live-dot"></span>Live</span>
       </div>
     </div>
   </div>

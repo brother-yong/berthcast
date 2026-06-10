@@ -20,38 +20,27 @@
     <div class="card-title">Files to upload</div>
 
     {% set slots = [
-      ('inventory',       'slot-inventory',       'ICON_INV',  'ICON_DONE', 'Inventory Report',       '',                        'Current stock on hand — all items and their quantities.'),
-      ('sales',           'slot-sales',           'ICON_SALES','ICON_DONE', 'Sales Report',           '',                        'Items sold and quantities or revenue per period. Used to identify fast-movers and dead SKUs.'),
-      ('purchase_orders', 'slot-purchase_orders', 'ICON_PO',   'ICON_DONE', 'Purchase Order Record',  '(optional)',              'Past orders placed with suppliers. Adds lead time context to recommendations.'),
-      ('suppliers',       'slot-suppliers',       'ICON_SUP',  'ICON_DONE', 'Supplier Listing',       '(optional)',              'Your suppliers and whether they are local or import. Affects lead time calculations.'),
+      ('inventory',       'slot-inventory',       'icon-inventory.svg', 'Inventory Report',       '',           'Current stock on hand — all items and their quantities.'),
+      ('sales',           'slot-sales',           'icon-document.svg',  'Sales Report',           '',           'Items sold and quantities or revenue per period. Used to identify fast-movers and dead SKUs.'),
+      ('purchase_orders', 'slot-purchase_orders', 'icon-reorder.svg',   'Purchase Order Record',  '(optional)', 'Past orders placed with suppliers. Adds lead time context to recommendations.'),
+      ('suppliers',       'slot-suppliers',       'icon-supplier.svg',  'Supplier Listing',       '(optional)', 'Your suppliers and whether they are local or import. Affects lead time calculations.'),
     ] %}
 
-    {% set icons = {
-      'ICON_INV':   '📋',
-      'ICON_PO':    '🧾',
-      'ICON_SALES': '📈',
-      'ICON_SUP':   '🏭',
-      'ICON_STOCK': '⚠️',
-      'ICON_DONE':  '✅',
-    } %}
-
-    {% for slot, slotId, iconKey, doneKey, title, badge, desc in slots %}
+    {% for slot, slotId, icon_file, title, badge, desc in slots %}
     {# A slot is truly "done" only when conversion finished successfully.
        A partial table can exist on disk mid-conversion — we must NOT treat
        that as uploaded, or refreshing the page lies to the user. #}
+    {# The icon is rendered entirely in CSS: --icon points at the slot's SVG,
+       and the done/uploading/error state classes swap symbol + colour. #}
     {% set conv        = (conversion_status or {}).get(slot, {}) %}
     {% set conv_status = conv.get('status', '') %}
     {% set uploaded    = (conv_status == 'done') %}
     {% set processing  = (conv_status == 'converting') or (tables[slot] and not conv_status) %}
     {% set errored     = (conv_status == 'error') %}
     <div class="upload-slot {% if uploaded %}done{% elif processing %}uploading{% elif errored %}error{% endif %}"
-         id="{{ slotId }}" data-slot="{{ slot }}" data-icon="{{ icons[iconKey] }}">
-      <div class="upload-slot-icon">
-        {% if uploaded %}{{ icons[doneKey] }}
-        {% elif processing %}📤
-        {% elif errored %}❌
-        {% else %}{{ icons[iconKey] }}{% endif %}
-      </div>
+         id="{{ slotId }}" data-slot="{{ slot }}"
+         style="--icon: url('{{ url_for('static', filename='icons/' ~ icon_file) }}')">
+      <div class="upload-slot-icon"></div>
       <div class="upload-slot-info">
         <strong>{{ title }}{% if badge %} <span style="font-weight:400;color:var(--muted);font-size:13px;">{{ badge }}</span>{% endif %}</strong>
         <span>{{ desc }}</span>
@@ -260,7 +249,6 @@ function _setProgress(slotId, pct) {
 
 function _setError(slot, slotId, msg) {
   const slotEl = document.getElementById(slotId);
-  slotEl.querySelector('.upload-slot-icon').textContent = '❌';
   slotEl.classList.remove('uploading','done'); slotEl.classList.add('error');
   _setLabelText(slot, 'Try again');
   _setProgress(slotId, 0);
@@ -304,7 +292,6 @@ function cancelUpload(slot, slotId) {
   }
   // Reset slot UI back to ready state
   const slotEl = document.getElementById(slotId);
-  slotEl.querySelector('.upload-slot-icon').textContent = slotEl.dataset.icon || '📋';
   slotEl.classList.remove('uploading', 'done', 'error');
   _setLabelText(slot, 'Upload');
   _setProgress(slotId, 0);
@@ -327,7 +314,6 @@ async function _doUpload(file, slot, slotId) {
     return;
   }
 
-  slotEl.querySelector('.upload-slot-icon').textContent = '📤';
   slotEl.classList.remove('done','error'); slotEl.classList.add('uploading');
   _setLabelText(slot, 'Uploading…');
   _setProgress(slotId, 0);
@@ -462,7 +448,6 @@ async function _pollConversionStatus(slot, slotId, displayName) {
 
 function _markSlotDone(slot, slotId, displayName, rows) {
   const slotEl = document.getElementById(slotId);
-  slotEl.querySelector('.upload-slot-icon').textContent = '\u2705';
   slotEl.classList.remove('uploading','error'); slotEl.classList.add('done');
   _setLabelText(slot, 'Replace');
   _setProgress(slotId, 100);
@@ -489,7 +474,6 @@ function removeFile(slot, slotId) {
       });
       const data = await res.json();
       if (data.ok) {
-        slotEl.querySelector('.upload-slot-icon').textContent = slotEl.dataset.icon || '📋';
         slotEl.classList.remove('done','error','uploading');
         _setLabelText(slot, 'Upload');
         _setProgress(slotId, 0);
