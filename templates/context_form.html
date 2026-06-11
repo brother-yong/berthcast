@@ -24,6 +24,46 @@
 
     <form method="POST" action="{{ url_for('context_form', upload_session_id=upload_session_id) }}">
 
+      {% if inv_cols %}
+      <div style="margin-bottom:28px; padding:18px 20px; background:var(--paper-2); border:1px solid var(--border); border-radius:12px;">
+        <div style="font-weight:600; margin-bottom:6px;">Confirm your columns</div>
+        <p style="color:var(--muted); font-size:14px; margin-bottom:16px;">
+          We matched the columns in your inventory file. Please check the <strong>stock</strong> column especially —
+          if that one is wrong, the whole analysis is wrong.
+        </p>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px;">
+          <div class="form-group">
+            <label for="col_description">Item name column</label>
+            <select id="col_description" name="col_description">
+              {% for c in inv_cols %}<option value="{{ c }}" {% if c == col_map.description %}selected{% endif %}>{{ c }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="col_stock">Current stock column
+              <span class="hint">how much is in the warehouse right now</span>
+            </label>
+            <select id="col_stock" name="col_stock">
+              {% for c in inv_cols %}<option value="{{ c }}" {% if c == col_map.stock %}selected{% endif %}>{{ c }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="col_category">Category column <span class="hint">optional</span></label>
+            <select id="col_category" name="col_category">
+              <option value="">— none —</option>
+              {% for c in inv_cols %}<option value="{{ c }}" {% if c == col_map.category %}selected{% endif %}>{{ c }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="col_uom">Unit column <span class="hint">optional, e.g. KG / CTN</span></label>
+            <select id="col_uom" name="col_uom">
+              <option value="">— none —</option>
+              {% for c in inv_cols %}<option value="{{ c }}" {% if c == col_map.uom %}selected{% endif %}>{{ c }}</option>{% endfor %}
+            </select>
+          </div>
+        </div>
+      </div>
+      {% endif %}
+
       <div class="form-group">
         <label for="delayed_suppliers">
           Are any suppliers currently delayed or hard to reach?

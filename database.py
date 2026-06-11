@@ -194,6 +194,9 @@ def init_db():
         "ALTER TABLE upload_sessions ADD COLUMN scope TEXT DEFAULT 'all'",
         # When a run started — lets us detect analyses orphaned by a worker restart.
         "ALTER TABLE upload_sessions ADD COLUMN analysis_started_at TIMESTAMP",
+        # User-confirmed inventory column mapping (item/stock/category/uom) from
+        # the context page. JSON or NULL. NULL = fall back to keyword detection.
+        "ALTER TABLE upload_sessions ADD COLUMN column_map_json TEXT",
         "ALTER TABLE company_config ADD COLUMN industry TEXT DEFAULT 'general'",
         "ALTER TABLE company_config ADD COLUMN company_description TEXT",
         "ALTER TABLE supplier_profiles ADD COLUMN supplier_type TEXT DEFAULT 'other'",
