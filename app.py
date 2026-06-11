@@ -26,7 +26,6 @@ import quantity
 import backup
 from logging_setup import logger
 from agents import (
-    run_normalization_agent,
     run_pipeline,
 )
 
@@ -75,6 +74,20 @@ ORG_DEDUP_RUNS_PER_DAY = 20
 # mid-analysis dies with a cryptic SQLite I/O error; refusing up front with a
 # plain message (and an ERROR in the logs) is the honest failure.
 MIN_FREE_DISK_MB = 100
+
+# The two SSE endpoints (/api/chat, /dedup/stream) each hold a gunicorn thread
+# for the whole Claude stream — minutes, sometimes. With a finite thread pool,
+# enough concurrent (or stuck) streams freeze EVERY route, including login and
+# /health, with nothing in the logs: that was the 85-minute outage of 11 June
+# 2026. The cap must stay below gunicorn --threads (render.yaml) so plain page
+# loads always have free lanes; excess streams get a plain 503 instead of
+# silently queueing the whole site to death.
+MAX_CONCURRENT_STREAMS = 8
+_stream_lanes = threading.BoundedSemaphore(MAX_CONCURRENT_STREAMS)
+# How long a streaming Claude call may stall before we give the lane back.
+# The SDK default is 10 minutes — far too long for a held thread.
+CHAT_STREAM_TIMEOUT_S  = 120
+DEDUP_STREAM_TIMEOUT_S = 300
 
 # Session cookie hardening. SECURE is only enforced in production (on Render,
 # which is HTTPS-only) so local http dev still works. HTTPONLY keeps JavaScript
@@ -719,8 +732,8 @@ def chat_api():
         if cu and cu[0]["chat_messages_used"] >= 20:
             return jsonify({"error": "Free accounts include 20 chat messages. Upgrade to continue chatting."}), 403
 
-    # Verify or create conversation
-    is_new_conv = False
+    # Verify the conversation exists (read-only; writes happen after the lane
+    # is claimed, so a refused request leaves no half-written rows behind).
     if conversation_id:
         rows = db.query(
             "SELECT id FROM chat_conversations WHERE id=? AND (org_name=? OR (org_name IS NULL AND user_id=?))",
@@ -728,41 +741,55 @@ def chat_api():
         )
         if not rows:
             return jsonify({"error": "Conversation not found"}), 404
-    else:
-        is_new_conv = True
-        conversation_id = db.execute(
-            "INSERT INTO chat_conversations (user_id, title, org_name) VALUES (?,?,?)",
-            (session["user_id"], "New conversation", session["org_name"])
-        )
 
-    # Save user message first
-    db.execute(
-        "INSERT INTO chat_messages (conversation_id, role, content) VALUES (?,?,?)",
-        (conversation_id, "user", user_message)
-    )
+    # Claim a stream lane. The SSE response holds a gunicorn thread for the
+    # whole Claude stream; uncapped, enough concurrent/stuck streams freeze
+    # every route (the 11 June 2026 outage). Released via call_on_close below;
+    # everything between here and the Response is guarded so the lane can
+    # never leak on an exception.
+    if not _stream_lanes.acquire(blocking=False):
+        return jsonify({"error": "The server is busy with other live requests right now. "
+                                 "Please try again in a minute."}), 503
+    try:
+        is_new_conv = False
+        if not conversation_id:
+            is_new_conv = True
+            conversation_id = db.execute(
+                "INSERT INTO chat_conversations (user_id, title, org_name) VALUES (?,?,?)",
+                (session["user_id"], "New conversation", session["org_name"])
+            )
 
-    # Increment chat_messages_used for free users
-    if session.get("tier") == "free":
+        # Save user message first
         db.execute(
-            "UPDATE users SET chat_messages_used = chat_messages_used + 1 WHERE id=?",
-            (session["user_id"],)
+            "INSERT INTO chat_messages (conversation_id, role, content) VALUES (?,?,?)",
+            (conversation_id, "user", user_message)
         )
 
-    # Build message history for Claude
-    history_rows = db.query(
-        "SELECT role, content FROM chat_messages WHERE conversation_id=? ORDER BY created_at ASC",
-        (conversation_id,)
-    )
-    messages = [{"role": r["role"], "content": r["content"]} for r in history_rows]
-    model = session["model"]
-    conv_id_snapshot = conversation_id
-    is_new_snapshot = is_new_conv
-    user_msg_snapshot = user_message
-    features_snapshot = req_features
+        # Increment chat_messages_used for free users
+        if session.get("tier") == "free":
+            db.execute(
+                "UPDATE users SET chat_messages_used = chat_messages_used + 1 WHERE id=?",
+                (session["user_id"],)
+            )
 
-    # Build system prompt with live data
-    use_detailed = "use_analysis_context" in features_snapshot
-    chat_ctx = _build_chat_context(session["user_id"], session["org_name"], detailed=use_detailed)
+        # Build message history for Claude
+        history_rows = db.query(
+            "SELECT role, content FROM chat_messages WHERE conversation_id=? ORDER BY created_at ASC",
+            (conversation_id,)
+        )
+        messages = [{"role": r["role"], "content": r["content"]} for r in history_rows]
+        model = session["model"]
+        conv_id_snapshot = conversation_id
+        is_new_snapshot = is_new_conv
+        user_msg_snapshot = user_message
+        features_snapshot = req_features
+
+        # Build system prompt with live data
+        use_detailed = "use_analysis_context" in features_snapshot
+        chat_ctx = _build_chat_context(session["user_id"], session["org_name"], detailed=use_detailed)
+    except Exception:
+        _stream_lanes.release()
+        raise
 
     base_system = (
         "You are berthcast, an AI inventory advisor for {org}. "
@@ -790,7 +817,10 @@ def chat_api():
         )
 
     def generate():
-        _client = _anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+        # Explicit timeout: the SDK default (10 min) would pin this gunicorn
+        # thread for the full duration if the API stalls mid-stream.
+        _client = _anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"),
+                                       timeout=CHAT_STREAM_TIMEOUT_S)
         full_response = []
         feature_addons = []
         if "show_reasoning" in features_snapshot:
@@ -839,11 +869,15 @@ def chat_api():
         except Exception as e:
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
-    return Response(
+    resp = Response(
         stream_with_context(generate()),
         mimetype="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+    # call_on_close fires when the WSGI server closes the response — normal
+    # end, client disconnect, or error — so the lane can never leak.
+    resp.call_on_close(_stream_lanes.release)
+    return resp
 
 
 @app.route("/api/chat/conversations")
@@ -1808,14 +1842,37 @@ def dedup_loading(upload_session_id):
 def dedup_stream(upload_session_id):
     """SSE endpoint — streams Claude tokens for the normalisation agent in real time."""
     _verify_session_owner(upload_session_id)
-    if rate_limit.hit(f"dedup:{session['org_name']}", ORG_DEDUP_RUNS_PER_DAY, 86400):
-        return jsonify({"error": "Daily limit for re-running item matching reached. "
-                                 "Please try again tomorrow."}), 429
+
+    # Already scanned this session? Serve the cached result instantly. This is
+    # what makes a reconnect (page refresh, phone waking up, EventSource retry)
+    # FREE — without it every reconnect re-ran the whole multi-minute Claude
+    # call on a fresh thread, which is how a few locked iPhones froze the site.
+    # Checked before the rate cap so reconnects don't burn the daily allowance.
+    _cached = normalization_cache.get(upload_session_id)
+    if _cached is not None:
+        _payload = (
+            f"data: {json.dumps({'type': 'status', 'count': len(_cached.get('groups', []))})}\n\n"
+            f"data: {json.dumps({'type': 'done', 'count': len(_cached.get('groups', []))})}\n\n"
+        )
+        return Response(_payload, mimetype="text/event-stream",
+                        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
     model = session["model"]
     # Resolved here, not inside the generator — session isn't reliably
-    # available once the SSE response is streaming.
+    # available once the SSE response is streaming. Also resolved BEFORE the
+    # lane is claimed: nothing throwable may sit between acquire and Response,
+    # or an exception would leak the lane permanently.
     _company_desc = (db.get_company_config(session["org_name"]).get("company_description")
                      or session["org_name"])
+
+    # Lane before cap: a "server busy" rejection must not burn the daily cap.
+    if not _stream_lanes.acquire(blocking=False):
+        return jsonify({"error": "The server is busy with other live requests right now. "
+                                 "Please try again in a minute."}), 503
+    if rate_limit.hit(f"dedup:{session['org_name']}", ORG_DEDUP_RUNS_PER_DAY, 86400):
+        _stream_lanes.release()
+        return jsonify({"error": "Daily limit for re-running item matching reached. "
+                                 "Please try again tomorrow."}), 429
 
     def generate():
         import re as _re
@@ -1904,7 +1961,10 @@ def dedup_stream(upload_session_id):
         full_text = ""
         try:
             with _anthropic.Anthropic(
-                api_key=os.environ.get("ANTHROPIC_API_KEY")
+                api_key=os.environ.get("ANTHROPIC_API_KEY"),
+                # SDK default is 10 min; a stalled call must not pin this
+                # thread that long. 5 min covers the largest real catalogue.
+                timeout=DEDUP_STREAM_TIMEOUT_S,
             ).messages.stream(
                 model=model,
                 max_tokens=8000,
@@ -1932,11 +1992,15 @@ def dedup_stream(upload_session_id):
         normalization_cache[upload_session_id] = {"groups": groups, "message": ""}
         yield f"data: {json.dumps({'type': 'done', 'count': len(groups)})}\n\n"
 
-    return Response(
+    resp = Response(
         stream_with_context(generate()),
         mimetype="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+    # Fires when the WSGI server closes the response — normal end, client
+    # disconnect, or error — so the lane can never leak.
+    resp.call_on_close(_stream_lanes.release)
+    return resp
 
 
 @app.route("/dedup/<int:upload_session_id>", methods=["GET", "POST"])
@@ -1944,7 +2008,6 @@ def dedup_stream(upload_session_id):
 @analyst_required
 def dedup_review(upload_session_id):
     _verify_session_owner(upload_session_id)
-    model = session["model"]
     if request.method == "POST":
         confirmed_raw = request.form.get("confirmed_groups", "[]")
         try:
@@ -1957,15 +2020,18 @@ def dedup_review(upload_session_id):
             (upload_session_id, json.dumps({"confirmed_groups": confirmed}), "[]")
         )
         return redirect(url_for("run_analysis", upload_session_id=upload_session_id))
-    # Use result cached by the streaming loading page if available; otherwise block
-    cached = normalization_cache.pop(upload_session_id, None)
-    if cached is not None:
-        groups  = cached["groups"]
-        message = cached.get("message", "")
-    else:
-        result  = run_normalization_agent(upload_session_id, model)
-        groups  = result.get("groups", [])
-        message = result.get("message", "")
+    # Read (don't consume) the result cached by the streaming loading page.
+    # This used to POP the cache and, on a miss, run the whole normalisation
+    # agent synchronously on this request thread — so one F5 on this page held
+    # a gunicorn lane for minutes with no progress UI, and a few refreshes
+    # froze the entire site (the 11 June 2026 outage). Now: cache hit renders
+    # instantly on every refresh; cache miss goes back to the loading page,
+    # which streams the scan with progress and a lane cap.
+    cached = normalization_cache.get(upload_session_id)
+    if cached is None:
+        return redirect(url_for("dedup_loading", upload_session_id=upload_session_id))
+    groups  = cached["groups"]
+    message = cached.get("message", "")
     return render_template("dedup_review.html", groups=groups, message=message, upload_session_id=upload_session_id)
 
 
