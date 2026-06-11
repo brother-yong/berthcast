@@ -16,6 +16,7 @@ from .shared import (
     _extract_json_array,
     _num_sql,
     _to_num,
+    count_sales_months,
     detect_inventory_columns,
 )
 
@@ -382,10 +383,29 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
         if not _date_col:
             _date_col = next((c for c in _sal_col_names if "date" in c.lower()), None)
         if _date_col:
-            _mo_rows = query(
-                f'SELECT COUNT(DISTINCT strftime("%Y-%m", "{_date_col}")) as m FROM {sal_table} LIMIT 1'
-            )
-            months_of_data = max(1, (_mo_rows[0]["m"] or 0) if _mo_rows else 0) or 12
+            # Parse dates in Python — handles DD/MM/YYYY, 15-Jun-26 and Excel
+            # serials, none of which SQLite's strftime understands.
+            _date_rows = query(
+                f'SELECT DISTINCT "{_date_col}" AS d FROM {sal_table} LIMIT 5000')
+            _counted = count_sales_months([r["d"] for r in _date_rows])
+            if _counted:
+                months_of_data, _fmt = _counted
+                _emit(progress_emit,
+                      f"Sales data covers {months_of_data} month(s) — dates read as {_fmt}")
+            else:
+                # Last resort: the old ISO-only SQL count; if even that finds
+                # nothing, default to 12 and say so out loud.
+                _mo_rows = query(
+                    f'SELECT COUNT(DISTINCT strftime("%Y-%m", "{_date_col}")) as m '
+                    f'FROM {sal_table} LIMIT 1')
+                _m = (_mo_rows[0]["m"] or 0) if _mo_rows else 0
+                if _m > 0:
+                    months_of_data = _m
+                else:
+                    months_of_data = 12
+                    _emit(progress_emit,
+                          "WARNING: could not read the sales date format — defaulting to "
+                          "12 months for velocity calculation")
         else:
             months_of_data = 12
             _emit(progress_emit, "WARNING: no date column found in sales table — defaulting to 12 months for velocity calculation")

@@ -20,6 +20,7 @@ from .shared import (
     _call_claude,
     _extract_json_array,
     _num_sql,
+    count_sales_months,
     LEAD_TIME_BY_TYPE,
 )
 from quantity import sanitize_suggested_quantity
@@ -108,8 +109,16 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
                     if not _date_col_r:
                         _date_col_r = next((c for c in s_cols if "date" in c.lower()), None)
                     if _date_col_r:
-                        mo_r = query(f'SELECT COUNT(DISTINCT strftime("%Y-%m", "{_date_col_r}")) as m FROM {sal_table_r} LIMIT 1')
-                        months_r = max(1, (mo_r[0]["m"] or 0) if mo_r else 0) or 12
+                        # Python-side parse handles DD/MM/YYYY, 15-Jun-26 and
+                        # Excel serials; strftime (ISO-only) stays as fallback.
+                        _d_rows = query(
+                            f'SELECT DISTINCT "{_date_col_r}" AS d FROM {sal_table_r} LIMIT 5000')
+                        _counted_r = count_sales_months([r["d"] for r in _d_rows])
+                        if _counted_r:
+                            months_r = _counted_r[0]
+                        else:
+                            mo_r = query(f'SELECT COUNT(DISTINCT strftime("%Y-%m", "{_date_col_r}")) as m FROM {sal_table_r} LIMIT 1')
+                            months_r = ((mo_r[0]["m"] or 0) if mo_r else 0) or 12
                     else:
                         months_r = 12
                 except Exception:
@@ -209,6 +218,25 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
 
     context_text = _format_context(context)
     company_desc_rec = config.get("company_description") or org_name
+    industry_rec = (config.get("industry") or "general").lower()
+
+    # Style example matched to the client's industry. Generic company wording
+    # on purpose — a real client's name must never sit in another org's prompt.
+    if ("food" in industry_rec or "beverage" in industry_rec
+            or "fmcg" in industry_rec or "perishable" in industry_rec):
+        example_consequences = (
+            '  "consequence_if_acting": "Ordering now locks up cash in 3 months of frozen salmon stock — '
+            'if sales slow, the company risks wastage in cold storage."\n'
+            '  "consequence_if_not_acting": "Without a reorder, the company will run out of frozen salmon '
+            'within 4 days, leaving active customer orders unfulfilled."\n\n'
+        )
+    else:
+        example_consequences = (
+            '  "consequence_if_acting": "Ordering now ties up cash in 3 months of stock for a slow-moving '
+            'imported line — if demand dips, the company sits on it."\n'
+            '  "consequence_if_not_acting": "Without a reorder, the company runs out within days, leaving '
+            'active customer orders unfulfilled."\n\n'
+        )
 
     system_prompt = (
         f"You are a purchasing advisor for: {company_desc_rec}\n\n"
@@ -222,10 +250,7 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
         "   reputational damage with key accounts.\n\n"
         "Write these as plain statements naming the company and the specific item. "
         "Example style (do not copy these, write fresh ones):\n"
-        '  "consequence_if_acting": "Ordering now locks up cash in 3 months of frozen salmon stock — '
-        'if sales slow, Cool Link risks wastage in cold storage."\n'
-        '  "consequence_if_not_acting": "Without a reorder, Cool Link will run out of frozen salmon '
-        'within 4 days, leaving active customer orders unfulfilled."\n\n'
+        + example_consequences +
         "MANDATORY OUTPUT FORMAT — JSON array, one object per item:\n"
         "{\n"
         '  "item": "<name>",\n'
