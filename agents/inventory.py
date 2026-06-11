@@ -5,6 +5,7 @@ days-of-supply, using lead-time-aware thresholds. Moved verbatim from agents.py.
 """
 
 import json
+import re
 
 from database import query, get_company_config
 from .shared import (
@@ -14,8 +15,16 @@ from .shared import (
     _call_claude,
     _extract_json_array,
     _num_sql,
+    _to_num,
     detect_inventory_columns,
 )
+
+# A bare total line ("Total", "Grand Total:", "SUBTOTAL") is never a product.
+_PURE_TOTAL_RE = re.compile(r"^(?:grand\s+|sub\s*)?totals?\s*:?\s*$", re.IGNORECASE)
+# "TOTAL CHEESE" / "CHEESE TOTAL" — total word at either end. Needs corroboration
+# before dropping, because TOTAL is also a real dairy brand (FAGE Total yoghurt).
+_EDGE_TOTAL_RE = re.compile(r"^(?:grand\s+|sub\s*)?totals?\b|\btotals?\s*:?\s*$",
+                            re.IGNORECASE)
 
 
 def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, context: dict, progress_emit=None) -> dict:
@@ -180,6 +189,69 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
             _emit(progress_emit,
                   f"Filled {_filled_cats} blank '{_cat_col}' cells from merged groups above them")
 
+    # Drop total/subtotal summary rows. ERP exports and hand-made sheets carry
+    # "TOTAL CHEESE" / "Grand Total" lines inside the data; analysed as items
+    # they double-count stock and pollute the report. A bare "Total" is dropped
+    # on the name alone. "TOTAL <something>" needs corroboration — the row must
+    # also lack a unit (real products carry KG/CTN/PCS; summary lines don't) —
+    # so a genuine product like FAGE TOTAL yoghurt survives. Sheets with no
+    # unit column keep edge-total rows: noise is better than dropping product.
+    _kept_rows = []
+    _dropped_totals = 0
+    for _row in inventory:
+        _name = str(_row.get(_desc_col) or "").strip()
+        _uomv = str(_row.get(_uom_col) or "").strip() if _uom_col else ""
+        _is_total = bool(_PURE_TOTAL_RE.match(_name)) or (
+            bool(_EDGE_TOTAL_RE.search(_name)) and _uom_col and not _uomv
+        )
+        if _is_total:
+            _dropped_totals += 1
+        else:
+            _kept_rows.append(_row)
+    if _dropped_totals:
+        inventory = _kept_rows
+        _emit(progress_emit,
+              f"Skipped {_dropped_totals} total/subtotal row(s) — summary lines, not items")
+
+    # Combine rows that are the same item (per-warehouse / per-batch splits are
+    # common in ERP exports). Judged separately, each row gets compared against
+    # the item's FULL sales velocity, so a 100 + 400 split reads as two
+    # near-critical items instead of one healthy 500. Sum stock only when the
+    # rows agree on unit (or carry none) — adding 100 KG to 2 CTN would be
+    # meaningless, so unit conflicts stay as separate rows. Blank names also
+    # stay separate: they may be different items we just can't name.
+    _first_by_key: dict = {}
+    _agg_rows = []
+    _merged_dups = 0
+    for _row in inventory:
+        _name = str(_row.get(_desc_col) or "").strip()
+        if not _name:
+            _agg_rows.append(_row)
+            continue
+        _ckey = alias_map.get(_name.lower(), _name.lower())
+        _first = _first_by_key.get(_ckey)
+        if _first is None:
+            _first_by_key[_ckey] = _row
+            _agg_rows.append(_row)
+            continue
+        _u1 = str(_first.get(_uom_col) or "").strip().upper() if _uom_col else ""
+        _u2 = str(_row.get(_uom_col) or "").strip().upper() if _uom_col else ""
+        if _u1 and _u2 and _u1 != _u2:
+            _agg_rows.append(_row)
+            continue
+        _tot = _to_num(_first.get(_qty_col)) + _to_num(_row.get(_qty_col))
+        # .10g not :g — plain :g goes scientific above ~1e6, which downstream
+        # parsing would reject; 10 significant digits covers any real warehouse.
+        _first[_qty_col] = f"{_tot:.10g}"
+        if _uom_col and not _u1 and _u2:
+            _first[_uom_col] = _row.get(_uom_col)
+        _merged_dups += 1
+    if _merged_dups:
+        inventory = _agg_rows
+        _emit(progress_emit,
+              f"Combined {_merged_dups} duplicate row(s) — same item split across "
+              "multiple rows, stock summed")
+
     # ── Read analysis scope (set by user on upload page) ──────────────────────
     scope_rows = query("SELECT scope FROM upload_sessions WHERE id=?", (session_id,))
     scope = (scope_rows[0]["scope"] if scope_rows and scope_rows[0]["scope"] else "all")
@@ -255,10 +327,7 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
 
     # ── Sort by quantity ascending (zero-stock first) ─────────────────────────
     def _qty_key(row):
-        try:
-            return float(str(row.get(_qty_col) or "0").replace(",", "").strip() or 0)
-        except (ValueError, TypeError):
-            return 0
+        return _to_num(row.get(_qty_col))
 
     inventory_sorted = sorted(inventory, key=_qty_key)
 
@@ -337,10 +406,7 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
         total_revenue = sales_info.get("total_revenue", 0) or 0
 
         # Compute months of supply from concrete numbers
-        try:
-            stock_units = float(str(qty_raw).replace(",", "").strip() or 0)
-        except (ValueError, TypeError):
-            stock_units = 0
+        stock_units = _to_num(qty_raw)
         avg_monthly = total_sold / months_of_data if total_sold > 0 else 0
         if avg_monthly > 0:
             months_supply = round(stock_units / avg_monthly, 1)

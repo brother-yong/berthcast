@@ -6,6 +6,7 @@ Moved verbatim from the old single-file agents.py — no logic changes.
 
 import json
 import os
+import re
 from database import (
     query,
     get_supplier_profile,
@@ -125,19 +126,58 @@ def detect_inventory_columns(cols) -> dict:
             "category": cat, "uom": uom}
 
 
+# Currency markers seen in SEA spreadsheets. Only stripped from the FRONT of a
+# cell, so a currency word inside an item name can never be touched.
+_CURRENCY_RE = re.compile(
+    r"^\s*(?:US\$|S\$|HK\$|NT\$|SGD|USD|MYR|RM|IDR|PHP|THB|VND|\$|€|£|¥)\s*",
+    re.IGNORECASE,
+)
+# Exponent allowed: xlsx stores large numbers as "1.234567E6" in the raw XML.
+_NUM_AT_START = re.compile(r"^[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?")
+
+
+def _to_num(val, default=0.0):
+    """Parse a spreadsheet cell as a number, tolerating what ERP exports and
+    hand-made sheets actually contain: thousands separators ("1,200"), currency
+    prefixes ("S$1,200"), accounting negatives ("(50)"), and a trailing unit
+    word ("120 KG").
+
+    The number must sit at the START of the cell and nothing after it may
+    contain digits — "ABC123" and "12-34" return `default` rather than a
+    digit-fished guess. Fabricating a number from junk is the same
+    silent-wrong-answer class the column-mapping work exists to kill.
+    """
+    s = str(val if val is not None else "").strip()
+    if not s:
+        return default
+    neg = s.startswith("(") and s.endswith(")")
+    if neg:
+        s = s[1:-1].strip()
+    s = _CURRENCY_RE.sub("", s).replace(",", "").strip()
+    m = _NUM_AT_START.match(s)
+    if not m:
+        return default
+    rest = s[m.end():]
+    if any(ch.isdigit() for ch in rest):
+        return default
+    try:
+        n = float(m.group(0))
+    except ValueError:
+        return default
+    return -n if neg else n
+
+
 def _looks_numeric(values) -> bool:
-    """True if most non-empty values parse as numbers (commas stripped)."""
+    """True if most non-empty values parse as numbers (via _to_num, so
+    currency-prefixed and unit-suffixed cells count as numeric too)."""
     seen = numeric = 0
     for v in values:
         s = str(v).strip() if v is not None else ""
         if not s:
             continue
         seen += 1
-        try:
-            float(s.replace(",", ""))
+        if _to_num(s, default=None) is not None:
             numeric += 1
-        except ValueError:
-            pass
     return seen > 0 and numeric >= max(1, seen // 2)
 
 
@@ -324,10 +364,15 @@ def _num_sql(col: str) -> str:
 
     Uploaded values are all stored as TEXT, and SQLite's CAST stops at the first
     non-digit character — so CAST("1,200" AS REAL) wrongly yields 1.0, silently
-    corrupting every sales/velocity/revenue figure downstream. Stripping the
-    commas first makes "1,200" -> "1200" -> 1200.0.
+    corrupting every sales/velocity/revenue figure downstream. Stripping commas,
+    currency prefixes (US$/S$/$) and spaces first makes "S$1,200" -> 1200.0.
+    US$ and S$ must be stripped before the bare $, or "S$1200" degrades to
+    "S1200" which CASTs to 0.
     """
-    return f"CAST(REPLACE(\"{col}\", ',', '') AS REAL)"
+    expr = f'"{col}"'
+    for token in (",", "US$", "S$", "$", " "):
+        expr = f"REPLACE({expr}, '{token}', '')"
+    return f"CAST({expr} AS REAL)"
 
 
 def _emit(progress_emit, msg: str) -> None:
