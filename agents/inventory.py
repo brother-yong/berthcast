@@ -12,6 +12,7 @@ from .shared import (
     _call_claude,
     _extract_json_array,
     _num_sql,
+    _pick_stock_column,
 )
 
 
@@ -98,17 +99,13 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
 
     DESC_EXACT = ("description", "item_description", "inventory_desc", "product_description",
                   "item_name", "product_name", "stock_description", "item_desc")
-    QTY_EXACT  = ("qty_on_hand", "qty", "quantity", "stock_on_hand", "on_hand", "stock_qty",
-                  "balance", "stock_balance", "closing_stock")
     CAT_EXACT  = ("category", "cat", "class", "item_category", "product_category", "storage_type")
     UOM_EXACT  = ("uom", "unit_of_measure", "unit", "uom_code", "uom_description",
                   "base_uom", "purchase_uom", "sales_uom", "stock_uom")
 
     _desc_col = next((k for k in _cols if k in DESC_EXACT), None) or \
                 next((k for k in _cols if ("desc" in k or "item_name" in k or "product_name" in k) and "supplier" not in k), None)
-    _qty_col  = next((k for k in _cols if k in QTY_EXACT), None) or \
-                next((k for k in _cols if ("qty" in k or "quantity" in k or "stock" in k or "balance" in k)
-                                          and "allocated" not in k and "value" not in k), None)
+    _qty_col  = _pick_stock_column(_cols)
     _cat_col  = next((k for k in _cols if k in CAT_EXACT), None) or \
                 next((k for k in _cols if "cat" in k or "class" in k or "storage" in k), None)
     _uom_col  = next((k for k in _cols if k.lower() in UOM_EXACT), None) or \
@@ -119,7 +116,33 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
             "Could not detect description/quantity columns in your Inventory Report. "
             f"Detected columns: {_cols}. "
             f"Found desc_col={_desc_col}, qty_col={_qty_col}, cat_col={_cat_col}. "
-            "Open the Inventory Report and confirm one column has the item name and one has the stock quantity."
+            "Open the Inventory Report and confirm one column has the item name and one has "
+            "the current stock balance. Note: a 'Qty Sold' column is sales history, not stock."
+        )}
+    _emit(progress_emit,
+          f"Columns detected — item: {_desc_col}, stock: {_qty_col}"
+          + (f", category: {_cat_col}" if _cat_col else "")
+          + (f", unit: {_uom_col}" if _uom_col else ""))
+
+    # Guard: a stock column that exists but is entirely blank means the file
+    # carries no stock data at all (e.g. a hand-made sheet whose balance column
+    # was left empty). Every health label would be fiction — stop and say so.
+    try:
+        _filled = query(
+            f'SELECT COUNT(*) AS n FROM {inv_table} '
+            f'WHERE TRIM(COALESCE("{_qty_col}", \'\')) != \'\''
+        )
+        _n_filled = (_filled[0]["n"] or 0) if _filled else 0
+    except Exception:
+        _n_filled = 1  # if the count itself fails, don't block the run
+    if _n_filled == 0:
+        _emit(progress_emit,
+              f"Stock column '{_qty_col}' is empty on every row — stopping")
+        return {"error": (
+            f"The stock column in your Inventory Report ('{_qty_col}') is empty on every row. "
+            "berthcast needs each item's current stock quantity to judge health — without it "
+            "the analysis would be guesswork. Fill in that column (or re-export the report "
+            "with stock balances included) and upload again."
         )}
 
     # ── Read analysis scope (set by user on upload page) ──────────────────────

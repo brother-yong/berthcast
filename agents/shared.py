@@ -62,6 +62,45 @@ def _infer_supplier_type(item_name: str) -> str:
     return "other"
 
 
+# Words that disqualify a column from being CURRENT stock on hand: they
+# describe movement (sold/sale), rates (avg), money (value/amount/price), or
+# reservations (allocated) — not what's sitting in the warehouse right now.
+_STOCK_EXCLUDE = ("sold", "sale", "avg", "allocated", "value", "amount", "price")
+
+
+def _pick_stock_column(cols):
+    """Pick the inventory column that holds CURRENT stock on hand.
+
+    Three passes, strongest signal first:
+      1. exact well-known headers;
+      2. stock-meaning words (balance / on hand / stock) minus disqualifiers —
+         catches hand-made headers like "Current System balance";
+      3. generic qty/quantity minus disqualifiers.
+
+    The disqualifier list is the point: a single first-match-wins fuzzy pass
+    once read stock from a "Qty Sold" column (it appeared earlier in the sheet
+    than the real balance column), which made months-of-supply identical for
+    every item and the whole catalogue look HEALTHY.
+    """
+    STOCK_EXACT = ("qty_on_hand", "qty", "quantity", "stock_on_hand", "on_hand",
+                   "stock_qty", "balance", "stock_balance", "closing_stock",
+                   "current_system_balance", "system_balance", "current_balance",
+                   "current_stock")
+    col = next((k for k in cols if k in STOCK_EXACT), None)
+    if col:
+        return col
+
+    def _clean(k):
+        return not any(x in k for x in _STOCK_EXCLUDE)
+
+    col = next((k for k in cols
+                if ("balance" in k or "on_hand" in k or "stock" in k) and _clean(k)), None)
+    if col:
+        return col
+    return next((k for k in cols
+                 if ("qty" in k or "quantity" in k) and _clean(k)), None)
+
+
 def _resolve_item_suppliers(session_id: int, org_name: str, config: dict,
                             alias_map: dict = None, progress_emit=None):
     """Build per-item supplier context: supplier name, type, lead time, risk.
