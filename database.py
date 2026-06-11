@@ -324,6 +324,61 @@ def _sanitize_name(name: str) -> str:
     return re.sub(r"[^a-z0-9_]", "", name)
 
 
+# ── Header-row detection ─────────────────────────────────────────────────────
+# Real exports often carry a company-title line ("a regional food distributor Pte Ltd | Inventory
+# Report | June 2026") above the actual column headers. Taking the first
+# non-empty row as the header then names the table's columns after the title,
+# drops every data column wider than the title, and the analysis dies with a
+# confusing error. So: buffer the first few rows and score each candidate by
+# how many of its cells contain column-ish vocabulary. Title lines score 0;
+# genuine header rows name their columns and score several.
+_HEADER_LOOKAHEAD = 10
+
+# Deliberately excludes words that show up in TITLES of these documents —
+# "inventory", "sales", "report", "name", "total" — so a title can't score.
+_HEADER_HINTS = {
+    "inventory": ("item", "desc", "product", "sku", "material", "article",
+                  "code", "stock", "balance", "on_hand", "qty", "quantity",
+                  "uom", "unit", "categ", "class", "supplier", "batch",
+                  "expiry", "warehouse"),
+    "sales": ("item", "desc", "product", "sku", "code", "qty", "quantity",
+              "amount", "value", "price", "revenue", "date", "invoice",
+              "customer", "uom", "unit"),
+}
+
+
+def _header_row_score(cells, table_name: str) -> int:
+    """How many cells in this row look like column names for this table kind."""
+    hints = _HEADER_HINTS["sales" if table_name == "sales" else "inventory"]
+    score = 0
+    for v in cells:
+        s = str(v).strip() if v is not None else ""
+        n = _sanitize_name(s) if s else ""
+        if n and any(h in n for h in hints):
+            score += 1
+    return score
+
+
+def _choose_header_row(rows, table_name: str, min_cells: int):
+    """Pick the header row from a buffered window.
+
+    `rows` is a list of (filled_count, cell_values). The FIRST row meeting
+    `min_cells` wins unless a later eligible row out-scores it by >= 2 — a
+    deliberate margin so a data row that happens to contain one column-ish
+    word can never displace a legitimate zero-score header, which keeps
+    today's behavior for every file that has no title line. Returns
+    (index, score) or None if no row qualifies.
+    """
+    best = None
+    for i, (filled, cells) in enumerate(rows):
+        if filled < min_cells:
+            continue
+        sc = _header_row_score(cells, table_name)
+        if best is None or sc >= best[1] + 2:
+            best = (i, sc)
+    return best
+
+
 def _csv_to_sqlite(filepath: str, table_name: str, session_id: int):
     import csv
 
@@ -345,33 +400,33 @@ def _csv_to_sqlite(filepath: str, table_name: str, session_id: int):
             BATCH = 2000
             batch = []
             total = 0
+            window = []          # buffered rows until the header row is chosen
+            overflow = False
 
-            for raw_row in reader:
-                if not any((c or "").strip() for c in raw_row):
-                    continue
+            def _set_headers(raw_row):
+                nonlocal headers, insert_sql
+                seen = {}
+                headers = []
+                for i, raw in enumerate(raw_row):
+                    name = _sanitize_name(raw) if raw and raw.strip() else f"col_{i}"
+                    if not name:
+                        name = f"col_{i}"
+                    if name in seen:
+                        seen[name] += 1
+                        name = f"{name}_{seen[name]}"
+                    else:
+                        seen[name] = 0
+                    headers.append(name)
+                cols_def = ", ".join(f'"{h}" TEXT' for h in headers) + ', "_session_id" TEXT'
+                conn.execute(f'DROP TABLE IF EXISTS "{scoped_table}"')
+                conn.execute(f'CREATE TABLE "{scoped_table}" ({cols_def})')
+                conn.commit()
+                placeholders = ", ".join("?" * (len(headers) + 1))
+                insert_sql = f'INSERT INTO "{scoped_table}" VALUES ({placeholders})'
 
-                if headers is None:
-                    seen = {}
-                    headers = []
-                    for i, raw in enumerate(raw_row):
-                        name = _sanitize_name(raw) if raw and raw.strip() else f"col_{i}"
-                        if not name:
-                            name = f"col_{i}"
-                        if name in seen:
-                            seen[name] += 1
-                            name = f"{name}_{seen[name]}"
-                        else:
-                            seen[name] = 0
-                        headers.append(name)
-
-                    cols_def = ", ".join(f'"{h}" TEXT' for h in headers) + ', "_session_id" TEXT'
-                    conn.execute(f'DROP TABLE IF EXISTS "{scoped_table}"')
-                    conn.execute(f'CREATE TABLE "{scoped_table}" ({cols_def})')
-                    conn.commit()
-                    placeholders = ", ".join("?" * (len(headers) + 1))
-                    insert_sql = f'INSERT INTO "{scoped_table}" VALUES ({placeholders})'
-                    continue
-
+            def _ingest(raw_row):
+                """Returns True while under the row limit, False once exceeded."""
+                nonlocal batch, total
                 vals = [(c or "").strip() if c is not None else None for c in raw_row]
                 if len(vals) < len(headers):
                     vals = vals + [None] * (len(headers) - len(vals))
@@ -379,15 +434,53 @@ def _csv_to_sqlite(filepath: str, table_name: str, session_id: int):
                     vals = vals[:len(headers)]
                 vals.append(str(session_id))
                 batch.append(vals)
-
                 if total + len(batch) > MAX_XLSX_ROWS:
-                    return {"ok": False, "error": _TOO_MANY_ROWS_MSG}
-
+                    return False
                 if len(batch) >= BATCH:
                     conn.executemany(insert_sql, batch)
                     conn.commit()
                     total += len(batch)
                     batch = []
+                return True
+
+            def _commit_window():
+                """Choose the header row from the buffer and flush the rest as
+                data. Rows ABOVE the chosen header are title junk — dropped."""
+                pick = _choose_header_row(
+                    [(sum(1 for c in r if (c or "").strip()), r) for r in window],
+                    table_name, min_cells=1)
+                if pick is None:
+                    return True
+                hidx, _score = pick
+                _set_headers(window[hidx])
+                for r in window[hidx + 1:]:
+                    if not _ingest(r):
+                        return False
+                window.clear()
+                return True
+
+            for raw_row in reader:
+                if not any((c or "").strip() for c in raw_row):
+                    continue
+                if headers is None:
+                    window.append(raw_row)
+                    if len(window) < _HEADER_LOOKAHEAD:
+                        continue
+                    if not _commit_window():
+                        overflow = True
+                        break
+                    continue
+                if not _ingest(raw_row):
+                    overflow = True
+                    break
+
+            if overflow:
+                return {"ok": False, "error": _TOO_MANY_ROWS_MSG}
+
+            # Short file: ran out of rows before the window filled.
+            if headers is None and window:
+                if not _commit_window():
+                    return {"ok": False, "error": _TOO_MANY_ROWS_MSG}
 
             if batch and insert_sql:
                 conn.executemany(insert_sql, batch)
@@ -446,123 +539,216 @@ def _xlsx_to_sqlite(filepath: str, table_name: str, session_id: int):
                                  if re.match(r"xl/worksheets/sheet\d+\.xml", n)]
             if not sheet_candidates:
                 return {"ok": False, "error": "No worksheet found in file."}
-            sheet_path = sorted(sheet_candidates)[0]
 
-            headers        = None
-            header_col_map = {}
-            scoped_table   = f"{table_name}_{session_id}"
-            insert_sql     = None
-            BATCH          = 2000
-            batch          = []
-            total          = 0
+            # Numeric order — plain sorted() puts sheet10 before sheet2. Capped
+            # so a pathological workbook can't make us parse hundreds of sheets.
+            def _sheet_num(n):
+                m = re.search(r"sheet(\d+)\.xml$", n)
+                return int(m.group(1)) if m else 0
+            sheet_candidates = sorted(sheet_candidates, key=_sheet_num)[:10]
 
-            with zf.open(sheet_path) as f:
-                ws_root = None
-                for event, elem in ET.iterparse(
-                        _LimitedReader(f, MAX_XLSX_WORKSHEET_BYTES),
-                        events=("start", "end")):
-                    if event == "start":
-                        if elem.tag == f"{{{NS}}}worksheet":
-                            ws_root = elem
-                        continue
+            scoped_table = f"{table_name}_{session_id}"
+            BATCH        = 2000
 
-                    if elem.tag != TAG_ROW:
-                        continue
+            def _parse_sheet(sheet_path):
+                """Parse one worksheet into scoped_table (replacing any earlier
+                attempt's table). Returns {"ok": True, "rows", "score"} on
+                success, {"ok": False} when the sheet holds no usable table,
+                or {"ok": False, "hard": True, "error"} on a size-limit breach
+                that must abort the whole upload, not move to the next sheet.
+                """
+                headers        = None
+                header_col_map = {}
+                insert_sql     = None
+                batch          = []
+                total          = 0
+                head_score     = 0
+                window         = []    # buffered rows until the header is chosen
+                window_open    = True
 
-                    row_vals = {}
-                    for cell in elem:
-                        if cell.tag != TAG_C:
-                            continue
-                        if len(row_vals) >= MAX_CELLS_PER_ROW:
-                            break
-                        ref = cell.get("r", "")
-                        col_letter = re.sub(r"\d", "", ref)
-                        if not col_letter:
-                            continue
-                        ci = _col_idx(col_letter)
-
-                        cell_type = cell.get("t", "")
-                        v_elem    = cell.find(TAG_V)
-                        is_elem   = cell.find(TAG_IS)
-
-                        if is_elem is not None:
-                            val = "".join(t.text or "" for t in is_elem.iter(TAG_T))
-                        elif v_elem is not None and v_elem.text is not None:
-                            if cell_type == "s":
-                                idx = int(v_elem.text)
-                                val = shared_strings[idx] if idx < len(shared_strings) else ""
-                            else:
-                                val = v_elem.text
+                def _set_headers(row_vals):
+                    nonlocal headers, insert_sql
+                    min_ci = min(row_vals.keys())
+                    max_ci = max(row_vals.keys())
+                    if max_ci - min_ci + 1 > MAX_COLUMNS:
+                        return {"ok": False, "hard": True, "error": _TOO_MANY_COLS_MSG}
+                    seen    = {}
+                    headers = []
+                    for ci in range(min_ci, max_ci + 1):
+                        raw  = row_vals.get(ci, "")
+                        name = _sanitize_name(raw) if raw else f"col_{ci}"
+                        if not name:
+                            name = f"col_{ci}"
+                        if name in seen:
+                            seen[name] += 1
+                            name = f"{name}_{seen[name]}"
                         else:
-                            val = None
+                            seen[name] = 0
+                        headers.append(name)
+                        header_col_map[ci] = len(headers) - 1
+                    cols_def = ", ".join(f'"{h}" TEXT' for h in headers) + ', "_session_id" TEXT'
+                    conn.execute(f'DROP TABLE IF EXISTS "{scoped_table}"')
+                    conn.execute(f'CREATE TABLE "{scoped_table}" ({cols_def})')
+                    conn.commit()
+                    placeholders = ", ".join("?" * (len(headers) + 1))
+                    insert_sql   = f'INSERT INTO "{scoped_table}" VALUES ({placeholders})'
+                    return None
 
-                        if val is not None and str(val).strip():
-                            sval = str(val).strip()
-                            if len(sval) > MAX_CELL_CHARS:
-                                sval = sval[:MAX_CELL_CHARS]
-                            row_vals[ci] = sval
-
-                    if ws_root is not None:
-                        ws_root.clear()
-
-                    if not row_vals:
-                        continue
-
-                    if headers is None:
-                        if len(row_vals) < 3:
-                            continue
-                        min_ci = min(row_vals.keys())
-                        max_ci = max(row_vals.keys())
-                        if max_ci - min_ci + 1 > MAX_COLUMNS:
-                            return {"ok": False, "error": _TOO_MANY_COLS_MSG}
-                        seen   = {}
-                        headers = []
-                        for ci in range(min_ci, max_ci + 1):
-                            raw  = row_vals.get(ci, "")
-                            name = _sanitize_name(raw) if raw else f"col_{ci}"
-                            if not name:
-                                name = f"col_{ci}"
-                            if name in seen:
-                                seen[name] += 1
-                                name = f"{name}_{seen[name]}"
-                            else:
-                                seen[name] = 0
-                            headers.append(name)
-                            header_col_map[ci] = len(headers) - 1
-
-                        cols_def = ", ".join(f'"{h}" TEXT' for h in headers) + ', "_session_id" TEXT'
-                        conn.execute(f'DROP TABLE IF EXISTS "{scoped_table}"')
-                        conn.execute(f'CREATE TABLE "{scoped_table}" ({cols_def})')
+                def _ingest(row_vals):
+                    nonlocal batch, total
+                    values = [None] * len(headers)
+                    for ci, val in row_vals.items():
+                        pos = header_col_map.get(ci)
+                        if pos is not None:
+                            values[pos] = val
+                    values.append(str(session_id))
+                    batch.append(values)
+                    if total + len(batch) > MAX_XLSX_ROWS:
+                        return {"ok": False, "hard": True, "error": _TOO_MANY_ROWS_MSG}
+                    if len(batch) >= BATCH:
+                        conn.executemany(insert_sql, batch)
                         conn.commit()
-                        placeholders = ", ".join("?" * (len(headers) + 1))
-                        insert_sql   = f'INSERT INTO "{scoped_table}" VALUES ({placeholders})'
+                        total += len(batch)
+                        batch = []
+                    return None
 
-                    else:
-                        values = [None] * len(headers)
-                        for ci, val in row_vals.items():
-                            pos = header_col_map.get(ci)
-                            if pos is not None:
-                                values[pos] = val
-                        values.append(str(session_id))
-                        batch.append(values)
+                def _commit_window():
+                    nonlocal head_score, window_open
+                    window_open = False
+                    pick = _choose_header_row(
+                        [(len(rv), list(rv.values())) for rv in window],
+                        table_name, min_cells=3)
+                    if pick is None:
+                        window.clear()   # nothing eligible yet; keep streaming
+                        return None
+                    hidx, head_score = pick
+                    err = _set_headers(window[hidx])
+                    if err:
+                        return err
+                    for rv in window[hidx + 1:]:
+                        err = _ingest(rv)
+                        if err:
+                            return err
+                    window.clear()
+                    return None
 
-                        if total + len(batch) > MAX_XLSX_ROWS:
-                            return {"ok": False, "error": _TOO_MANY_ROWS_MSG}
+                with zf.open(sheet_path) as f:
+                    ws_root = None
+                    for event, elem in ET.iterparse(
+                            _LimitedReader(f, MAX_XLSX_WORKSHEET_BYTES),
+                            events=("start", "end")):
+                        if event == "start":
+                            if elem.tag == f"{{{NS}}}worksheet":
+                                ws_root = elem
+                            continue
 
-                        if len(batch) >= BATCH:
-                            conn.executemany(insert_sql, batch)
-                            conn.commit()
-                            total += len(batch)
-                            batch = []
+                        if elem.tag != TAG_ROW:
+                            continue
 
-            if batch and insert_sql:
-                conn.executemany(insert_sql, batch)
-                conn.commit()
-                total += len(batch)
+                        row_vals = {}
+                        for cell in elem:
+                            if cell.tag != TAG_C:
+                                continue
+                            if len(row_vals) >= MAX_CELLS_PER_ROW:
+                                break
+                            ref = cell.get("r", "")
+                            col_letter = re.sub(r"\d", "", ref)
+                            if not col_letter:
+                                continue
+                            ci = _col_idx(col_letter)
 
-        if headers is None:
-            return {"ok": False, "error": "Could not find data headers in xlsx."}
-        return {"ok": True, "rows": total, "table": scoped_table}
+                            cell_type = cell.get("t", "")
+                            v_elem    = cell.find(TAG_V)
+                            is_elem   = cell.find(TAG_IS)
+
+                            if is_elem is not None:
+                                val = "".join(t.text or "" for t in is_elem.iter(TAG_T))
+                            elif v_elem is not None and v_elem.text is not None:
+                                if cell_type == "s":
+                                    idx = int(v_elem.text)
+                                    val = shared_strings[idx] if idx < len(shared_strings) else ""
+                                else:
+                                    val = v_elem.text
+                            else:
+                                val = None
+
+                            if val is not None and str(val).strip():
+                                sval = str(val).strip()
+                                if len(sval) > MAX_CELL_CHARS:
+                                    sval = sval[:MAX_CELL_CHARS]
+                                row_vals[ci] = sval
+
+                        if ws_root is not None:
+                            ws_root.clear()
+
+                        if not row_vals:
+                            continue
+
+                        if headers is None:
+                            if window_open:
+                                window.append(row_vals)
+                                if len(window) >= _HEADER_LOOKAHEAD:
+                                    err = _commit_window()
+                                    if err:
+                                        return err
+                                continue
+                            # Lookahead exhausted with no eligible row: legacy
+                            # behavior — first >=3-cell row becomes the header.
+                            if len(row_vals) < 3:
+                                continue
+                            head_score = _header_row_score(
+                                list(row_vals.values()), table_name)
+                            err = _set_headers(row_vals)
+                            if err:
+                                return err
+                            continue
+
+                        err = _ingest(row_vals)
+                        if err:
+                            return err
+
+                # Short sheet: fewer rows than the lookahead window.
+                if headers is None and window:
+                    err = _commit_window()
+                    if err:
+                        return err
+
+                if batch and insert_sql:
+                    conn.executemany(insert_sql, batch)
+                    conn.commit()
+                    total += len(batch)
+
+                if headers is None:
+                    return {"ok": False}
+                return {"ok": True, "rows": total, "score": head_score}
+
+            # Try sheets in order. A sheet is a CONFIDENT match when its header
+            # row actually names data columns (score >= 2) and it has data rows
+            # — that lets the real data sheet beat a sparse cover page sitting
+            # in front of it. With a single sheet there is nothing to arbitrate,
+            # so any parse that found headers is accepted as before.
+            fallback_path = None
+            for sp in sheet_candidates:
+                res = _parse_sheet(sp)
+                if res.get("hard"):
+                    return {"ok": False, "error": res["error"]}
+                if not res["ok"]:
+                    continue
+                if len(sheet_candidates) == 1 or (res["rows"] > 0 and res["score"] >= 2):
+                    return {"ok": True, "rows": res["rows"], "table": scoped_table}
+                if fallback_path is None:
+                    fallback_path = sp
+
+            if fallback_path is not None:
+                # No confident sheet; re-parse the first usable one (a later
+                # attempt dropped and replaced its table).
+                res = _parse_sheet(fallback_path)
+                if res.get("hard"):
+                    return {"ok": False, "error": res["error"]}
+                if res["ok"]:
+                    return {"ok": True, "rows": res["rows"], "table": scoped_table}
+
+        return {"ok": False, "error": "Could not find data headers in xlsx."}
 
     except _DecompressionLimitExceeded:
         return {"ok": False, "error": _OVERSIZE_MSG}
