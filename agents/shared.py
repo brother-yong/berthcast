@@ -167,6 +167,112 @@ def _to_num(val, default=0.0):
     return -n if neg else n
 
 
+# ── Sales-date month counting ────────────────────────────────────────────────
+# months-of-data drives ALL velocity math (avg monthly sales = total / months),
+# so misreading the date format silently shifts every health label. SQLite's
+# strftime only understands ISO dates; real exports also arrive as 15/06/2026
+# (Singapore's own standard), 15-Jun-26, or Excel's internal serial numbers.
+
+_MONTH_NAMES = {"jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
+                "jul": 7, "aug": 8, "sep": 9, "sept": 9, "oct": 10,
+                "nov": 11, "dec": 12}
+_ISO_DATE_RE = re.compile(r"^\s*(\d{4})-(\d{1,2})(?:-\d{1,2})?")
+_NUM_DATE_RE = re.compile(r"^\s*(\d{1,4})[/\-.](\d{1,2})[/\-.](\d{2,4})\b")
+_TXT_DATE_RE = re.compile(r"^\s*(\d{1,2})[\s\-/]+([A-Za-z]{3,9})[\s\-/,]+(\d{2,4})\b")
+
+
+def _norm_year(y: int) -> int:
+    return 2000 + y if y < 100 else y
+
+
+def count_sales_months(raw_values):
+    """Count distinct (year, month) pairs in a sales-date column.
+
+    Handles ISO dates, numeric D/M/Y or M/D/Y (day-vs-month decided ONCE for
+    the whole column: any first token > 12 means day-first, any second token
+    > 12 means month-first, otherwise day-first — the SEA convention), textual
+    15-Jun-26 styles, and Excel serial numbers (xlsx stores dates as days
+    since 1899-12-30; our parser keeps the raw number).
+
+    Returns (months, format_label) — or None when fewer than half the
+    non-empty values parse, because counting months from junk would fabricate
+    the velocity denominator (same rule as _to_num: never guess).
+    """
+    import datetime as _dt
+
+    vals = [str(v).strip() for v in (raw_values or []) if str(v or "").strip()]
+    if not vals:
+        return None
+
+    # Column-level day/month decision for ambiguous numeric dates.
+    day_first = True
+    saw_month_first = False
+    for s in vals:
+        m = _NUM_DATE_RE.match(s)
+        if not m:
+            continue
+        a, b = int(m.group(1)), int(m.group(2))
+        if a >= 1000:          # year-first like 2026/06/15 — no evidence either way
+            continue
+        if a > 12:
+            day_first, saw_month_first = True, False
+            break
+        if b > 12:
+            saw_month_first = True
+    if saw_month_first:
+        day_first = False
+
+    months = set()
+    parsed = 0
+    fmt_counts = {}
+
+    def _hit(y, mo, label):
+        nonlocal parsed
+        if 1 <= mo <= 12 and 1900 <= y <= 2200:
+            months.add((y, mo))
+            parsed += 1
+            fmt_counts[label] = fmt_counts.get(label, 0) + 1
+            return True
+        return False
+
+    for s in vals:
+        m = _ISO_DATE_RE.match(s)
+        if m and _hit(int(m.group(1)), int(m.group(2)), "ISO (YYYY-MM-DD)"):
+            continue
+        m = _NUM_DATE_RE.match(s)
+        if m:
+            a, b, c = int(m.group(1)), int(m.group(2)), int(m.group(3))
+            if a >= 1000:
+                if _hit(a, b, "YYYY/MM/DD"):
+                    continue
+            elif day_first:
+                if _hit(_norm_year(c), b, "DD/MM/YYYY"):
+                    continue
+            else:
+                if _hit(_norm_year(c), a, "MM/DD/YYYY"):
+                    continue
+        m = _TXT_DATE_RE.match(s)
+        if m:
+            mo = _MONTH_NAMES.get(m.group(2)[:3].lower())
+            if mo and _hit(_norm_year(int(m.group(3))), mo, "DD-Mon-YYYY"):
+                continue
+        # Excel serial: days since 1899-12-30. 20000–80000 spans 1954–2119.
+        try:
+            f = float(s)
+        except ValueError:
+            continue
+        if 20000 <= f <= 80000:
+            d = _dt.date(1899, 12, 30) + _dt.timedelta(days=int(f))
+            _hit(d.year, d.month, "Excel serial dates")
+
+    if parsed < max(1, len(vals) / 2):
+        return None
+    label = max(fmt_counts, key=fmt_counts.get)
+    if len(fmt_counts) > 1:
+        label += " + mixed"
+    return max(1, len(months)), label
+
+
 def _looks_numeric(values) -> bool:
     """True if most non-empty values parse as numbers (via _to_num, so
     currency-prefixed and unit-suffixed cells count as numeric too)."""
@@ -199,9 +305,9 @@ def propose_inventory_columns(headers, sample_rows, model) -> dict:
         sample_lines.append(" | ".join(f'{h}={str(r.get(h, "")).strip()[:30]}' for h in headers))
 
     system = (
-        "You map spreadsheet columns to inventory fields for a food-distribution "
-        "inventory tool. Given column headers and a few sample rows, identify which "
-        "column holds each field:\n"
+        "You map spreadsheet columns to inventory fields for an inventory analysis "
+        "tool used by product distributors. Given column headers and a few sample "
+        "rows, identify which column holds each field:\n"
         "- description: the item / product name\n"
         "- stock: the CURRENT quantity on hand in the warehouse right now (a balance). "
         "NOT quantity sold, NOT an average, NOT a money value.\n"

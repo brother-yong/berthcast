@@ -2,6 +2,7 @@ import os
 import json
 import secrets
 import hashlib
+import shutil
 import threading
 import time
 import smtplib
@@ -33,6 +34,7 @@ from config import UPLOAD_FOLDER, ALLOWED_EXTENSIONS, FILE_SLOTS, AVAILABLE_MODE
 from emails import (
     _send_critical_alert, _send_reset_email, _send_analysis_ready_email,
     _send_verification_email, _send_invite_email, _send_contact_email,
+    _deliver as _deliver_email,
 )
 from auth_utils import (
     login_required, admin_required, analyst_required, _allowed, _verify_session_owner,
@@ -60,6 +62,19 @@ app.secret_key = _secret or secrets.token_hex(32)
 csrf = CSRFProtect(app)
 
 app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024  # 100MB
+
+# Per-org caps on the endpoints that call the Claude API. These are wallet
+# guards, not product limits: generous enough that no real workflow hits them
+# (a regional food distributor runs 1-2 analyses/day), tight enough that a buggy retry loop or a
+# rogue script can't run up hundreds of dollars before anyone notices.
+ORG_ANALYSES_PER_DAY   = 10
+ORG_CHAT_PER_HOUR      = 60
+ORG_DEDUP_RUNS_PER_DAY = 20
+
+# Refuse new uploads/analyses when the data disk is nearly full. A full disk
+# mid-analysis dies with a cryptic SQLite I/O error; refusing up front with a
+# plain message (and an ERROR in the logs) is the honest failure.
+MIN_FREE_DISK_MB = 100
 
 # Session cookie hardening. SECURE is only enforced in production (on Render,
 # which is HTTPS-only) so local http dev still works. HTTPONLY keeps JavaScript
@@ -171,6 +186,76 @@ except Exception:
     logger.exception("Startup sweep of orphaned analyses failed")
 
 
+def _disk_has_room() -> bool:
+    """True when the data disk has at least MIN_FREE_DISK_MB free. Logs an
+    ERROR when it doesn't (visible in Render logs). If the measurement itself
+    fails, let work proceed — never block users on a stats hiccup."""
+    try:
+        free_mb = shutil.disk_usage(UPLOAD_FOLDER).free / (1024 * 1024)
+    except OSError:
+        return True
+    if free_mb < MIN_FREE_DISK_MB:
+        logger.error("Disk nearly full: %.0f MB free (threshold %d MB) — refusing new uploads/analyses",
+                     free_mb, MIN_FREE_DISK_MB)
+        return False
+    return True
+
+
+def _sweep_stale_chunks(max_age_seconds: int = 86400) -> int:
+    """Delete tmp_* upload chunks older than `max_age_seconds`. A chunk only
+    means something within its own upload attempt; anything older is litter
+    from an interrupted upload, quietly eating the 1GB disk."""
+    swept = 0
+    now_ts = time.time()
+    for f in os.listdir(UPLOAD_FOLDER):
+        if not f.startswith("tmp_"):
+            continue
+        p = os.path.join(UPLOAD_FOLDER, f)
+        try:
+            if now_ts - os.path.getmtime(p) > max_age_seconds:
+                os.remove(p)
+                swept += 1
+        except OSError:
+            pass
+    return swept
+
+
+# Runs once at boot.
+try:
+    _swept = _sweep_stale_chunks()
+    if _swept:
+        logger.warning("Removed %d stale upload chunk file(s) older than 24h", _swept)
+except Exception:
+    logger.exception("Stale upload-chunk sweep failed")
+
+
+# Backup failures used to be log-only — nobody reads logs, so every snapshot
+# could silently be weeks old. Now a failure emails ALERT_EMAIL (if set), at
+# most once per day so a stuck disk can't flood the inbox.
+_last_backup_alert = {"t": 0.0}
+
+
+def _backup_failure_alert(error_text: str) -> None:
+    alert_to = os.environ.get("ALERT_EMAIL", "")
+    sender   = os.environ.get("MAIL_SENDER", "")
+    password = os.environ.get("MAIL_APP_PASSWORD", "")
+    if not alert_to or not sender or not password:
+        return
+    if time.time() - _last_backup_alert["t"] < 86400:
+        return
+    _last_backup_alert["t"] = time.time()
+    msg = MIMEText(
+        "A berthcast database backup just failed.\n\n"
+        f"Error: {error_text}\n\n"
+        "Check the Render disk (it may be full) and the logs. Until this is "
+        "fixed, the newest on-disk snapshot is getting older every day."
+    )
+    msg["Subject"] = "berthcast backup FAILED"
+    msg["From"]    = sender
+    msg["To"]      = alert_to
+    _deliver_email(msg, sender, password, alert_to)
+
+
 # Automatic database backups — production only. Local dev has nothing to protect
 # and doesn't stay running. Snapshots land in a backups/ folder on the persistent
 # disk, beside the DB; the founder pulls an off-disk copy via the admin panel.
@@ -178,6 +263,7 @@ if os.environ.get("RENDER"):
     backup.start_backup_scheduler(
         db.DB_PATH,
         backup.default_backups_dir(db.DB_PATH),
+        on_failure=_backup_failure_alert,
         logger=logger.info,
     )
 
@@ -622,6 +708,10 @@ def chat_api():
 
     if not user_message:
         return jsonify({"error": "Empty message"}), 400
+
+    if rate_limit.hit(f"chat:{session['org_name']}", ORG_CHAT_PER_HOUR, 3600):
+        return jsonify({"error": "Your team has sent a lot of messages in the last hour. "
+                                 "Please wait a little while and try again."}), 429
 
     # Tier limit: free users get 20 chat messages total
     if session.get("tier") == "free":
@@ -1107,6 +1197,24 @@ def user_settings():
             except (ValueError, TypeError) as e:
                 flash(f"Could not save defaults: {e}", "error")
 
+        elif action == "save_company":
+            # Industry + description feed the AI prompts (spoilage rules,
+            # consequence examples, normalisation context). Without these a
+            # new org silently runs on food-distribution-flavoured defaults.
+            if session.get("role") != "admin":
+                flash("Only admins can change company details.", "error")
+            else:
+                allowed_industries = ("food_distribution", "beverage", "fmcg",
+                                      "general", "other")
+                ind  = request.form.get("industry", "").strip()
+                desc = request.form.get("company_description", "").strip()[:500]
+                if ind not in allowed_industries:
+                    flash("Pick an industry from the list.", "error")
+                else:
+                    db.upsert_company_config(
+                        org, industry=ind, company_description=desc or None)
+                    flash("Company details saved — the AI will use them from the next analysis.", "success")
+
         # ── Team management (admin role only) ─────────────────────────────
         elif action == "invite_user":
             if session.get("role") != "admin":
@@ -1454,6 +1562,9 @@ def upload():
         )
 
     if request.method == "POST":
+        if not _disk_has_room():
+            return jsonify({"ok": False, "error": "Server storage is full — the team has "
+                            "been notified. Please try again later."})
         slot = request.form.get("slot")
         if slot not in FILE_SLOTS:
             return jsonify({"ok": False, "error": "Unknown file slot."})
@@ -1697,7 +1808,14 @@ def dedup_loading(upload_session_id):
 def dedup_stream(upload_session_id):
     """SSE endpoint — streams Claude tokens for the normalisation agent in real time."""
     _verify_session_owner(upload_session_id)
+    if rate_limit.hit(f"dedup:{session['org_name']}", ORG_DEDUP_RUNS_PER_DAY, 86400):
+        return jsonify({"error": "Daily limit for re-running item matching reached. "
+                                 "Please try again tomorrow."}), 429
     model = session["model"]
+    # Resolved here, not inside the generator — session isn't reliably
+    # available once the SSE response is streaming.
+    _company_desc = (db.get_company_config(session["org_name"]).get("company_description")
+                     or session["org_name"])
 
     def generate():
         import re as _re
@@ -1766,7 +1884,7 @@ def dedup_stream(upload_session_id):
         yield f"data: {json.dumps({'type': 'status', 'count': len(items_list)})}\n\n"
 
         system_prompt = (
-            "You are a data normalisation specialist for a food distribution company.\n"
+            f"You are a data normalisation specialist for: {_company_desc}\n"
             "Identify item names that clearly refer to the same product but are written differently.\n\n"
             "Rules:\n"
             "- Only group items you are confident are the same product (same product, same size/weight)\n"
@@ -1876,6 +1994,16 @@ def run_analysis(upload_session_id):
         existing = analysis_progress.get(upload_session_id)
     if existing and existing["status"] == "running":
         return render_template("analysis_progress.html", upload_session_id=upload_session_id)
+
+    if not _disk_has_room():
+        flash("Server storage is full — the team has been notified. Please try again later.", "error")
+        return redirect(url_for("dashboard"))
+
+    # Counted here, after the in-progress short-circuit, so refreshing the
+    # progress page never burns an analysis from the daily allowance.
+    if rate_limit.hit(f"analyse:{session['org_name']}", ORG_ANALYSES_PER_DAY, 86400):
+        flash("Your team has reached today's analysis limit. Please try again tomorrow.", "error")
+        return redirect(url_for("dashboard"))
 
     # Otherwise kick off a new run in the background.
     model       = session["model"]

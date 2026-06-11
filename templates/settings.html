@@ -143,6 +143,42 @@
     </form>
   </div>
 
+  <!-- Company details (admin only) -->
+  {% if session.role == 'admin' %}
+  <div class="card" style="margin-top:20px;">
+    <div class="card-title">Company details</div>
+    <p style="color:var(--muted); font-size:14px; margin-bottom:20px;">
+      The AI reads these before every analysis. Industry decides which spoilage rules apply
+      (food gets chill/frozen checks); the description tells the AI what your business actually does,
+      so its reasoning and wording fit your products.
+    </p>
+    <form method="POST" action="{{ url_for('user_settings') }}">
+      <input type="hidden" name="action" value="save_company">
+      <div style="max-width:640px;">
+        <div class="form-group">
+          <label style="font-size:13px;">Industry</label>
+          <select name="industry" required>
+            {% set cur_ind = company_cfg.industry or 'general' %}
+            <option value="food_distribution" {% if cur_ind == 'food_distribution' %}selected{% endif %}>Food distribution</option>
+            <option value="beverage" {% if cur_ind == 'beverage' %}selected{% endif %}>Beverage</option>
+            <option value="fmcg" {% if cur_ind == 'fmcg' %}selected{% endif %}>FMCG / consumer goods</option>
+            <option value="general" {% if cur_ind == 'general' %}selected{% endif %}>General distribution</option>
+            <option value="other" {% if cur_ind == 'other' %}selected{% endif %}>Other</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label style="font-size:13px;">Company description
+            <span class="hint">One or two plain sentences, e.g. "Imports European dairy and distributes to hotels and distributors in Singapore."</span>
+          </label>
+          <textarea name="company_description" maxlength="500" rows="3"
+                    placeholder="What does your company buy, stock, and sell?">{{ company_cfg.company_description or '' }}</textarea>
+        </div>
+        <button type="submit" class="btn btn-primary">Save company details</button>
+      </div>
+    </form>
+  </div>
+  {% endif %}
+
   <!-- Team management (admin only) -->
   {% if session.role == 'admin' %}
   <div class="card" style="margin-top:20px;">

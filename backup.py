@@ -92,9 +92,15 @@ def default_backups_dir(db_path: str) -> str:
     return os.path.join(parent, "backups")
 
 
-def run_once(db_path: str, backups_dir: str, keep: int = 14, logger=print) -> str:
+def run_once(db_path: str, backups_dir: str, keep: int = 14, logger=print,
+             on_failure=None) -> str:
     """One backup + prune cycle. Never raises — a backup failure must not take
-    down the app; it's logged instead. Returns the snapshot path, or None on failure."""
+    down the app; it's logged instead. Returns the snapshot path, or None on failure.
+
+    `on_failure(error_text)` is an optional hook so the caller can alert a
+    human — a log line nobody reads means every backup could silently be weeks
+    old. The hook itself is guarded: a broken alerter can't break backups.
+    """
     try:
         path = backup_database(db_path, backups_dir)
         prune_backups(backups_dir, keep)
@@ -102,18 +108,23 @@ def run_once(db_path: str, backups_dir: str, keep: int = 14, logger=print) -> st
         return path
     except Exception as e:
         logger(f"[backup] FAILED: {e}")
+        if on_failure is not None:
+            try:
+                on_failure(str(e))
+            except Exception:
+                pass
         return None
 
 
 def start_backup_scheduler(db_path: str, backups_dir: str,
                            interval_seconds: int = 86400, keep: int = 14,
-                           logger=print) -> threading.Thread:
+                           logger=print, on_failure=None) -> threading.Thread:
     """Start a daemon thread that backs up immediately, then every
     `interval_seconds`. Single-worker deployment, so one scheduler is enough.
     Returns the thread (already started)."""
     def _loop():
         while True:
-            run_once(db_path, backups_dir, keep, logger)
+            run_once(db_path, backups_dir, keep, logger, on_failure)
             time.sleep(interval_seconds)
 
     t = threading.Thread(target=_loop, name="backup-scheduler", daemon=True)
