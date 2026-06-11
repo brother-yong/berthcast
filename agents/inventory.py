@@ -140,10 +140,36 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
               f"Stock column '{_qty_col}' is empty on every row — stopping")
         return {"error": (
             f"The stock column in your Inventory Report ('{_qty_col}') is empty on every row. "
-            "berthcast needs each item's current stock quantity to judge health — without it "
-            "the analysis would be guesswork. Fill in that column (or re-export the report "
-            "with stock balances included) and upload again."
+            "berthcast reads each item's current stock from this column to judge health, so it "
+            "can't run without it. Either fill in that column (use 0 for items genuinely out of "
+            "stock), or — if your stock levels are in a different file — upload that file as the "
+            "Inventory Report instead."
         )}
+
+    # Forward-fill merged label cells. In Excel/ERP exports a category (or any
+    # grouping label) that spans several rows is a MERGED cell: only the first
+    # row of the group carries the value, the rest arrive blank. Inherit the
+    # last seen value DOWN the column so every item keeps its group.
+    #
+    # We do this ONLY for the category label, never for numbers. Forward-filling
+    # a stock or sales figure would fabricate data we don't have (it would copy
+    # the row-above's number onto an item that's actually blank) — exactly the
+    # kind of silent wrong answer we're trying to kill. `inventory` is still in
+    # file order here (no ORDER BY on the load), which is what makes fill-down
+    # correct; we mutate the row dicts in place before any sorting.
+    if _cat_col:
+        _last_cat = None
+        _filled_cats = 0
+        for _row in inventory:
+            _v = str(_row.get(_cat_col) or "").strip()
+            if _v:
+                _last_cat = _v
+            elif _last_cat is not None:
+                _row[_cat_col] = _last_cat
+                _filled_cats += 1
+        if _filled_cats:
+            _emit(progress_emit,
+                  f"Filled {_filled_cats} blank '{_cat_col}' cells from merged groups above them")
 
     # ── Read analysis scope (set by user on upload page) ──────────────────────
     scope_rows = query("SELECT scope FROM upload_sessions WHERE id=?", (session_id,))

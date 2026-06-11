@@ -175,6 +175,24 @@ _check("stock NOT read from qty_sold (no 7299 stock anywhere)",
 _check("velocity still computed from qty_sold (months of supply present)",
        "Months of supply:" in prompt)
 
+# ── 5. Merged category cells: forward-filled, NOT left as GENERAL ─────────────
+# Only row 1 of the fixture carries "CHEESE"; rows 2-4 are blank (merged cell).
+# After fill-down every item should be CHEESE, never the GENERAL fallback.
+_check("merged category forward-filled to every row",
+       "Category: CHEESE" in prompt)
+_check("no item fell back to GENERAL category",
+       "Category: GENERAL" not in prompt)
+_check("specifically, GOUDA (a continuation row) is CHEESE",
+       any("AMMERLAND GOUDA" in ln and "Category: CHEESE" in ln
+           for ln in prompt.splitlines()))
+
+# ── 6. Numbers are NEVER forward-filled (the dangerous case) ──────────────────
+# CHEDDAR has blank qty_sold in the fixture. Fill-down must NOT copy GOUDA's
+# 6986 onto it; a blank sales figure stays blank/zero, so no fabricated supply.
+_check("blank qty_sold NOT copied down from the row above",
+       not any("AMMERLAND CHEDDAR" in ln and "6986" in ln
+               for ln in prompt.splitlines()))
+
 
 if _FAILED:
     print("\nSOME TESTS FAILED")
