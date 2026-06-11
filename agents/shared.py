@@ -101,6 +101,111 @@ def _pick_stock_column(cols):
                  if ("qty" in k or "quantity" in k) and _clean(k)), None)
 
 
+_DESC_EXACT = ("description", "item_description", "inventory_desc", "product_description",
+               "item_name", "product_name", "stock_description", "item_desc")
+_CAT_EXACT  = ("category", "cat", "class", "item_category", "product_category", "storage_type")
+_UOM_EXACT  = ("uom", "unit_of_measure", "unit", "uom_code", "uom_description",
+               "base_uom", "purchase_uom", "sales_uom", "stock_uom")
+
+
+def detect_inventory_columns(cols) -> dict:
+    """Keyword best-guess for the inventory table's key columns.
+
+    Returns {"description","stock","category","uom"} (any value may be None).
+    This is the offline fallback used when there's no confirmed/LLM mapping.
+    """
+    desc = next((k for k in cols if k in _DESC_EXACT), None) or \
+           next((k for k in cols if ("desc" in k or "item_name" in k or "product_name" in k)
+                 and "supplier" not in k), None)
+    cat  = next((k for k in cols if k in _CAT_EXACT), None) or \
+           next((k for k in cols if "cat" in k or "class" in k or "storage" in k), None)
+    uom  = next((k for k in cols if k.lower() in _UOM_EXACT), None) or \
+           next((k for k in cols if "uom" in k.lower() or "unit_of" in k.lower()), None)
+    return {"description": desc, "stock": _pick_stock_column(cols),
+            "category": cat, "uom": uom}
+
+
+def _looks_numeric(values) -> bool:
+    """True if most non-empty values parse as numbers (commas stripped)."""
+    seen = numeric = 0
+    for v in values:
+        s = str(v).strip() if v is not None else ""
+        if not s:
+            continue
+        seen += 1
+        try:
+            float(s.replace(",", ""))
+            numeric += 1
+        except ValueError:
+            pass
+    return seen > 0 and numeric >= max(1, seen // 2)
+
+
+def propose_inventory_columns(headers, sample_rows, model) -> dict:
+    """LLM-assisted column mapping for the inventory table, validated in Python.
+
+    Starts from the keyword guess, then lets Claude override each field when its
+    pick is valid: the column must exist, and a 'stock' pick must look numeric
+    and not be a movement/money word. The result is a PROPOSAL shown to the user
+    for confirmation on the context page — it is never trusted blindly. Falls
+    back to the keyword guess on any error, so callers always get a usable map.
+    """
+    result = detect_inventory_columns(headers)
+    if not headers:
+        return result
+
+    sample_lines = []
+    for r in (sample_rows or [])[:8]:
+        sample_lines.append(" | ".join(f'{h}={str(r.get(h, "")).strip()[:30]}' for h in headers))
+
+    system = (
+        "You map spreadsheet columns to inventory fields for a food-distribution "
+        "inventory tool. Given column headers and a few sample rows, identify which "
+        "column holds each field:\n"
+        "- description: the item / product name\n"
+        "- stock: the CURRENT quantity on hand in the warehouse right now (a balance). "
+        "NOT quantity sold, NOT an average, NOT a money value.\n"
+        "- category: the product category / group\n"
+        "- uom: the unit of measure (e.g. KG, CTN, PCS)\n\n"
+        "Return ONLY a JSON object with keys description, stock, category, uom. Each "
+        "value must be EXACTLY one of the given headers, or null if no column fits. "
+        "No text outside the JSON."
+    )
+    user = "Headers:\n" + ", ".join(headers) + "\n\nSample rows:\n" + "\n".join(sample_lines)
+
+    try:
+        raw = _call_claude(model, system, user, max_tokens=400)
+    except Exception:
+        return result
+
+    llm = {}
+    try:
+        s = raw.strip()
+        if s.startswith("```"):
+            nl = s.find("\n")
+            if nl != -1:
+                s = s[nl + 1:]
+            if s.endswith("```"):
+                s = s[:-3]
+        a, b = s.find("{"), s.rfind("}")
+        if a != -1 and b != -1:
+            llm = json.loads(s[a:b + 1])
+    except Exception:
+        llm = {}
+
+    for field in ("description", "stock", "category", "uom"):
+        val = llm.get(field) if isinstance(llm, dict) else None
+        if not isinstance(val, str) or val not in headers:
+            continue
+        if field == "stock":
+            if any(x in val for x in _STOCK_EXCLUDE):
+                continue
+            if not _looks_numeric([r.get(val) for r in (sample_rows or [])]):
+                continue
+        result[field] = val
+    return result
+
+
 def _resolve_item_suppliers(session_id: int, org_name: str, config: dict,
                             alias_map: dict = None, progress_emit=None):
     """Build per-item supplier context: supplier name, type, lead time, risk.

@@ -4,6 +4,8 @@ Classifies every item as HEALTHY / LOW / CRITICAL / DEAD with spoilage risk and
 days-of-supply, using lead-time-aware thresholds. Moved verbatim from agents.py.
 """
 
+import json
+
 from database import query, get_company_config
 from .shared import (
     _emit,
@@ -12,7 +14,7 @@ from .shared import (
     _call_claude,
     _extract_json_array,
     _num_sql,
-    _pick_stock_column,
+    detect_inventory_columns,
 )
 
 
@@ -97,19 +99,26 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
     _sample = inventory[0] if inventory else {}
     _cols = list(_sample.keys())
 
-    DESC_EXACT = ("description", "item_description", "inventory_desc", "product_description",
-                  "item_name", "product_name", "stock_description", "item_desc")
-    CAT_EXACT  = ("category", "cat", "class", "item_category", "product_category", "storage_type")
-    UOM_EXACT  = ("uom", "unit_of_measure", "unit", "uom_code", "uom_description",
-                  "base_uom", "purchase_uom", "sales_uom", "stock_uom")
+    # Column detection: a user-confirmed mapping (from the context page) wins;
+    # otherwise fall back to keyword detection. The confirm step is the safety
+    # net for files whose columns aren't named the way our keywords expect.
+    _kw = detect_inventory_columns(_cols)
+    _cmap = {}
+    try:
+        _cmap_rows = query("SELECT column_map_json FROM upload_sessions WHERE id=?", (session_id,))
+        if _cmap_rows and _cmap_rows[0].get("column_map_json"):
+            _cmap = json.loads(_cmap_rows[0]["column_map_json"]) or {}
+    except Exception:
+        _cmap = {}
 
-    _desc_col = next((k for k in _cols if k in DESC_EXACT), None) or \
-                next((k for k in _cols if ("desc" in k or "item_name" in k or "product_name" in k) and "supplier" not in k), None)
-    _qty_col  = _pick_stock_column(_cols)
-    _cat_col  = next((k for k in _cols if k in CAT_EXACT), None) or \
-                next((k for k in _cols if "cat" in k or "class" in k or "storage" in k), None)
-    _uom_col  = next((k for k in _cols if k.lower() in UOM_EXACT), None) or \
-                next((k for k in _cols if "uom" in k.lower() or "unit_of" in k.lower()), None)
+    def _pick_col(field):
+        v = _cmap.get(field)
+        return v if (isinstance(v, str) and v in _cols) else _kw.get(field)
+
+    _desc_col = _pick_col("description")
+    _qty_col  = _pick_col("stock")
+    _cat_col  = _pick_col("category")
+    _uom_col  = _pick_col("uom")
 
     if not _desc_col or not _qty_col:
         return {"error": (
