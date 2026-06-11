@@ -218,10 +218,20 @@ evtSource.onmessage = function(e) {
 };
 
 evtSource.onerror = function() {
+  // Connection dropped or the server turned us away (busy/limit). Don't
+  // auto-redirect: the review page bounces back here when the scan hasn't
+  // finished, which would loop on a flaky connection. Offer a manual retry —
+  // if the scan actually finished server-side, retrying is instant (cached).
   evtSource.close();
+  clearTimeout(msgTimer);
+  timerActive = false;
+  actionEl.style.opacity = '0';
   setTimeout(function() {
-    window.location.href = '/dedup/' + sessionId;
-  }, 1000);
+    actionEl.textContent = 'Connection interrupted';
+    subEl.innerHTML = 'The scan may still be running. ' +
+      '<a href="javascript:location.reload()" style="font-weight:600;">Tap to reconnect</a>';
+    actionEl.style.opacity = '1';
+  }, 350);
 };
 </script>
 {% endblock %}
