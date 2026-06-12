@@ -3,10 +3,17 @@ services:
     name: berthai
     runtime: python
     buildCommand: pip install -r requirements.txt
-    # --threads must stay ABOVE app.py's MAX_CONCURRENT_STREAMS (the cap on
-    # simultaneous SSE streams) so plain page loads always have free threads.
-    # 4 threads is how a handful of held streams froze the whole site on
-    # 11 June 2026. Threads are cheap here: they wait on the Claude API.
+    # WARNING (12 June 2026): this service was created by hand in the Render
+    # dashboard, so the dashboard's OWN Start Command and Health Check Path
+    # OVERRIDE this file. Any change here must ALSO be pasted into
+    # Render -> Settings -> Start Command, or it silently never ships (the
+    # 11 June thread bump didn't — the site ran 4 threads while this said 12).
+    #
+    # --threads must stay ABOVE app.py's stream-lane cap so plain page loads
+    # always have free threads. 4 threads is how a handful of held streams
+    # froze the whole site on 11 June 2026. Threads are cheap here: they wait
+    # on the Claude API. app.py also derives its lane cap from the live
+    # --threads value as a second line of defence.
     startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --timeout 120 --workers 1 --worker-class gthread --threads 12
     healthCheckPath: /health
     envVars:

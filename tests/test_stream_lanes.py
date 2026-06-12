@@ -252,6 +252,27 @@ _check("render.yaml --threads exceeds MAX_CONCURRENT_STREAMS (pages keep free la
        _threads > appmod.MAX_CONCURRENT_STREAMS,
        detail=f"threads={_threads} cap={appmod.MAX_CONCURRENT_STREAMS}")
 
+# ── 9. The cap derives from the LIVE thread count, not an assumption ─────────
+# 12 June 2026: the Render dashboard's start command overrode render.yaml and
+# still ran 4 threads — a cap of 8 protected nothing. The app now reads
+# --threads off gunicorn's own command line (workers inherit the master argv).
+_check("--threads 12 -> 8 lanes (4 always free for pages)",
+       appmod._lanes_for_threads(12) == 8, detail=str(appmod._lanes_for_threads(12)))
+_check("--threads 4 -> 1 lane (the dashboard-drift case, site stays alive)",
+       appmod._lanes_for_threads(4) == 1, detail=str(appmod._lanes_for_threads(4)))
+_check("--threads 6 -> 2 lanes", appmod._lanes_for_threads(6) == 2)
+_check("lanes never drop below 1", appmod._lanes_for_threads(1) == 1)
+_check("lanes never exceed 8 however many threads",
+       appmod._lanes_for_threads(64) == 8)
+_check("argv '--threads 12' parsed",
+       appmod._gunicorn_threads(["gunicorn", "app:app", "--threads", "12"]) == 12)
+_check("argv '--threads=4' parsed",
+       appmod._gunicorn_threads(["gunicorn", "--threads=4"]) == 4)
+_check("no --threads in argv -> None (dev/test default of 8 applies)",
+       appmod._gunicorn_threads(["python", "tests/x.py"]) is None)
+_check("junk --threads value -> None, never a crash at import",
+       appmod._gunicorn_threads(["gunicorn", "--threads", "lots"]) is None)
+
 
 appmod._anthropic.Anthropic = _orig_anthropic
 

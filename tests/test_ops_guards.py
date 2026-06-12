@@ -162,8 +162,11 @@ os.makedirs(_ok_dir, exist_ok=True)
 import sqlite3 as _sq
 _c = _sq.connect(_ok_db); _c.execute("CREATE TABLE IF NOT EXISTS t (x)"); _c.commit(); _c.close()
 _fail_msgs.clear()
+# force=True: the temp output dir persists between test runs, and a leftover
+# fresh snapshot would (correctly) make a scheduled run skip — we're proving
+# the write path here, not the restart-storm guard (tests/test_backup.py does).
 res = backup.run_once(_ok_db, os.path.join(tempfile.gettempdir(), "bk_out2"),
-                      logger=lambda m: None, on_failure=_fail_msgs.append)
+                      logger=lambda m: None, on_failure=_fail_msgs.append, force=True)
 _check("successful backup never calls on_failure", res is not None and not _fail_msgs)
 
 # ── 5. App-side backup alert: configured, throttled ──────────────────────────
