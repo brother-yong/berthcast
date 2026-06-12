@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 import secrets
 import hashlib
@@ -79,11 +80,40 @@ MIN_FREE_DISK_MB = 100
 # for the whole Claude stream — minutes, sometimes. With a finite thread pool,
 # enough concurrent (or stuck) streams freeze EVERY route, including login and
 # /health, with nothing in the logs: that was the 85-minute outage of 11 June
-# 2026. The cap must stay below gunicorn --threads (render.yaml) so plain page
-# loads always have free lanes; excess streams get a plain 503 instead of
-# silently queueing the whole site to death.
-MAX_CONCURRENT_STREAMS = 8
+# 2026. The cap must stay below gunicorn's --threads so plain page loads always
+# have free lanes; excess streams get a plain 503 instead of silently queueing
+# the whole site to death.
+#
+# The cap is derived from the LIVE thread count, not assumed: render.yaml said
+# 12 threads but the Render dashboard's own start command (which overrides the
+# file for manually-created services) still said 4 — discovered 12 June 2026.
+# Workers inherit the gunicorn master's argv, so the real --threads value is
+# readable at import time. Unknown (local dev, tests) falls back to 8.
+
+
+def _gunicorn_threads(argv=None):
+    """The --threads value from the gunicorn command line, or None."""
+    argv = sys.argv if argv is None else argv
+    for i, a in enumerate(argv):
+        if a == "--threads" and i + 1 < len(argv) and argv[i + 1].isdigit():
+            return int(argv[i + 1])
+        if a.startswith("--threads=") and a.split("=", 1)[1].isdigit():
+            return int(a.split("=", 1)[1])
+    return None
+
+
+def _lanes_for_threads(threads):
+    """Streams may hold this many of `threads` lanes: at least 4 threads stay
+    free for plain pages, at least 1 stream is always allowed, never more
+    than 8 (Claude API + memory headroom)."""
+    return max(1, min(8, threads - 4))
+
+
+_live_threads = _gunicorn_threads()
+MAX_CONCURRENT_STREAMS = _lanes_for_threads(_live_threads) if _live_threads else 8
 _stream_lanes = threading.BoundedSemaphore(MAX_CONCURRENT_STREAMS)
+logger.info("Stream lanes: %d (gunicorn --threads: %s)",
+            MAX_CONCURRENT_STREAMS, _live_threads or "not detected")
 # How long a streaming Claude call may stall before we give the lane back.
 # The SDK default is 10 minutes — far too long for a held thread.
 CHAT_STREAM_TIMEOUT_S  = 120
@@ -1192,6 +1222,10 @@ def admin_backup_download():
     disk. Making it also retains the snapshot on disk (then prunes old ones)."""
     backups_dir = backup.default_backups_dir(db.DB_PATH)
     try:
+        # A full disk must not stop the founder pulling an off-disk copy —
+        # clear old snapshots first if the new one wouldn't fit.
+        backup.make_room(backups_dir,
+                         backup._db_size(db.DB_PATH) + backup.FREE_SPACE_MARGIN_BYTES)
         path = backup.backup_database(db.DB_PATH, backups_dir)
         backup.prune_backups(backups_dir)
     except Exception as e:
