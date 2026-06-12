@@ -432,16 +432,55 @@ def security_txt():
     )
 
 
+# ── Health check ──────────────────────────────────────────────────────────────
+# The probe must read a REAL table, not SELECT 1. On 12 June 2026 the Render
+# disk wedged after a plan change: cached pages (SELECT 1, the DB header) read
+# fine, so /health kept answering 200 while every login hung forever on an
+# uncached page read — Render saw a healthy service and never restarted the
+# zombie. A read stuck inside the OS can't be interrupted from Python, so the
+# probe runs in a side thread we ABANDON after a bounded wait instead.
+HEALTH_DB_PROBE_TIMEOUT_S = 5
+_health_lock = threading.Lock()
+_health_probe = None  # in-flight probe: (done Event, result dict, started ts)
+
+
+def _health_db_probe(done, result):
+    """Touches the users table — the same page a sign-in needs."""
+    global _health_probe
+    try:
+        db.query("SELECT id FROM users LIMIT 1")
+        result["ok"] = True
+    except Exception:
+        logger.exception("Health probe failed: users table unreadable")
+        result["ok"] = False
+    finally:
+        with _health_lock:
+            _health_probe = None
+        done.set()
+
+
 @app.route("/health")
 def health():
-    """Liveness + DB connectivity check for Render's health monitor. No auth — the
-    platform hits it unauthenticated. 200 = healthy, 503 = the DB is unreachable."""
-    try:
-        db.query("SELECT 1")
+    """Liveness + real DB readability for Render's monitor. No auth — the
+    platform hits it unauthenticated. 200 = data actually serves, 503 = it
+    doesn't. Single-flight: concurrent polls share one probe, and while a
+    probe is stuck past its deadline we answer 503 instantly — a wedged disk
+    leaks at most ONE abandoned thread, never one per poll."""
+    global _health_probe
+    with _health_lock:
+        probe = _health_probe
+        if probe is None:
+            probe = (threading.Event(), {}, time.time())
+            _health_probe = probe
+            threading.Thread(target=_health_db_probe,
+                             args=(probe[0], probe[1]), daemon=True).start()
+    done, result, started = probe
+    remaining = HEALTH_DB_PROBE_TIMEOUT_S - (time.time() - started)
+    if remaining > 0:
+        done.wait(remaining)
+    if result.get("ok"):
         return jsonify({"status": "ok"}), 200
-    except Exception:
-        logger.exception("Health check failed: database unreachable")
-        return jsonify({"status": "error"}), 503
+    return jsonify({"status": "error"}), 503
 
 
 @app.route("/login", methods=["GET", "POST"])
