@@ -22,6 +22,8 @@ from .shared import (
     _num_sql,
     count_sales_months,
     LEAD_TIME_BY_TYPE,
+    SalesNameIndex,
+    normalise_match_key,
 )
 from quantity import sanitize_suggested_quantity
 
@@ -89,7 +91,7 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
         uom_by_item_r = {}
 
     # Compute avg monthly sales per item so we can suggest order quantities
-    sales_velocity: dict = {}
+    sales_velocity = None  # SalesNameIndex when sales data is readable
     try:
         sal_table_r = f"sales_{session_id}"
         s_sample = query(f"SELECT * FROM {sal_table_r} LIMIT 1")
@@ -128,9 +130,17 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
                     f'SUM({_num_sql(s_qty)}) / {months_r} as avg_monthly '
                     f'FROM {sal_table_r} GROUP BY "{s_desc}" LIMIT 5000'
                 )
-                sales_velocity = {r["item"]: round(r["avg_monthly"] or 0, 1) for r in vel_rows if r["item"]}
+                # Drift-tolerant index, same as the inventory agent: a sales
+                # name carrying a staff annotation must still feed this item's
+                # velocity, or its suggested quantity degrades to "verify".
+                _vel_raw = {r["item"]: {"avg_monthly": (r["avg_monthly"] or 0)}
+                            for r in vel_rows if r["item"]}
+                _claimed_rec = {normalise_match_key(r.get("item"))
+                                for r in inventory_report
+                                if isinstance(r, dict) and r.get("item")}
+                sales_velocity = SalesNameIndex(_vel_raw, claimed_keys=_claimed_rec)
     except Exception:
-        sales_velocity = {}
+        sales_velocity = None
 
     # Build enriched item lines for Claude
     enriched_lines = []
@@ -180,7 +190,8 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
         #   - Reliable local supplier (delay_prob < 0.15):  +0.5 months
         #   - Average supplier (delay_prob 0.15–0.35):      +1.5 months
         #   - Unreliable import (delay_prob > 0.35):         +2.5 months
-        avg_monthly = sales_velocity.get(iname, 0)
+        _vel = sales_velocity.get(iname) if sales_velocity is not None else None
+        avg_monthly = round((_vel or {}).get("avg_monthly", 0) or 0, 1)
         uom = uom_by_item_r.get(iname.lower(), "")
         uom_label = f" {uom}" if uom else " units"
         if avg_monthly > 0:
@@ -304,12 +315,19 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
                 + f"\n\nContext from purchasing team:\n{context_text}\n\n"
                 "Generate consequence-aware purchase recommendations."
             )
-            raw = _call_claude(model, system_prompt, user_prompt, max_tokens=24000)
-            recs_batch, _ = _extract_json_array(raw)
+            # 64000 so the full reply always fits: rec objects run ~150-200
+            # output tokens each, so 150 items needs ~30K — 24000 used to
+            # truncate and the JSON repair silently dropped the tail.
+            raw = _call_claude(model, system_prompt, user_prompt, max_tokens=64000)
+            recs_batch, _rec_repaired = _extract_json_array(raw)
             if recs_batch is None:
                 _emit(progress_emit,
                       f"WARNING: recommendation batch {i}/{n_batches} returned no usable response — skipping")
                 continue
+            if _rec_repaired:
+                _emit(progress_emit,
+                      f"WARNING: the reply for recommendation batch {i}/{n_batches} was cut short — "
+                      f"kept {len(recs_batch)} of {len(batch)} items")
             all_recs.extend(recs_batch)
 
         if not all_recs:

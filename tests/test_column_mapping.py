@@ -1,18 +1,20 @@
-"""Tests for LLM-assisted column mapping + the user confirm step.
+"""Tests for the LLM-assisted column mapping (now fully automatic).
 
 Context: column detection used to be pure keyword matching in Python, so a file
 whose stock column was named something unexpected (or whose first quantity-ish
-column was actually "Qty Sold") got read wrong, silently. The fix lets Claude
-propose the mapping, Python validates it, and the user confirms it on the
-context page before the analysis runs. Keyword detection remains the fallback.
+column was actually "Qty Sold") got read wrong, silently. Claude proposes the
+mapping, Python validates it, keyword detection remains the fallback. The user
+"confirm your columns" step was removed on 12 June 2026 — it confused the
+workers actually running analyses, and the AI applies its validated mapping
+itself (covered in tests/test_partial_sales_matching.py section 5).
 
 This covers:
   1. propose_inventory_columns — LLM overrides the keyword guess only when its
      pick is a real, numeric, non-"sold/value" column; otherwise falls back.
-  2. The inventory agent honours a confirmed column_map_json over keyword
+  2. The inventory agent honours a saved column_map_json over keyword
      detection, and ignores a mapping that points at a missing column.
-  3. The /context route shows the dropdowns (GET) and saves the chosen mapping
-     (POST), keeping only real columns.
+  3. The /context route no longer shows the confirm step, never needs an LLM
+     call, and can never overwrite the saved mapping from form input.
 
 Throwaway DB + stubbed anthropic; no network, no API calls.
 Run: python tests/test_column_mapping.py
@@ -181,15 +183,13 @@ _check("invalid map falls back to keyword 'qty' (CHEDDAR shows 1)",
        "CHEDDAR" in prompt2 and "Stock: 1" in prompt2, detail=prompt2[:160])
 
 
-# ── 3. /context route: shows dropdowns and saves the mapping ─────────────────
+# ── 3. /context route: no confirm step, no LLM call, no mapping override ─────
 import app as appmod   # noqa: E402
 
 appmod.app.config["WTF_CSRF_ENABLED"] = False
 appmod.app.config["TESTING"] = True
-# The route calls propose_inventory_columns -> shared._call_claude; keep it stubbed.
-shared._call_claude = _fake_call_claude
-_fake_reply["value"] = json.dumps({"description": "item_name", "stock": "warehouse_count",
-                                   "category": "category", "uom": "uom"})
+# Prove the route needs NO LLM at all: any call would blow up loudly.
+shared._call_claude = _boom
 
 SID_ROUTE = 93
 db.execute(
@@ -202,6 +202,9 @@ db.execute(f'CREATE TABLE inventory_{SID_ROUTE} ('
            '"uom" TEXT, "_session_id" TEXT)')
 db.execute(f'INSERT INTO inventory_{SID_ROUTE} VALUES (?,?,?,?,?,?)',
            ("CHEDDAR", "1", "500", "CHEESE", "KG", str(SID_ROUTE)))
+# Simulate the agent's auto-saved mapping — the route must never clobber it.
+db.execute("UPDATE upload_sessions SET column_map_json=? WHERE id=?",
+           (json.dumps({"description": "item_name", "stock": "warehouse_count"}), SID_ROUTE))
 
 client = appmod.app.test_client()
 with client.session_transaction() as s:
@@ -215,30 +218,25 @@ with client.session_transaction() as s:
 
 r = client.get(f"/context/{SID_ROUTE}")
 body = r.data.decode("utf-8")
-_check("context page renders 200", r.status_code == 200, detail=str(r.status_code))
-_check("stock dropdown present", 'name="col_stock"' in body)
-_check("warehouse_count is pre-selected as stock (LLM proposal honoured)",
-       'value="warehouse_count" selected' in body)
-_check("_session_id is not offered as a column option", 'value="_session_id"' not in body)
+_check("context page renders 200 without any LLM call", r.status_code == 200,
+       detail=str(r.status_code))
+_check("confirm-columns step is gone", "Confirm your columns" not in body)
+_check("no column dropdowns rendered", 'name="col_stock"' not in body)
+_check("context questions still present", 'name="delayed_suppliers"' in body)
 
 r2 = client.post(f"/context/{SID_ROUTE}", data={
-    "col_description": "item_name", "col_stock": "warehouse_count",
-    "col_category": "category", "col_uom": "uom",
-    "delayed_suppliers": "", "large_orders": "", "discontinue": "", "other": "",
+    "col_stock": "evil_injection",  # stray/malicious field must be ignored
+    "delayed_suppliers": "Supplier A delayed", "large_orders": "",
+    "discontinue": "", "other": "",
 }, follow_redirects=False)
 _check("POST redirects onward", r2.status_code == 302)
-saved = db.query("SELECT column_map_json FROM upload_sessions WHERE id=?", (SID_ROUTE,))[0]["column_map_json"]
-saved_map = json.loads(saved) if saved else {}
-_check("POST saved the confirmed mapping", saved_map.get("stock") == "warehouse_count")
-
-# Tampered POST: a column that isn't in the table must be dropped.
-r3 = client.post(f"/context/{SID_ROUTE}", data={
-    "col_description": "item_name", "col_stock": "evil_injection",
-    "delayed_suppliers": "", "large_orders": "", "discontinue": "", "other": "",
-})
-saved2 = db.query("SELECT column_map_json FROM upload_sessions WHERE id=?", (SID_ROUTE,))[0]["column_map_json"]
-saved_map2 = json.loads(saved2) if saved2 else {}
-_check("bogus column in POST is rejected", saved_map2.get("stock") is None)
+row = db.query("SELECT context_json, column_map_json FROM upload_sessions WHERE id=?",
+               (SID_ROUTE,))[0]
+_check("context saved", "Supplier A delayed" in (row["context_json"] or ""))
+saved_map = json.loads(row["column_map_json"]) if row["column_map_json"] else {}
+_check("auto-saved mapping survives the POST untouched (form can't override it)",
+       saved_map.get("stock") == "warehouse_count", detail=str(saved_map))
+shared._call_claude = _fake_call_claude  # restore
 
 
 if _FAILED:
