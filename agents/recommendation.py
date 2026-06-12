@@ -21,6 +21,7 @@ from .shared import (
     _extract_json_array,
     _num_sql,
     count_sales_months,
+    detect_avg_month_column,
     LEAD_TIME_BY_TYPE,
     SalesNameIndex,
     normalise_match_key,
@@ -90,8 +91,15 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
     except Exception:
         uom_by_item_r = {}
 
-    # Compute avg monthly sales per item so we can suggest order quantities
-    sales_velocity = None  # SalesNameIndex when sales data is readable
+    # Compute avg monthly sales per item so we can suggest order quantities.
+    # Velocity sources in trust order: a monthly average the sheet itself
+    # states > totals divided by the dated period > totals over an assumed
+    # 12 months (the inventory agent has already flagged that assumption).
+    sales_velocity = None      # SalesNameIndex when sales data is readable
+    sales_supplier_idx = None  # supplier names read off the sales sheet
+    _claimed_rec = {normalise_match_key(r.get("item"))
+                    for r in inventory_report
+                    if isinstance(r, dict) and r.get("item")}
     try:
         sal_table_r = f"sales_{session_id}"
         s_sample = query(f"SELECT * FROM {sal_table_r} LIMIT 1")
@@ -103,7 +111,15 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
             s_qty = next((c for c in s_cols if c in ("billing_qty", "qty", "quantity", "billing_quantity")), None)
             if not s_qty:
                 s_qty = next((c for c in s_cols if any(k in c.lower() for k in ("qty", "quantity")) and "allocated" not in c.lower()), None)
-            if s_desc and s_qty:
+            s_avg = detect_avg_month_column(s_cols)
+            vel_rows = []
+            if s_desc and s_avg:
+                vel_rows = query(
+                    f'SELECT "{s_desc}" as item, '
+                    f'AVG({_num_sql(s_avg)}) as avg_monthly '
+                    f'FROM {sal_table_r} GROUP BY "{s_desc}" LIMIT 5000'
+                )
+            elif s_desc and s_qty:
                 try:
                     _DATE_EXACT_R = ("date", "invoice_date", "order_date", "transaction_date",
                                      "sales_date", "po_date", "doc_date", "posting_date")
@@ -130,17 +146,42 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
                     f'SUM({_num_sql(s_qty)}) / {months_r} as avg_monthly '
                     f'FROM {sal_table_r} GROUP BY "{s_desc}" LIMIT 5000'
                 )
+            if vel_rows:
                 # Drift-tolerant index, same as the inventory agent: a sales
                 # name carrying a staff annotation must still feed this item's
                 # velocity, or its suggested quantity degrades to "verify".
                 _vel_raw = {r["item"]: {"avg_monthly": (r["avg_monthly"] or 0)}
                             for r in vel_rows if r["item"]}
-                _claimed_rec = {normalise_match_key(r.get("item"))
-                                for r in inventory_report
-                                if isinstance(r, dict) and r.get("item")}
                 sales_velocity = SalesNameIndex(_vel_raw, claimed_keys=_claimed_rec)
+
+            # Supplier names from the sales sheet — lowest-priority source,
+            # consulted only for items the PO table knows nothing about.
+            # Supplier/category columns in summary exports use MERGED cells:
+            # only the first row of each group carries the value, so fill the
+            # last seen name down the column before mapping.
+            _sup_col = next((c for c in s_cols
+                             if "supplier" in c.lower() or "vendor" in c.lower()), None)
+            if s_desc and _sup_col:
+                _sup_rows = query(
+                    f'SELECT "{s_desc}" as item, "{_sup_col}" as sup '
+                    f'FROM {sal_table_r} ORDER BY rowid LIMIT 5000')
+                _last_sup = None
+                _sup_raw = {}
+                for _r in _sup_rows:
+                    _sv = str(_r.get("sup") or "").strip()
+                    if _sv:
+                        _last_sup = _sv
+                    _itm = str(_r.get("item") or "").strip()
+                    if _itm and _last_sup and _itm not in _sup_raw:
+                        _sup_raw[_itm] = {"supplier": _last_sup}
+                if _sup_raw:
+                    sales_supplier_idx = SalesNameIndex(_sup_raw, claimed_keys=_claimed_rec)
+                    _emit(progress_emit,
+                          f"Supplier names read from the sales sheet "
+                          f"({len(_sup_raw)} items, merged cells filled down)")
     except Exception:
         sales_velocity = None
+        sales_supplier_idx = None
 
     # Build enriched item lines for Claude
     enriched_lines = []
@@ -162,6 +203,11 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
             high_risk  = lt_info["high_risk"]
         else:
             supplier = item_supplier_map.get(iname, "Unknown") or "Unknown"
+            if supplier == "Unknown" and sales_supplier_idx is not None:
+                # Last resort: the supplier named on the sales sheet itself.
+                _ss = sales_supplier_idx.get(iname) or {}
+                if _ss.get("supplier"):
+                    supplier = _ss["supplier"]
             stype    = supplier_type_map.get(supplier, "other")
             if stype == "other" and supplier == "Unknown":
                 stype = _infer_supplier_type(iname)

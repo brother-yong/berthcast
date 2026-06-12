@@ -2222,8 +2222,10 @@ def run_analysis(upload_session_id):
             recommendations  = result["recommendations"]
 
             db.execute(
-                "UPDATE analysis_results SET inventory_report=?, recommendations_json=? WHERE session_id=?",
-                (json.dumps(inventory_report), json.dumps(recommendations), upload_session_id)
+                "UPDATE analysis_results SET inventory_report=?, recommendations_json=?, "
+                "data_notes=? WHERE session_id=?",
+                (json.dumps(inventory_report), json.dumps(recommendations),
+                 json.dumps(result.get("data_notes") or []), upload_session_id)
             )
             db.execute("UPDATE upload_sessions SET status='complete' WHERE id=?", (upload_session_id,))
 
@@ -2408,6 +2410,12 @@ def results(upload_session_id):
         inventory_raw   = []
         recommendations = []
         generated_at    = ""
+    try:
+        data_notes = json.loads(ar[0].get("data_notes") or "[]")
+        if not isinstance(data_notes, list):
+            data_notes = []
+    except Exception:
+        data_notes = []
 
     # inventory_report may be a list (after analysis) or a placeholder dict
     if isinstance(inventory_raw, list):
@@ -2481,6 +2489,7 @@ def results(upload_session_id):
         user_tier=session.get("tier", "enterprise"),
         user_role=session.get("role", "admin"),
         supplier_score_map=supplier_score_map,
+        data_notes=data_notes,
     )
 
 

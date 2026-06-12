@@ -115,6 +115,13 @@ _check("ambiguous truncation matches nothing (never double-counts)",
        idx5.get("COWHEAD UHT MILK FULL CREAM 1 LTR") is None
        and idx5.get("COWHEAD UHT MILK LOW FAT 1 LTR") is None)
 
+# BOTH drifts at once: truncated name + trailing annotation. The full string
+# matches nothing, so the index must trim the annotation and retry.
+idx_both = SNI({"COWHEAD UHT MILK FULL CREAM ← out of stock": {"total_qty": 11}},
+               claimed_keys=_claimed)
+_check("truncation + annotation combined still resolves",
+       (idx_both.get("COWHEAD UHT MILK FULL CREAM 1 LTR") or {}).get("total_qty") == 11)
+
 # alias_map (dedup confirm) still folds variants onto the canonical name.
 idx6 = SNI({"CHED 200G": {"total_qty": 3}},
            alias_map={"ched 200g": "EMBORG CHEDDAR 200G"},
