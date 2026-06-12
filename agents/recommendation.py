@@ -275,7 +275,7 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
         "   Those fields are for urgency and business impact only.\n"
         "4. consequence_if_acting and consequence_if_not_acting must be plain business statements. "
         "   No SGD amounts unless you have reliable sales data. Name the company and item.\n"
-        "5. confidence = INSUFFICIENT_DATA if supplier is not known to the system.\n"
+        "5. confidence reflects data quality for the reorder decision: HIGH when stock level and sales velocity are clear; MEDIUM when either is estimated or thin; LOW when data is sparse; INSUFFICIENT_DATA only when there is no usable sales or stock data at all. Unknown supplier raises supplier_risk but does NOT force INSUFFICIENT_DATA.\n"
         "6. supplier_risk = HIGH and mitigation REQUIRED if delay rate > 30% or supplier unknown.\n"
         "7. Do NOT recommend ordering dead SKUs.\n"
         "8. Return ONLY a valid JSON array. No text outside the array."
