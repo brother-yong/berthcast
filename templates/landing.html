@@ -334,6 +334,23 @@
     .q-detail { font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
     .q-qty { font-family: var(--font-mono); font-size: 12px; font-weight: 600; color: var(--navy-800); }
 
+    /* ── Real screens (proof) ── */
+    .proof { padding: 96px 0 110px; }
+    .proof-head { max-width: 600px; margin-bottom: 54px; }
+    .proof-head h2 { font-family: var(--font-display); font-size: clamp(28px, 3.6vw, 42px); line-height: 1.14; color: var(--navy-900); letter-spacing: -0.02em; margin: 14px 0 16px; }
+    .proof-head h2 em { color: var(--brass-3); }
+    .proof-head p { font-size: 16.5px; color: var(--muted); line-height: 1.66; }
+    .proof-stage { display: flex; align-items: flex-start; }
+    .shot { margin: 0; background: #fff; border: 1px solid var(--border); border-radius: 18px; overflow: hidden; box-shadow: 0 30px 80px rgba(11,20,36,0.18), 0 4px 16px rgba(11,20,36,0.08); }
+    .shot-head { display: flex; align-items: center; gap: 10px; background: var(--navy-800); padding: 12px 18px; position: relative; }
+    .shot-head::after { content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 1px; background: linear-gradient(90deg, transparent, var(--brass), transparent); opacity: 0.6; }
+    .shot-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--brass); flex-shrink: 0; }
+    .shot-title { font-family: var(--font-mono); font-size: 11px; font-weight: 500; letter-spacing: 0.14em; text-transform: uppercase; color: var(--brass-2); }
+    .shot-tag { margin-left: auto; font-family: var(--font-serif); font-style: italic; font-size: 14px; color: rgba(255,255,255,0.42); }
+    .shot img { display: block; width: 100%; height: auto; }
+    .shot--report { width: 58%; }
+    .shot--order { width: 46%; margin-left: -54px; margin-top: 76px; position: relative; z-index: 2; }
+
     /* ── Problem / cost ── */
     .problem { padding: 90px 0; }
     .problem-grid { display: grid; grid-template-columns: 1fr 0.9fr; gap: 64px; align-items: center; }
@@ -392,6 +409,8 @@
       .hero { grid-template-columns: 1fr; padding: 64px 24px 48px; gap: 40px; }
       .demo-grid { grid-template-columns: 1fr; }
       .problem-grid { grid-template-columns: 1fr; gap: 36px; }
+      .proof-stage { flex-direction: column; }
+      .shot--report, .shot--order { width: 100%; max-width: 600px; margin: 0 auto 26px; }
       .feat-grid { grid-template-columns: 1fr 1fr; }
       .how-steps { grid-template-columns: 1fr 1fr; gap: 30px; }
       .how-steps::before { display: none; }
@@ -572,6 +591,29 @@
         <span class="badge ok">NORMAL</span>
         <span class="q-qty">no action</span>
       </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Real screens (dummy dataset — never client data) ── -->
+<section class="proof">
+  <div class="wrap">
+    <div class="proof-head reveal">
+      <div class="eyebrow">Straight from the product</div>
+      <h2>The report it writes. <em>The order it drafts.</em></h2>
+      <p>Real berthcast screens, reading a sample dataset: every item ranked by urgency in plain English, then a draft purchase decision with the trade-offs spelled out, ready to approve.</p>
+    </div>
+    <div class="proof-stage">
+      <figure class="shot shot--report reveal">
+        <div class="shot-head"><span class="shot-dot"></span><span class="shot-title">Health report · every SKU ranked</span><span class="shot-tag">sample data</span></div>
+        <img src="{{ url_for('static', filename='screenshot-inventory.png') }}" width="696" height="724" loading="lazy"
+             alt="berthcast health report: items ranked CRITICAL to HEALTHY with stock, spoilage risk, days of supply and a plain-English note per item">
+      </figure>
+      <figure class="shot shot--order reveal" style="transition-delay: 130ms">
+        <div class="shot-head"><span class="shot-dot"></span><span class="shot-title">Reorder card · decision drafted</span><span class="shot-tag">sample data</span></div>
+        <img src="{{ url_for('static', filename='screenshot-recommendations.png') }}" width="583" height="703" loading="lazy"
+             alt="berthcast reorder recommendation: suggested quantity with confidence level, what happens if you order or wait, and a supplier-risk action plan">
+      </figure>
     </div>
   </div>
 </section>
