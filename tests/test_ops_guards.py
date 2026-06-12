@@ -264,6 +264,41 @@ _check("general org prompt never names Cool Link", "Cool Link" not in _gen_sys)
 _check("general org prompt still demands consequences",
        "consequence_if_acting" in _gen_sys)
 
+# ── 8. Confidence is data quality, not supplier presence ────────────────────
+# 12 June: orgs with no supplier records (every demo/dummy run) got N/A on
+# EVERY recommendation, because the prompt forced INSUFFICIENT_DATA whenever
+# the supplier was unknown. Unknown supplier = supplier_risk, not data gap.
+import rec_logic  # noqa: E402
+
+_check("prompt no longer forces INSUFFICIENT_DATA on unknown supplier",
+       "INSUFFICIENT_DATA if supplier is not known" not in _gen_sys)
+_check("prompt ties confidence to stock/velocity data quality",
+       "does NOT force INSUFFICIENT_DATA" in _gen_sys)
+_check("unknown supplier still raises supplier_risk",
+       "supplier_risk = HIGH" in _gen_sys and "supplier unknown" in _gen_sys)
+
+# End-to-end: model answers HIGH for an item whose supplier is NOT in the
+# system — the pipeline must deliver HIGH to the page, not N/A.
+_HIGH_REC = ('[{"item": "WIDGET", "supplier": "Unknown", "supplier_type": "other", '
+             '"lead_time_days": null, "days_of_supply": 2, '
+             '"recommended_action": "REORDER", "suggested_quantity": 100, '
+             '"confidence": "HIGH", "consequence_if_acting": "a", '
+             '"consequence_if_not_acting": "b", "supplier_risk": "HIGH", '
+             '"mitigation": "verify supplier", "flags": [], "reason": "r"}]')
+rec_mod._call_claude = lambda model, system, user, max_tokens=4096: _HIGH_REC
+_recs = rec_mod.run_recommendation_agent(703, "m", list(_REPORT), {}, None)
+_check("agent returns the rec", len(_recs) == 1 and _recs[0].get("item") == "WIDGET",
+       detail=str(_recs)[:200])
+rec_logic._normalise_confidence(_recs[0])
+_check("HIGH confidence survives the pipeline despite unknown supplier",
+       _recs[0].get("confidence") == "HIGH", detail=str(_recs[0].get("confidence")))
+_check("results page would NOT show N/A for this rec",
+       _recs[0].get("confidence") != "INSUFFICIENT_DATA")
+_junk = {"confidence": "garbage"}
+rec_logic._normalise_confidence(_junk)
+_check("junk confidence still normalises to INSUFFICIENT_DATA (guard intact)",
+       _junk["confidence"] == "INSUFFICIENT_DATA")
+
 
 if _FAILED:
     print("\nSOME TESTS FAILED")
