@@ -273,6 +273,90 @@ def count_sales_months(raw_values):
     return max(1, len(months)), label
 
 
+_MATCH_KEY_RE = re.compile(r"[^a-z0-9]+")
+
+
+def normalise_match_key(name) -> str:
+    """Key for matching item names across files: casefold and keep only
+    letters/digits, so spacing, punctuation and case can never break a match."""
+    return _MATCH_KEY_RE.sub("", str(name).casefold())
+
+
+class SalesNameIndex:
+    """Resolves inventory item names to aggregated sales rows, tolerating the
+    ways the two files disagree about a name.
+
+    12 June 2026: a regional food distributor's staff type annotations ("<- out of stock") into
+    the sales sheet's item-name column — on exactly the items that most need a
+    reorder. Exact-name matching therefore lost the sales history for those
+    items, they were classified DEAD (stock 0, "sold" 0), and DEAD items never
+    reach the recommendation agent: a zero-stock item with real sales produced
+    no recommendation at all.
+
+    Resolution per sales row, against `claimed_keys` (the normalised names of
+    every inventory item):
+      1. exact normalised match -> that item;
+      2. the sales name EXTENDS an inventory name (an annotation was appended)
+         -> the longest matching inventory item;
+      3. an inventory name extends the sales name (sales sheet truncated it)
+         -> only when exactly one inventory item matches (never double-count);
+      4. otherwise the row stays under its own key (an item we don't stock, or
+         a junk row such as a report total).
+    Prefix rules need >= MIN_PREFIX_CHARS normalised characters so a generic
+    short name can never swallow another item's sales. Numeric fields of rows
+    resolving to the same item are summed.
+    """
+
+    MIN_PREFIX_CHARS = 10
+
+    def __init__(self, sales_by_raw_name: dict, alias_map: dict = None, claimed_keys=None):
+        claimed = {k for k in (claimed_keys or ()) if k}
+        long_claimed = sorted((k for k in claimed if len(k) >= self.MIN_PREFIX_CHARS),
+                              key=len, reverse=True)
+        self._by_key = {}
+        for raw, info in (sales_by_raw_name or {}).items():
+            raw_s = str(raw).strip()
+            if not raw_s:
+                continue
+            aliased = (alias_map or {}).get(raw_s.lower(), raw_s)
+            key = normalise_match_key(aliased)
+            if not key:
+                continue
+            if key not in claimed:
+                # 2. annotation appended in the sales sheet — longest wins
+                ext = next((c for c in long_claimed if key.startswith(c)), None)
+                if ext is not None:
+                    key = ext
+                elif len(key) >= self.MIN_PREFIX_CHARS:
+                    # 3. truncated sales name — only an unambiguous match counts
+                    trunc = [c for c in claimed if c.startswith(key)]
+                    if len(trunc) == 1:
+                        key = trunc[0]
+                    elif trunc:
+                        continue  # ambiguous: crediting any one item would lie
+            self._fold(key, info)
+
+    def _fold(self, key, info):
+        ex = self._by_key.get(key)
+        if ex is None:
+            self._by_key[key] = dict(info)
+            return
+        for f, v in info.items():
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                prev = ex.get(f)
+                ex[f] = (prev if isinstance(prev, (int, float)) else 0) + v
+            elif f not in ex:
+                ex[f] = v
+
+    def __contains__(self, norm_key) -> bool:
+        return norm_key in self._by_key
+
+    def get(self, name):
+        """Aggregated sales entry for an (inventory) item name, or None when
+        the sales data genuinely does not cover the item."""
+        return self._by_key.get(normalise_match_key(name))
+
+
 def _looks_numeric(values) -> bool:
     """True if most non-empty values parse as numbers (via _to_num, so
     currency-prefixed and unit-suffixed cells count as numeric too)."""
@@ -451,15 +535,27 @@ def _resolve_item_suppliers(session_id: int, org_name: str, config: dict,
 # Consequence engine — pure Python, no LLM involvement
 # ---------------------------------------------------------------------------
 
+# Opus 4.7+ and Fable removed the temperature parameter — sending it is a hard
+# 400 error on those models. Older models keep temperature=0 so the same file
+# produces the same report run after run.
+_NO_TEMPERATURE_PREFIXES = ("claude-opus-4-7", "claude-opus-4-8", "claude-fable")
+
+
+def sampling_kwargs(model: str) -> dict:
+    if model.startswith(_NO_TEMPERATURE_PREFIXES):
+        return {}
+    return {"temperature": 0}
+
+
 def _call_claude(model: str, system: str, user: str, max_tokens: int = 4096) -> str:
     # Use streaming internally — Anthropic requires it for large max_tokens values.
     # Callers receive the complete text string exactly as before.
     with client.messages.stream(
         model=model,
         max_tokens=max_tokens,
-        temperature=0,
         system=system,
-        messages=[{"role": "user", "content": user}]
+        messages=[{"role": "user", "content": user}],
+        **sampling_kwargs(model),
     ) as stream:
         return stream.get_final_text()
 

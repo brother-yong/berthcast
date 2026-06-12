@@ -7,7 +7,7 @@ days-of-supply, using lead-time-aware thresholds. Moved verbatim from agents.py.
 import json
 import re
 
-from database import query, get_company_config
+from database import query, execute, get_company_config
 from .shared import (
     _emit,
     _resolve_item_suppliers,
@@ -18,7 +18,18 @@ from .shared import (
     _to_num,
     count_sales_months,
     detect_inventory_columns,
+    propose_inventory_columns,
+    SalesNameIndex,
+    normalise_match_key,
 )
+
+# Batch size for the health-check prompt. Sized so the FULL reply fits in
+# _INV_MAX_TOKENS: ~60 output tokens per item -> 300 items ~= 18K tokens,
+# comfortable inside 64K. 12 June: 800-item batches with max_tokens=16000
+# couldn't fit; the JSON repair quietly kept only the front of each batch and
+# most of the catalogue silently vanished from the report.
+_INV_BATCH      = 300
+_INV_MAX_TOKENS = 64000
 
 # A bare total line ("Total", "Grand Total:", "SUBTOTAL") is never a product.
 _PURE_TOTAL_RE = re.compile(r"^(?:grand\s+|sub\s*)?totals?\s*:?\s*$", re.IGNORECASE)
@@ -89,29 +100,14 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
     except Exception:
         sales_by_item = {}
 
-    # Build canonical-keyed lookup so inventory names (which may differ from sales names)
-    # still resolve to their sales data after alias_map normalisation
-    sales_by_canonical: dict = {}
-    for raw_name, info in sales_by_item.items():
-        key = alias_map.get(str(raw_name).strip().lower(), str(raw_name).strip().lower())
-        if key in sales_by_canonical:
-            ex = sales_by_canonical[key]
-            sales_by_canonical[key] = {
-                "item_name":     key,
-                "total_qty":     (ex.get("total_qty")     or 0) + (info.get("total_qty")     or 0),
-                "total_revenue": (ex.get("total_revenue") or 0) + (info.get("total_revenue") or 0),
-                "txn_count":     (ex.get("txn_count")     or 0) + (info.get("txn_count")     or 0),
-            }
-        else:
-            sales_by_canonical[key] = dict(info)
-    _emit(progress_emit, f"Sales lookup built: {len(sales_by_canonical)} canonical items")
-
     _sample = inventory[0] if inventory else {}
     _cols = list(_sample.keys())
 
-    # Column detection: a user-confirmed mapping (from the context page) wins;
-    # otherwise fall back to keyword detection. The confirm step is the safety
-    # net for files whose columns aren't named the way our keywords expect.
+    # Column detection: a previously saved mapping wins; otherwise the AI maps
+    # the columns itself (LLM proposal, validated in Python, keyword fallback —
+    # propose_inventory_columns can only ever improve on the keyword guess).
+    # The old "confirm your columns" user step is gone: workers shouldn't need
+    # to understand column mapping for the pipeline to read their file right.
     _kw = detect_inventory_columns(_cols)
     _cmap = {}
     try:
@@ -120,6 +116,15 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
             _cmap = json.loads(_cmap_rows[0]["column_map_json"]) or {}
     except Exception:
         _cmap = {}
+    if not _cmap:
+        try:
+            _headers_for_map = [c for c in _cols if c != "_session_id"]
+            _cmap = propose_inventory_columns(_headers_for_map, inventory[:8], model) or {}
+            execute("UPDATE upload_sessions SET column_map_json=? WHERE id=?",
+                    (json.dumps(_cmap), session_id))
+            _emit(progress_emit, "AI mapped your file's columns automatically")
+        except Exception:
+            _cmap = {}
 
     def _pick_col(field):
         v = _cmap.get(field)
@@ -252,6 +257,24 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
         _emit(progress_emit,
               f"Combined {_merged_dups} duplicate row(s) — same item split across "
               "multiple rows, stock summed")
+
+    # Match sales rows to inventory items with drift-tolerant name matching
+    # (case, spacing, punctuation, and annotations staff typed into the sales
+    # sheet — e.g. "ITEM NAME <- out of stock"). Exact matching silently lost
+    # the sales history of exactly the items that most needed a reorder.
+    claimed_keys = set()
+    for _row in inventory:
+        _nm = str(_row.get(_desc_col) or "").strip()
+        if _nm:
+            claimed_keys.add(normalise_match_key(alias_map.get(_nm.lower(), _nm)))
+    sales_index = SalesNameIndex(sales_by_item, alias_map, claimed_keys=claimed_keys)
+    _matched_n = sum(1 for k in claimed_keys if k in sales_index)
+    _emit(progress_emit,
+          f"Sales data matched {_matched_n} of {len(claimed_keys)} inventory items")
+    if _matched_n < len(claimed_keys):
+        _emit(progress_emit,
+              "Items the sales file doesn't cover are judged on stock alone — "
+              "missing sales data is never treated as proof an item is dead")
 
     # ── Read analysis scope (set by user on upload page) ──────────────────────
     scope_rows = query("SELECT scope FROM upload_sessions WHERE id=?", (session_id,))
@@ -419,11 +442,12 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
         cat       = (row.get(_cat_col) if _cat_col else None) or "GENERAL"
         canonical = alias_map.get(str(desc).strip().lower(), str(desc).strip())
 
-        # Canonical lookup handles name mismatches between inventory and sales tables
-        lookup_key = canonical.strip().lower()
-        sales_info    = sales_by_canonical.get(lookup_key, {})
-        total_sold    = sales_info.get("total_qty",     0) or 0
-        total_revenue = sales_info.get("total_revenue", 0) or 0
+        # Drift-tolerant lookup; None means the sales file did not cover this
+        # item at all — which is missing data, not a real zero.
+        sales_info    = sales_index.get(canonical)
+        no_sales_data = sales_info is None
+        total_sold    = (sales_info or {}).get("total_qty",     0) or 0
+        total_revenue = (sales_info or {}).get("total_revenue", 0) or 0
 
         # Compute months of supply from concrete numbers
         stock_units = _to_num(qty_raw)
@@ -445,9 +469,11 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
         else:
             lt_tag = ""
 
+        sold_txt = ("no sales data in upload" if no_sales_data
+                    else str(round(total_sold)))
         inv_summary_lines.append(
             f"Item: {canonical} | Category: {cat} | Stock: {qty_raw} | "
-            f"Total sold ({months_of_data}mo): {round(total_sold)}{revenue_tag}{supply_tag}{lt_tag}"
+            f"Total sold ({months_of_data}mo): {sold_txt}{revenue_tag}{supply_tag}{lt_tag}"
         )
 
     if not inv_summary_lines:
@@ -492,17 +518,21 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
         "  - CRITICAL: Months of supply < 1, OR total sold > 0 AND stock = 0.\n"
         "  - LOW: Months of supply between 1 and 3.\n"
         "  - HEALTHY: Months of supply > 3.\n"
-        "DEAD rules (always apply regardless of lead time):\n"
-        "  - DEAD: total sold = 0 AND no reason to believe the item is new or seasonal. "
-        "  Also DEAD: stock = 0 AND total sold = 0. Once DEAD, set spoilage_risk = NONE.\n\n"
+        "DEAD rules — require sales EVIDENCE, never absence of data:\n"
+        "  - DEAD: the item HAS sales data and total sold = 0 (and nothing suggests it is "
+        "new or seasonal). Once DEAD, set spoilage_risk = NONE.\n"
+        "  - 'no sales data in upload' means the sales file did not cover this item. "
+        "That is missing data, NOT proof the item doesn't sell.\n"
+        "    - no sales data AND stock = 0: mark DEAD, but the observation MUST say sales "
+        "data was missing and that the item should be included in the sales export if it still sells.\n"
+        "    - no sales data AND stock > 0: mark HEALTHY, observation noting demand can't be "
+        "judged from this upload. NEVER mark these DEAD.\n\n"
         "Spoilage rules:\n"
         + spoilage_rules +
         "\nReturn ONLY a JSON array of objects with keys:\n"
         "item, category, stock, status, spoilage_risk, days_of_supply, observation\n"
         "Do not include text outside the JSON array."
     )
-    # Process in batches — catalogues larger than 800 items need multiple passes
-    _INV_BATCH  = 800
     inv_batches = [inv_summary_lines[i:i+_INV_BATCH]
                    for i in range(0, len(inv_summary_lines), _INV_BATCH)]
     n_batches   = len(inv_batches)
@@ -526,7 +556,7 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
                 + "\n".join(batch)
                 + f"\n\nContext from purchasing team:\n{context_text}\n\nReturn the health report JSON."
             )
-            raw = _call_claude(model, system_prompt, user_prompt, max_tokens=16000)
+            raw = _call_claude(model, system_prompt, user_prompt, max_tokens=_INV_MAX_TOKENS)
             parsed, repaired = _extract_json_array(raw)
             if parsed is None:
                 _emit(progress_emit,
@@ -535,6 +565,9 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
             all_items.extend(parsed)
             if repaired:
                 any_repaired = True
+                _emit(progress_emit,
+                      f"WARNING: the reply for batch {i}/{n_batches} was cut short — "
+                      f"kept {len(parsed)} of {len(batch)} items")
 
         if not all_items:
             _emit(progress_emit, "Inventory agent returned no usable response")

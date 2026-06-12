@@ -29,6 +29,7 @@ from logging_setup import logger
 from agents import (
     run_pipeline,
 )
+from agents.shared import sampling_kwargs
 
 from config import UPLOAD_FOLDER, ALLOWED_EXTENSIONS, FILE_SLOTS, AVAILABLE_MODELS
 from emails import (
@@ -1854,7 +1855,6 @@ def remove_upload():
 @analyst_required
 def context_form(upload_session_id):
     _verify_session_owner(upload_session_id)
-    inv_table = f"inventory_{upload_session_id}"
     if request.method == "POST":
         context = {
             "delayed_suppliers": request.form.get("delayed_suppliers", "").strip(),
@@ -1862,43 +1862,19 @@ def context_form(upload_session_id):
             "discontinue":       request.form.get("discontinue", "").strip(),
             "other":             request.form.get("other", "").strip(),
         }
-        # Save the user-confirmed inventory column mapping. Only keep values that
-        # are real columns of this session's inventory table, so a tampered form
-        # can't inject anything; NULL when nothing valid was chosen (keyword fallback).
-        valid_cols = set()
-        try:
-            _s = db.query(f"SELECT * FROM {inv_table} LIMIT 1")
-            if _s:
-                valid_cols = set(_s[0].keys())
-        except Exception:
-            valid_cols = set()
-        cmap = {}
-        for field, formkey in (("description", "col_description"), ("stock", "col_stock"),
-                               ("category", "col_category"), ("uom", "col_uom")):
-            v = request.form.get(formkey, "").strip()
-            if v and v in valid_cols:
-                cmap[field] = v
+        # Column mapping is no longer confirmed here — the inventory agent maps
+        # columns itself (LLM proposal validated in Python, keyword fallback)
+        # and records its choice in column_map_json. The confirm step confused
+        # the people actually running analyses, and a wrong click silently
+        # corrupted every number downstream.
         db.execute(
-            "UPDATE upload_sessions SET context_json=?, column_map_json=?, "
+            "UPDATE upload_sessions SET context_json=?, "
             "status='pending', dedup_confirmed=0 WHERE id=?",
-            (json.dumps(context), json.dumps(cmap) if cmap else None, upload_session_id)
+            (json.dumps(context), upload_session_id)
         )
         return redirect(url_for("dedup_loading", upload_session_id=upload_session_id))
 
-    # GET: propose the inventory column mapping for the user to confirm.
-    inv_cols, col_map = [], {}
-    try:
-        sample = db.query(f"SELECT * FROM {inv_table} LIMIT 8")
-        if sample:
-            inv_cols = [c for c in sample[0].keys() if c != "_session_id"]
-            from agents.shared import propose_inventory_columns
-            col_map = propose_inventory_columns(
-                inv_cols, sample, session.get("model", "claude-sonnet-4-6")
-            )
-    except Exception:
-        inv_cols, col_map = [], {}
-    return render_template("context_form.html", upload_session_id=upload_session_id,
-                           inv_cols=inv_cols, col_map=col_map)
+    return render_template("context_form.html", upload_session_id=upload_session_id)
 
 
 @app.route("/dedup/loading/<int:upload_session_id>")
@@ -2041,9 +2017,9 @@ def dedup_stream(upload_session_id):
             ).messages.stream(
                 model=model,
                 max_tokens=8000,
-                temperature=0,
                 system=system_prompt,
                 messages=[{"role": "user", "content": user_prompt}],
+                **sampling_kwargs(model),
             ) as stream:
                 for text in stream.text_stream:
                     full_text += text
