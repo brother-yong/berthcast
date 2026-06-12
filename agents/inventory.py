@@ -19,6 +19,8 @@ from .shared import (
     count_sales_months,
     detect_inventory_columns,
     propose_inventory_columns,
+    detect_avg_month_column,
+    infer_months_from_item_stats,
     SalesNameIndex,
     normalise_match_key,
 )
@@ -86,10 +88,17 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
                             "sales_value", "net_value", "total_value", "revenue", "ext_price")), None)
             if not rev_col:
                 rev_col = next((c for c in cols if any(k in c.lower() for k in ("amount", "value", "revenue", "price"))), None)
+            avg_col = detect_avg_month_column(cols)
+            if avg_col:
+                _emit(progress_emit,
+                      f"Sales sheet states its own monthly average ('{avg_col}') — "
+                      "using it directly for velocity")
             if desc_col and (qty_col or rev_col):
                 select_parts = [f'"{desc_col}" as item_name']
                 select_parts.append(f'SUM({_num_sql(qty_col)}) as total_qty' if qty_col else '0 as total_qty')
                 select_parts.append(f'SUM({_num_sql(rev_col)}) as total_revenue' if rev_col else '0 as total_revenue')
+                select_parts.append(f'AVG({_num_sql(avg_col)}) as avg_monthly_direct' if avg_col
+                                    else '0 as avg_monthly_direct')
                 select_parts.append('COUNT(*) as txn_count')
                 sal_rows = query(
                     'SELECT ' + ', '.join(select_parts) +
@@ -395,8 +404,15 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
             if uom_val and canonical_key and canonical_key not in uom_by_item:
                 uom_by_item[canonical_key] = uom_val
 
-    # Estimate months of data coverage from distinct year-months in sales table.
-    # Detect the actual date column name — ERP exports use different names.
+    # Establish the sales period, in trust order:
+    #   1. real dates in the sales file (ground truth);
+    #   2. the sheet's own numbers — total qty ÷ stated Avg/Month per item
+    #      (summary exports carry no dates but state their own averages);
+    #   3. assume 12 months, and SAY SO on the results page, because a wrong
+    #      period silently scales every velocity and suggested quantity.
+    months_of_data = None
+    months_assumed = False
+    data_notes = []
     try:
         _sal_cols_sample = query(f"SELECT * FROM {sal_table} LIMIT 1")
         _sal_col_names   = list(_sal_cols_sample[0].keys()) if _sal_cols_sample else []
@@ -416,24 +432,36 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
                 _emit(progress_emit,
                       f"Sales data covers {months_of_data} month(s) — dates read as {_fmt}")
             else:
-                # Last resort: the old ISO-only SQL count; if even that finds
-                # nothing, default to 12 and say so out loud.
+                # Last resort: the old ISO-only SQL count.
                 _mo_rows = query(
                     f'SELECT COUNT(DISTINCT strftime("%Y-%m", "{_date_col}")) as m '
                     f'FROM {sal_table} LIMIT 1')
                 _m = (_mo_rows[0]["m"] or 0) if _mo_rows else 0
                 if _m > 0:
                     months_of_data = _m
-                else:
-                    months_of_data = 12
-                    _emit(progress_emit,
-                          "WARNING: could not read the sales date format — defaulting to "
-                          "12 months for velocity calculation")
+    except Exception:
+        months_of_data = None
+    if months_of_data is None:
+        _inferred = infer_months_from_item_stats(sales_by_item.values())
+        if _inferred:
+            months_of_data, _n_used = _inferred
+            _emit(progress_emit,
+                  f"No dates in the sales file — period inferred from its own "
+                  f"Qty ÷ Avg/Month figures: ~{months_of_data} month(s) "
+                  f"(consistent across {_n_used} items)")
         else:
             months_of_data = 12
-            _emit(progress_emit, "WARNING: no date column found in sales table — defaulting to 12 months for velocity calculation")
-    except Exception:
-        months_of_data = 12
+            months_assumed = True
+            _emit(progress_emit,
+                  "WARNING: the sales file has no dates and no Avg/Month column — "
+                  "assuming 12 months. If it covers a different period, every "
+                  "monthly figure is scaled wrong by that ratio.")
+            data_notes.append(
+                "The sales file has no dates and no average-per-month column, so "
+                "monthly sales were estimated over an assumed 12 months. If the file "
+                "covers a different period, every velocity and suggested quantity is "
+                "scaled by that ratio — include a date or Avg/Month column for exact "
+                "numbers.")
 
     inv_summary_lines = []
     for row in inventory_sorted:
@@ -449,9 +477,14 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
         total_sold    = (sales_info or {}).get("total_qty",     0) or 0
         total_revenue = (sales_info or {}).get("total_revenue", 0) or 0
 
-        # Compute months of supply from concrete numbers
+        # Compute months of supply from concrete numbers. A monthly average the
+        # sheet itself states beats anything we derive from a guessed period.
         stock_units = _to_num(qty_raw)
-        avg_monthly = total_sold / months_of_data if total_sold > 0 else 0
+        _avg_direct = (sales_info or {}).get("avg_monthly_direct") or 0
+        if _avg_direct > 0:
+            avg_monthly = _avg_direct
+        else:
+            avg_monthly = total_sold / months_of_data if total_sold > 0 else 0
         if avg_monthly > 0:
             months_supply = round(stock_units / avg_monthly, 1)
             supply_tag = f" | Months of supply: {months_supply}"
@@ -578,7 +611,8 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
         low  = sum(1 for r in report if r.get("status") == "LOW")
         _emit(progress_emit,
               f"Inventory health complete — {len(report)} items reviewed, {crit} critical, {low} low")
-        return {"report": report, "items_analysed": len(report), "partial": any_repaired}
+        return {"report": report, "items_analysed": len(report), "partial": any_repaired,
+                "data_notes": data_notes}
     except Exception as e:
         _emit(progress_emit, f"Inventory agent error: {str(e)}")
         return {"error": f"Inventory agent error: {str(e)}"}

@@ -273,6 +273,48 @@ def count_sales_months(raw_values):
     return max(1, len(months)), label
 
 
+def detect_avg_month_column(cols) -> str:
+    """Find a column that explicitly states average quantity per month
+    (e.g. "Avg Qty / Month" -> avg_qty___month). Summary exports often carry
+    one; when present it is the most trustworthy velocity source there is —
+    no period guessing at all. Returns the column name or None."""
+    for c in cols or []:
+        lc = str(c).lower()
+        if ("month" in lc or "mth" in lc) and (
+                "avg" in lc or "average" in lc or "mean" in lc or "per" in lc):
+            if not any(x in lc for x in ("amount", "value", "revenue", "price", "$")):
+                return c
+    return None
+
+
+def infer_months_from_item_stats(item_stats) -> tuple:
+    """Infer how many months a summary sales sheet covers from its own numbers:
+    for every item with both a total quantity and a stated monthly average,
+    months = total / average. The median over items is robust to a few junk
+    rows. Returns (months, n_items_used) or None when there's nothing usable.
+
+    This is what makes a no-date summary export safe: a wrongly assumed
+    12-month period silently scales every velocity (Cool Link's sheet covered
+    ~3 months, so monthly sales read 4x too LOW and the suggested order was a
+    quarter of what the buyer actually needed)."""
+    ratios = []
+    for st in item_stats or []:
+        try:
+            total = float(st.get("total_qty") or 0)
+            avg   = float(st.get("avg_monthly_direct") or 0)
+        except (TypeError, ValueError):
+            continue
+        if total > 0 and avg > 0:
+            r = total / avg
+            if 0.25 <= r <= 60:
+                ratios.append(r)
+    if not ratios:
+        return None
+    ratios.sort()
+    median = ratios[len(ratios) // 2]
+    return max(1, round(median)), len(ratios)
+
+
 _MATCH_KEY_RE = re.compile(r"[^a-z0-9]+")
 
 
@@ -308,6 +350,9 @@ class SalesNameIndex:
     """
 
     MIN_PREFIX_CHARS = 10
+    # Strong separators that start a trailing annotation, never a product name.
+    _ANNOT_SPLIT_RE = re.compile(r"←|<-|->|\(|\*|//")
+    _NO_MATCH = object()
 
     def __init__(self, sales_by_raw_name: dict, alias_map: dict = None, claimed_keys=None):
         claimed = {k for k in (claimed_keys or ()) if k}
@@ -315,26 +360,54 @@ class SalesNameIndex:
                               key=len, reverse=True)
         self._by_key = {}
         for raw, info in (sales_by_raw_name or {}).items():
-            raw_s = str(raw).strip()
-            if not raw_s:
-                continue
-            aliased = (alias_map or {}).get(raw_s.lower(), raw_s)
-            key = normalise_match_key(aliased)
-            if not key:
-                continue
-            if key not in claimed:
-                # 2. annotation appended in the sales sheet — longest wins
-                ext = next((c for c in long_claimed if key.startswith(c)), None)
-                if ext is not None:
-                    key = ext
-                elif len(key) >= self.MIN_PREFIX_CHARS:
-                    # 3. truncated sales name — only an unambiguous match counts
-                    trunc = [c for c in claimed if c.startswith(key)]
-                    if len(trunc) == 1:
-                        key = trunc[0]
-                    elif trunc:
-                        continue  # ambiguous: crediting any one item would lie
-            self._fold(key, info)
+            key = self._resolve_raw(str(raw).strip(), alias_map, claimed, long_claimed)
+            if key:
+                self._fold(key, info)
+
+    def _resolve_raw(self, raw_s, alias_map, claimed, long_claimed):
+        """Final bucket key for one raw sales name, or None to drop the row."""
+        if not raw_s:
+            return None
+        aliased = (alias_map or {}).get(raw_s.lower(), raw_s)
+        key = normalise_match_key(aliased)
+        if not key:
+            return None
+        hit = self._match_key(key, claimed, long_claimed)
+        if hit is not self._NO_MATCH:
+            return hit  # matched an item, or None for an ambiguous truncation
+        # Nothing matched the full name. Sales sheets combine BOTH drifts at
+        # once — a truncated name plus a trailing annotation ("AMMERLAND
+        # EMMENTHAL <- out of stock" vs inventory "AMMERLAND EMMENTHAL CHEESE
+        # WHEEL") — so cut the annotation at a strong separator and retry.
+        head = self._ANNOT_SPLIT_RE.split(raw_s)[0].strip()
+        if head and head != raw_s:
+            aliased2 = (alias_map or {}).get(head.lower(), head)
+            key2 = normalise_match_key(aliased2)
+            if key2:
+                hit2 = self._match_key(key2, claimed, long_claimed)
+                if hit2 is not self._NO_MATCH:
+                    return hit2
+                return key2  # unmatched: keep under the de-annotated name
+        return key
+
+    def _match_key(self, key, claimed, long_claimed):
+        """One resolution pass: exact -> annotation-extends -> unique
+        truncation. Returns the matched claimed key, None when an ambiguous
+        truncation must be dropped, or _NO_MATCH when nothing applied."""
+        if key in claimed:
+            return key
+        # 2. sales name extends an inventory name — longest (most specific) wins
+        ext = next((c for c in long_claimed if key.startswith(c)), None)
+        if ext is not None:
+            return ext
+        if len(key) >= self.MIN_PREFIX_CHARS:
+            # 3. truncated sales name — only an unambiguous match counts
+            trunc = [c for c in claimed if c.startswith(key)]
+            if len(trunc) == 1:
+                return trunc[0]
+            if trunc:
+                return None  # ambiguous: crediting any one item would lie
+        return self._NO_MATCH
 
     def _fold(self, key, info):
         ex = self._by_key.get(key)

@@ -160,6 +160,8 @@ prompt = _calls[0] if _calls else ""
 _check("ISO file unchanged: 2 months", "(2mo)" in prompt, detail=prompt[:200])
 
 # (c) Unreadable dates — loud fallback to 12, never a quiet wrong number.
+# (13 June: wording changed when the Qty÷Avg inference layer was added — the
+# assumption is now also carried to the results page via data_notes.)
 _make_session(503, ["next tuesday", "soon", "Q3"])
 _calls.clear()
 _progress.clear()
@@ -167,8 +169,11 @@ res = inv_mod.run_inventory_agent(503, "claude-sonnet-4-6", [], {}, _emit_captur
 prompt = _calls[0] if _calls else ""
 _check("junk dates fall back to 12 months", "(12mo)" in prompt, detail=prompt[:200])
 _check("fallback is announced in progress",
-       any("could not read the sales date format" in m for m in _progress),
+       any("assuming 12 months" in m for m in _progress),
        detail=str(_progress))
+_check("fallback carried to the results page as a data note",
+       bool(res.get("data_notes")) and "assumed 12 months" in res["data_notes"][0],
+       detail=str(res.get("data_notes")))
 
 
 if _FAILED:

@@ -69,11 +69,16 @@ def run_pipeline(session_id, model, confirmed_groups, context, *, emit=None, mar
         return {"error": inv_result["error"]}
 
     inventory_report = inv_result["report"]
+    data_notes = list(inv_result.get("data_notes") or [])
     inv_summary = _summarise_inventory(inventory_report)
     if inv_result.get("partial"):
         emit("WARNING: the model's reply was cut short on at least one batch — "
              "some items may be missing from this report")
         inv_summary += " · may be incomplete"
+        data_notes.append(
+            "The AI's reply was cut short on at least one batch, so some items "
+            "may be missing from this report. Re-running the analysis usually "
+            "completes it.")
     mark("inventory", "done", summary=inv_summary)
 
     # ── Agent 3: Purchase recommendations ────────────────────────────────────
@@ -88,4 +93,5 @@ def run_pipeline(session_id, model, confirmed_groups, context, *, emit=None, mar
 
     mark("recommendation", "done", summary=_summarise_recommendations(recommendations))
 
-    return {"inventory_report": inventory_report, "recommendations": recommendations}
+    return {"inventory_report": inventory_report, "recommendations": recommendations,
+            "data_notes": data_notes}

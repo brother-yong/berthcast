@@ -15,6 +15,20 @@
     </div>
   </section>
 
+  {% if data_notes %}
+  <!-- Data-quality caveats: a number built on an assumption must never look
+       as confident as one built on real dates. -->
+  <div style="margin-top:18px; padding:14px 18px; background:rgba(184,92,0,0.07);
+              border:1px solid rgba(184,92,0,0.25); border-radius:12px;">
+    <div style="font-weight:600; font-size:14px; margin-bottom:4px;">
+      Check your data — these numbers carry assumptions
+    </div>
+    {% for note in data_notes %}
+    <p style="font-size:13.5px; color:var(--muted); margin:4px 0 0; line-height:1.55;">{{ note }}</p>
+    {% endfor %}
+  </div>
+  {% endif %}
+
   <!-- Tab toggle -->
   {% set dead_count = inventory | selectattr('status', 'equalto', 'DEAD') | list | length %}
   <div style="display:flex; border-bottom:2px solid var(--border); margin: 24px 0 0; gap:4px;">

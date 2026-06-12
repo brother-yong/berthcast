@@ -197,6 +197,10 @@ def init_db():
         # User-confirmed inventory column mapping (item/stock/category/uom) from
         # the context page. JSON or NULL. NULL = fall back to keyword detection.
         "ALTER TABLE upload_sessions ADD COLUMN column_map_json TEXT",
+        # Data-quality notes for the results page (JSON list of plain-English
+        # caveats, e.g. "sales period assumed: 12 months"). A number built on
+        # an assumption must never look as confident as one built on dates.
+        "ALTER TABLE analysis_results ADD COLUMN data_notes TEXT",
         "ALTER TABLE company_config ADD COLUMN industry TEXT DEFAULT 'general'",
         "ALTER TABLE company_config ADD COLUMN company_description TEXT",
         "ALTER TABLE supplier_profiles ADD COLUMN supplier_type TEXT DEFAULT 'other'",
