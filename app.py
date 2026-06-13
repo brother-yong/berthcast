@@ -1649,11 +1649,13 @@ def upload_use_previous(source_id):
             rows_count = cnt[0]["n"] if cnt else 0
             db.set_conversion_status(new_id, slot, "done", rows_count=rows_count)
             cloned += 1
-        except Exception as e:
-            failed.append(f"{slot}: {e}")
+        except Exception:
+            logger.exception("Clone of slot %s failed (source %s -> %s)", slot, source_id, new_id)
+            failed.append(slot)
 
     if failed:
-        flash(f"Some files could not be copied: {'; '.join(failed)}", "error")
+        flash("Some files could not be copied: " + ", ".join(failed) +
+              ". Please re-upload them.", "error")
     if cloned:
         flash(
             f"Loaded {cloned} file{'s' if cloned != 1 else ''} from your previous analysis. "
@@ -1889,8 +1891,9 @@ def remove_upload():
                         pass
         except FileNotFoundError:
             pass
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)})
+    except Exception:
+        logger.exception("remove_upload failed (session %s, slot %s)", session_id, slot)
+        return jsonify({"ok": False, "error": "Could not remove that file. Please try again."})
     return jsonify({"ok": True})
 
 
@@ -2595,22 +2598,26 @@ def export_csv(upload_session_id):
         "Item", "Supplier", "Supplier Type", "Order Quantity", "AI Suggested Qty",
         "Order By", "Days of Supply", "Stock Runway (months)", "Confidence", "Reason", "Note"
     ])
+    # Free-text columns come from uploaded files and the model, so they're run
+    # through csv_safe_cell to neutralise spreadsheet formula injection. The
+    # numeric/date columns are computed by us and left as-is.
+    _safe = validators.csv_safe_cell
     for r in approved:
         dos = r.get("days_of_supply")
         runway = round(dos / 30, 1) if dos else ""
         order_by = _compute_order_by(r).get("order_by_date") or ""
         writer.writerow([
-            r.get("item", ""),
-            _effective_supplier(r),
-            r.get("supplier_type", ""),
-            _effective_qty(r),
-            r.get("suggested_quantity", ""),
+            _safe(r.get("item", "")),
+            _safe(_effective_supplier(r)),
+            _safe(r.get("supplier_type", "")),
+            _safe(_effective_qty(r)),
+            _safe(r.get("suggested_quantity", "")),
             order_by,
             dos or "",
             runway,
             ("N/A" if r.get("confidence") == "INSUFFICIENT_DATA" else r.get("confidence", "")),
-            r.get("reason", ""),
-            r.get("note", ""),
+            _safe(r.get("reason", "")),
+            _safe(r.get("note", "")),
         ])
 
     org_slug = session["org_name"].replace(" ", "_").lower()

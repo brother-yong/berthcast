@@ -12,11 +12,26 @@ Splitting login from the From header lets mail be sent *as* admin@berthcast.com
 while authenticating as a real Gmail account."""
 import os
 import smtplib
+import html as _html
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
 import database as db
 from logging_setup import logger
+
+
+def _esc(value):
+    """HTML-escape a value before it goes into an HTML email body. Item names,
+    observations, org names and addresses all come from user/upload data, so
+    interpolating them raw let a name like '<img src=x onerror=...>' inject
+    markup into the email."""
+    return _html.escape("" if value is None else str(value))
+
+
+def _oneline(value):
+    """Collapse newlines so a value can't inject extra headers when used in an
+    email Subject / Reply-To."""
+    return ("" if value is None else str(value)).replace("\r", " ").replace("\n", " ").strip()
 
 
 def _deliver(msg, sender, password, recipient):
@@ -61,9 +76,9 @@ def _send_critical_alert(user_id: int, upload_session_id: int, new_critical: lis
     )
     rows_html = "".join(
         f"""<tr>
-              <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-weight:500;">{i.get('item','')}</td>
-              <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;color:#c0392b;">{i.get('days_of_supply','—')} days</td>
-              <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;color:#6b7280;font-size:13px;">{i.get('observation','')}</td>
+              <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-weight:500;">{_esc(i.get('item',''))}</td>
+              <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;color:#c0392b;">{_esc(i.get('days_of_supply','—'))} days</td>
+              <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;color:#6b7280;font-size:13px;">{_esc(i.get('observation',''))}</td>
             </tr>"""
         for i in new_critical
     )
@@ -282,7 +297,7 @@ def _send_invite_email(to_email: str, org_name: str, temp_password: str, login_u
         return
 
     msg = MIMEMultipart("alternative")
-    msg["Subject"] = f"You've been invited to join {org_name} on berthcast"
+    msg["Subject"] = f"You've been invited to join {_oneline(org_name)} on berthcast"
     msg["From"]    = sender
     msg["To"]      = to_email
 
@@ -298,13 +313,13 @@ def _send_invite_email(to_email: str, org_name: str, temp_password: str, login_u
     html = f"""
     <div style="font-family:'Segoe UI',sans-serif;max-width:480px;margin:0 auto;color:#1a2a3a;">
       <p style="font-size:15px;line-height:1.6;">
-        You've been invited to join <strong>{org_name}</strong> on berthcast.
+        You've been invited to join <strong>{_esc(org_name)}</strong> on berthcast.
       </p>
       <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:16px 20px;margin:20px 0;">
         <div style="font-size:13px;color:#6b7280;margin-bottom:4px;">Email</div>
-        <div style="font-size:15px;font-weight:600;margin-bottom:12px;">{to_email}</div>
+        <div style="font-size:15px;font-weight:600;margin-bottom:12px;">{_esc(to_email)}</div>
         <div style="font-size:13px;color:#6b7280;margin-bottom:4px;">Temporary password</div>
-        <div style="font-size:15px;font-weight:600;font-family:monospace;letter-spacing:0.5px;">{temp_password}</div>
+        <div style="font-size:15px;font-weight:600;font-family:monospace;letter-spacing:0.5px;">{_esc(temp_password)}</div>
       </div>
       <a href="{login_url}"
          style="display:inline-block;margin:12px 0;padding:12px 28px;
@@ -333,20 +348,23 @@ def _send_contact_email(name: str, email: str, company: str, message: str) -> No
     if not sender or not password:
         return  # Not configured — DB record is the fallback
 
-    subject = f"berthcast contact: {name}" + (f" ({company})" if company else "")
+    # Subject + Reply-To are header values: collapse any newlines so a crafted
+    # name/email can't inject extra email headers.
+    safe_name = _oneline(name)
+    subject = f"berthcast contact: {safe_name}" + (f" ({_oneline(company)})" if company else "")
     body = (
         f"Name: {name}\n"
         f"Email: {email}\n"
         f"Company: {company or '—'}\n\n"
         f"Message:\n{message}\n\n"
-        f"---\nReply directly to this email to respond to {name}."
+        f"---\nReply directly to this email to respond to {safe_name}."
     )
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"]    = sender
     msg["To"]      = recipient
-    msg["Reply-To"] = email
+    msg["Reply-To"] = _oneline(email)
     msg.attach(MIMEText(body, "plain"))
 
     _deliver(msg, sender, password, recipient)
