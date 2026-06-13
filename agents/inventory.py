@@ -145,12 +145,11 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
     _uom_col  = _pick_col("uom")
 
     if not _desc_col or not _qty_col:
-        return {"error": (
-            "Could not detect description/quantity columns in your Inventory Report. "
-            f"Detected columns: {_cols}. "
-            f"Found desc_col={_desc_col}, qty_col={_qty_col}, cat_col={_cat_col}. "
-            "Open the Inventory Report and confirm one column has the item name and one has "
-            "the current stock balance. Note: a 'Qty Sold' column is sales history, not stock."
+        return {"blocked": True, "error": (
+            "We couldn't find both an item-name column and a current-stock column in your "
+            "Inventory Report. Make sure one column lists product names and one lists how much "
+            "is in stock now (not quantity sold). "
+            f"(Columns we saw: {[c for c in _cols if c != '_session_id']})"
         )}
     _emit(progress_emit,
           f"Columns detected — item: {_desc_col}, stock: {_qty_col}"
@@ -171,13 +170,37 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
     if _n_filled == 0:
         _emit(progress_emit,
               f"Stock column '{_qty_col}' is empty on every row — stopping")
-        return {"error": (
+        return {"blocked": True, "error": (
             f"The stock column in your Inventory Report ('{_qty_col}') is empty on every row. "
             "berthcast reads each item's current stock from this column to judge health, so it "
             "can't run without it. Either fill in that column (use 0 for items genuinely out of "
             "stock), or — if your stock levels are in a different file — upload that file as the "
             "Inventory Report instead."
         )}
+
+    # ── Data safety net ───────────────────────────────────────────────────────
+    # Detect files we may have misread and fail LOUD, never silently wrong.
+    # BLOCK stops the run with a plain reason; WARN rides along to the
+    # results-page banner via data_notes. The gate reads the ingested tables
+    # itself (see data_quality.assess_upload) and must never break a run, so the
+    # whole call is fail-open: a gate exception just means no extra checks.
+    data_notes = []
+    try:
+        # Imported lazily: data_quality imports agents.shared, so a top-level
+        # import here would be circular (agents/__init__ -> inventory -> data_quality).
+        from data_quality import assess_upload
+        _findings = assess_upload(session_id, column_map={
+            "description": _desc_col, "stock": _qty_col, "uom": _uom_col})
+    except Exception:
+        _findings = []
+    _block = next((f for f in _findings if f.get("level") == "block"), None)
+    if _block:
+        _emit(progress_emit, f"Stopping — data check failed ({_block['code']})")
+        return {"error": _block["message"], "blocked": True}
+    for _f in _findings:
+        if _f.get("level") == "warn":
+            data_notes.append(_f["message"])
+            _emit(progress_emit, f"Data check flagged: {_f['code']}")
 
     # Forward-fill merged label cells. In Excel/ERP exports a category (or any
     # grouping label) that spans several rows is a MERGED cell: only the first
@@ -412,7 +435,6 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
     #      period silently scales every velocity and suggested quantity.
     months_of_data = None
     months_assumed = False
-    data_notes = []
     try:
         _sal_cols_sample = query(f"SELECT * FROM {sal_table} LIMIT 1")
         _sal_col_names   = list(_sal_cols_sample[0].keys()) if _sal_cols_sample else []
