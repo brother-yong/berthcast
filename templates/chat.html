@@ -1342,10 +1342,23 @@ function applyHighlighting(container) {
 // ── Markdown ───────────────────────────────────────────────────────────────
 function renderMarkdown(text) {
   if (!text) return '';
+  // Escape raw angle brackets BEFORE markdown parsing. With no '<' or '>' there
+  // are no tags for the parser to pass through, so an item name the assistant
+  // echoes — e.g. "<img src=x onerror=...>" — can't execute. Markdown syntax
+  // doesn't use angle brackets, so bold/lists/code/tables still render.
+  const safeSrc = String(text).replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  let html;
   if (typeof marked !== 'undefined') {
-    try { return marked.parse(text); } catch(e) {}
+    try { html = marked.parse(safeSrc); } catch(e) { html = null; }
   }
-  return '<p>' + escHtml(text).replace(/\n\n/g, '</p><p>').replace(/\n/g, '<br>') + '</p>';
+  if (html == null) {
+    html = '<p>' + escHtml(text).replace(/\n\n/g, '</p><p>').replace(/\n/g, '<br>') + '</p>';
+  }
+  // Belt-and-braces: neutralise dangerous URL schemes a markdown link/image
+  // could still carry (e.g. [click](javascript:...)).
+  html = html.replace(/(\s(?:href|src)\s*=\s*)("|')\s*(?:javascript|data|vbscript):[^"']*\2/gi,
+                      '$1$2#$2');
+  return html;
 }
 function escHtml(str) {
   if (!str) return '';

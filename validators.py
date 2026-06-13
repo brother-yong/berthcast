@@ -68,6 +68,29 @@ def sanitize_upload_id(upload_id):
     return _UPLOAD_ID_RE.sub("", str(upload_id or ""))[:64]
 
 
+# Excel/Sheets treat a cell starting with any of these as a formula when the
+# file is opened — so a value like "=HYPERLINK(...)" (straight from an uploaded
+# item/supplier name) could execute. Prefixing the cell with a single quote
+# makes it show literally.
+_CSV_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+
+
+def csv_safe_cell(value):
+    """Defuse CSV/Excel formula injection for one exported cell.
+
+    Returns the value as a string, prefixed with a single quote when it begins
+    with a formula trigger character. None becomes "". Used on the free-text
+    columns of the orders CSV (item/supplier/reason/note), which come from
+    uploaded files and the model.
+    """
+    if value is None:
+        return ""
+    s = str(value)
+    if s[:1] in _CSV_FORMULA_PREFIXES:
+        return "'" + s
+    return s
+
+
 def validate_chunk_meta(chunk_index, total_chunks, max_chunks=MAX_UPLOAD_CHUNKS):
     """Validate the chunk counters from a chunked-upload request.
 
