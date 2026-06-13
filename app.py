@@ -131,13 +131,36 @@ app.config.update(
 )
 
 
+def _resolve_client_ip(cf_connecting_ip, x_forwarded_for, remote_addr):
+    """Pick the client IP to throttle on, from proxy headers. Pure + testable.
+
+    Trust order:
+      1. CF-Connecting-IP — Cloudflare (which fronts the site) sets this to the
+         true client IP, and a client can't forge it without bypassing Cloudflare
+         to hit the Render origin directly. Lock the origin to Cloudflare to close
+         that last gap.
+      2. The RIGHTMOST X-Forwarded-For entry — the one appended by the closest
+         trusted proxy, which the client can't control. The old code trusted the
+         LEFTMOST entry, which is fully client-settable: an attacker just sent a
+         fake first hop and rotated it to walk straight past every IP throttle.
+      3. remote_addr.
+    """
+    if cf_connecting_ip and cf_connecting_ip.strip():
+        return cf_connecting_ip.strip()
+    if x_forwarded_for and x_forwarded_for.strip():
+        parts = [p.strip() for p in x_forwarded_for.split(",") if p.strip()]
+        if parts:
+            return parts[-1]
+    return remote_addr or "unknown"
+
+
 def _client_ip():
-    """Best-effort client IP for throttling. Behind Render's proxy the real
-    client is the first entry in X-Forwarded-For; fall back to remote_addr."""
-    xff = request.headers.get("X-Forwarded-For", "")
-    if xff:
-        return xff.split(",")[0].strip()
-    return request.remote_addr or "unknown"
+    """Best-effort client IP for throttling."""
+    return _resolve_client_ip(
+        request.headers.get("CF-Connecting-IP", ""),
+        request.headers.get("X-Forwarded-For", ""),
+        request.remote_addr,
+    )
 
 
 def _hash_token(token: str) -> str:
@@ -1684,20 +1707,41 @@ def upload():
         orig_name    = request.form.get("filename", "file.xlsx")
 
         if chunk_index is not None:
-            chunk_index  = int(chunk_index)
-            total_chunks = int(total_chunks)
-            chunk_data   = request.files.get("chunk")
+            # Bound + type-check the chunk counters. A forged total_chunks used to
+            # make the server loop billions of times — one request could pin a
+            # worker thread for minutes and freeze the whole site; a non-numeric
+            # value crashed with an unhandled int() error. Both now fail cleanly.
+            meta, meta_err = validators.validate_chunk_meta(chunk_index, total_chunks)
+            if meta_err:
+                return jsonify({"ok": False, "error": meta_err})
+            chunk_index, total_chunks = meta
+
+            # Sanitise the client-supplied upload id before it reaches a filesystem
+            # path. Unsanitised, a value like "x/../../.." escaped the upload folder
+            # and let an authenticated user write bytes anywhere the worker can
+            # reach (path traversal / arbitrary file write).
+            safe_upload_id = validators.sanitize_upload_id(upload_id)
+            if not safe_upload_id:
+                return jsonify({"ok": False, "error": "Invalid upload id."})
+
+            # The chunk path skipped the extension check the single-file path has.
+            # Enforce it here too so only .xlsx/.csv can ever be assembled.
+            if not _allowed(orig_name):
+                return jsonify({"ok": False, "error": "Please upload a .xlsx or .csv file."})
+
+            chunk_data = request.files.get("chunk")
             if not chunk_data:
                 return jsonify({"ok": False, "error": "No chunk received."})
 
             # Save this chunk to a temp file
-            chunk_path = os.path.join(UPLOAD_FOLDER, f"tmp_{upload_id}_{chunk_index}")
+            chunk_path = os.path.join(UPLOAD_FOLDER, f"tmp_{safe_upload_id}_{chunk_index}")
             chunk_data.save(chunk_path)
 
-            # Check how many chunks we have so far
+            # Count received chunks. total_chunks is now bounded, so this loop is
+            # cheap and the exact-index check keeps assembly correct.
             received = sum(
                 1 for i in range(total_chunks)
-                if os.path.exists(os.path.join(UPLOAD_FOLDER, f"tmp_{upload_id}_{i}"))
+                if os.path.exists(os.path.join(UPLOAD_FOLDER, f"tmp_{safe_upload_id}_{i}"))
             )
 
             if received < total_chunks:
@@ -1709,7 +1753,7 @@ def upload():
             filepath  = os.path.join(UPLOAD_FOLDER, f"{upload_session_id}_{slot}_{safe_name}")
             with open(filepath, "wb") as out:
                 for i in range(total_chunks):
-                    cp = os.path.join(UPLOAD_FOLDER, f"tmp_{upload_id}_{i}")
+                    cp = os.path.join(UPLOAD_FOLDER, f"tmp_{safe_upload_id}_{i}")
                     with open(cp, "rb") as inf:
                         out.write(inf.read())
                     os.remove(cp)
