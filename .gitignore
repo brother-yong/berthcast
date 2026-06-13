@@ -7,6 +7,19 @@ Stockout Report/
 Supplier Listing/
 uploads/
 
+# Client exports & personal working folders — real client financials live here,
+# never upload (the *.pdf rule below doesn't cover the .xlsx/.csv inside them)
+exports for yh/
+outreach/
+landing_preview.html
+
+# Credentials & captured sessions — never upload
+cookies*.txt
+*.cookies
+
+# Local tooling — Claude worktrees, plans, local settings (not for the repo)
+.claude/
+
 # Local memory / working notes — contains client financials, never upload
 MEMORY.md
 
@@ -31,3 +44,4 @@ venv/
 # OS
 .DS_Store
 Thumbs.db
+desktop.ini
