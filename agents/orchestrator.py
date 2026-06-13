@@ -65,8 +65,13 @@ def run_pipeline(session_id, model, confirmed_groups, context, *, emit=None, mar
     emit("Starting inventory health agent")
     inv_result = run_inventory_agent(session_id, model, confirmed_groups, context, progress_emit=emit)
     if "error" in inv_result:
-        mark("inventory", "error", summary="Failed — see error below")
-        return {"error": inv_result["error"]}
+        # A BLOCK is a clean "we can't trust this file" stop, not a crash — pass
+        # the flag through so the UI can show the plain reason instead of a
+        # generic failure.
+        blocked = bool(inv_result.get("blocked"))
+        mark("inventory", "error",
+             summary="Can't use this file — see the reason" if blocked else "Failed — see error below")
+        return {"error": inv_result["error"], "blocked": blocked}
 
     inventory_report = inv_result["report"]
     data_notes = list(inv_result.get("data_notes") or [])

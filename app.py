@@ -2211,11 +2211,19 @@ def run_analysis(upload_session_id):
                 emit=_emit, mark=_mark_agent,
             )
             if "error" in result:
-                logger.error("Analysis %s failed: %s", upload_session_id, result["error"])
+                # A BLOCK is the safety net refusing a file it can't read, not a
+                # crash. Log it quietly and show the user the plain reason; a real
+                # failure is logged as an error.
+                if result.get("blocked"):
+                    logger.info("Analysis %s blocked by data safety net: %s",
+                                upload_session_id, result["error"])
+                else:
+                    logger.error("Analysis %s failed: %s", upload_session_id, result["error"])
                 db.execute("UPDATE upload_sessions SET status='failed' WHERE id=?", (upload_session_id,))
                 with analysis_progress_lock:
                     analysis_progress[upload_session_id]["status"] = "error"
                     analysis_progress[upload_session_id]["error"]  = result["error"]
+                    analysis_progress[upload_session_id]["blocked"] = bool(result.get("blocked"))
                 return
 
             inventory_report = result["inventory_report"]
