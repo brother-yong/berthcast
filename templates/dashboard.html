@@ -54,12 +54,6 @@
 
   {% else %}
 
-  {% set model_raw = session.model or '' %}
-  {% if 'opus' in model_raw %}{% set model_label = 'Claude Opus' %}
-  {% elif 'sonnet' in model_raw %}{% set model_label = 'Claude Sonnet' %}
-  {% elif 'haiku' in model_raw %}{% set model_label = 'Claude Haiku' %}
-  {% else %}{% set model_label = model_raw %}{% endif %}
-
   <div class="dash-split">
 
     <div class="dash-left">
@@ -160,7 +154,6 @@
       <div class="dash-last-card">
         <div class="dash-last-card-label">Last run</div>
         <div class="dash-last-card-date">{{ last_session.created_at[:10] }}</div>
-        <div class="dash-last-card-meta">{{ model_label }}</div>
         <div class="dash-last-card-meta">{{ stats.rec_count }} rec{{ 's' if stats.rec_count != 1 }} &middot; {{ stats.approved_count }} approved</div>
       </div>
       {% endif %}

@@ -2,9 +2,14 @@
 {% block title %}Chat — berthcast{% endblock %}
 
 {% block head %}
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js" crossorigin="anonymous"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js" crossorigin="anonymous"></script>
+<!-- Vendored locally and served from our own domain so the Content-Security-Policy
+     (script-src 'self') actually allows them — the old cdnjs URLs were silently
+     blocked, leaving chat replies unformatted. DOMPurify sanitises the rendered
+     markdown so echoed item names can't inject scripts. -->
+<link rel="stylesheet" href="{{ url_for('static', filename='vendor/github-dark.min.css') }}">
+<script src="{{ url_for('static', filename='vendor/highlight.min.js') }}"></script>
+<script src="{{ url_for('static', filename='vendor/marked.min.js') }}"></script>
+<script src="{{ url_for('static', filename='vendor/purify.min.js') }}"></script>
 <style>
   /* ── Layout ── */
   body { overflow: hidden; height: 100vh; }
@@ -1342,23 +1347,18 @@ function applyHighlighting(container) {
 // ── Markdown ───────────────────────────────────────────────────────────────
 function renderMarkdown(text) {
   if (!text) return '';
-  // Escape raw angle brackets BEFORE markdown parsing. With no '<' or '>' there
-  // are no tags for the parser to pass through, so an item name the assistant
-  // echoes — e.g. "<img src=x onerror=...>" — can't execute. Markdown syntax
-  // doesn't use angle brackets, so bold/lists/code/tables still render.
-  const safeSrc = String(text).replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const safeFallback = () =>
+    '<p>' + escHtml(text).replace(/\n\n/g, '</p><p>').replace(/\n/g, '<br>') + '</p>';
+  // DOMPurify is what makes marked's HTML safe — it strips scripts, inline event
+  // handlers and javascript: URLs while keeping the formatting tags. Without it
+  // we must NOT trust marked's output, so fall back to the escaped plain render.
+  if (typeof marked === 'undefined' || typeof DOMPurify === 'undefined') {
+    return safeFallback();
+  }
   let html;
-  if (typeof marked !== 'undefined') {
-    try { html = marked.parse(safeSrc); } catch(e) { html = null; }
-  }
-  if (html == null) {
-    html = '<p>' + escHtml(text).replace(/\n\n/g, '</p><p>').replace(/\n/g, '<br>') + '</p>';
-  }
-  // Belt-and-braces: neutralise dangerous URL schemes a markdown link/image
-  // could still carry (e.g. [click](javascript:...)).
-  html = html.replace(/(\s(?:href|src)\s*=\s*)("|')\s*(?:javascript|data|vbscript):[^"']*\2/gi,
-                      '$1$2#$2');
-  return html;
+  try { html = marked.parse(String(text)); } catch (e) { return safeFallback(); }
+  // Restrict link/image URLs to safe schemes (blocks javascript:/data:).
+  return DOMPurify.sanitize(html, { ALLOWED_URI_REGEXP: /^(?:https?:|mailto:|#|\/)/i });
 }
 function escHtml(str) {
   if (!str) return '';
