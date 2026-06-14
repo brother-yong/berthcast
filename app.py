@@ -6,11 +6,8 @@ import hashlib
 import shutil
 import threading
 import time
-import smtplib
-from datetime import datetime, timedelta
+from datetime import datetime
 from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from functools import wraps
 from flask import (
     Flask, render_template, request, redirect,
     url_for, session, flash, jsonify, Response, stream_with_context, send_file
@@ -31,7 +28,7 @@ from agents import (
 )
 from agents.shared import sampling_kwargs
 
-from config import UPLOAD_FOLDER, ALLOWED_EXTENSIONS, FILE_SLOTS, AVAILABLE_MODELS
+from config import UPLOAD_FOLDER, FILE_SLOTS, AVAILABLE_MODELS
 from emails import (
     _send_critical_alert, _send_reset_email, _send_analysis_ready_email,
     _send_verification_email, _send_invite_email, _send_contact_email,
@@ -2645,7 +2642,6 @@ def export_pdf(upload_session_id):
         SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
     )
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-    from reportlab.lib.enums import TA_LEFT, TA_CENTER
 
     _verify_session_owner(upload_session_id)
     ar = db.query(
