@@ -64,10 +64,8 @@
     }
 
     h1 em, h2 em {
-      font-family: var(--font-serif);
-      font-style: italic;
-      font-weight: 400;
-      letter-spacing: 0;
+      font-style: normal;
+      font-weight: inherit;
       color: var(--brass-3);
     }
 
@@ -186,7 +184,7 @@
     .loop-head { display: flex; align-items: center; gap: 10px; background: var(--navy-800); padding: 12px 18px; position: relative; }
     .loop-head::after { content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 1px; background: linear-gradient(90deg, transparent, var(--brass), transparent); opacity: 0.6; }
     .loop-title { font-family: var(--font-mono); font-size: 11px; font-weight: 500; letter-spacing: 0.14em; text-transform: uppercase; color: var(--brass-2); }
-    .loop-tag { margin-left: auto; font-family: var(--font-serif); font-style: italic; font-size: 14px; color: rgba(255,255,255,0.42); }
+    .loop-tag { margin-left: auto; font-family: var(--font-serif); font-size: 14px; color: rgba(255,255,255,0.42); }
     .loop-stage { position: relative; height: 332px; }
     .scene { position: absolute; inset: 0; padding: 24px 26px; opacity: 0; transform: translateY(8px); transition: opacity 420ms var(--ease-out), transform 420ms var(--ease-out); pointer-events: none; }
     .scene.on { opacity: 1; transform: none; }
@@ -340,7 +338,7 @@
     .shot-head::after { content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 1px; background: linear-gradient(90deg, transparent, var(--brass), transparent); opacity: 0.6; }
     .shot-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--brass); flex-shrink: 0; }
     .shot-title { font-family: var(--font-mono); font-size: 11px; font-weight: 500; letter-spacing: 0.14em; text-transform: uppercase; color: var(--brass-2); }
-    .shot-tag { margin-left: auto; font-family: var(--font-serif); font-style: italic; font-size: 14px; color: rgba(255,255,255,0.42); }
+    .shot-tag { margin-left: auto; font-family: var(--font-serif); font-size: 14px; color: rgba(255,255,255,0.42); }
     .shot img { display: block; width: 100%; height: auto; }
     .shot--report { width: 58%; }
     .shot--order { width: 46%; margin-left: -54px; margin-top: 76px; position: relative; z-index: 2; }
