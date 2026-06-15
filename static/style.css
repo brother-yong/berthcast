@@ -33,7 +33,7 @@
   --danger:    #8B2C2C;
 
   /* Typography system. Inter is the workhorse, Inter Tight for big editorial
-     headings and tabular numbers, Instrument Serif for italic accents, and
+     headings and tabular numbers, Instrument Serif for serif accents/leads, and
      JetBrains Mono for code/timestamps. Loaded in base.html. */
   --font-body:    'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
   --font-display: 'Inter Tight', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
@@ -63,14 +63,13 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Editorial italic accents inside big headings (the landing hero "stockouts"
-   word, the dedup loading h1, the results h1). Renders Instrument Serif so
-   the accent reads as a magazine pull-quote, not a plain italic. */
+/* Accent words inside big headings (the landing hero "stockouts" word, the
+   results h1, etc.) render in brand brass — upright, in the heading's own
+   font. Replaces the old serif-italic pull-quote treatment. */
 h1 em, h2 em {
-  font-family: var(--font-serif);
-  font-style: italic;
-  font-weight: 400;
-  letter-spacing: 0;
+  font-style: normal;
+  font-weight: inherit;
+  color: var(--brass-3);
 }
 
 /* ─────────────────── Layout ─────────────────── */
@@ -1326,7 +1325,7 @@ tbody tr:hover td { background: var(--paper); }
   margin-bottom: 0;
 }
 .hero h1 em {
-  font-style: italic;
+  font-style: normal;
   color: var(--brass-3);
   font-weight: 400;
 }
