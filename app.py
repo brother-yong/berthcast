@@ -2545,6 +2545,44 @@ def results(upload_session_id):
     )
 
 
+def _stock_on_hand_map(upload_session_id):
+    """Map item name -> current stock, read from the saved inventory report.
+
+    Current stock (qty on hand) isn't stored on each recommendation, so the order
+    sheets (print / PDF / CSV) join it from the inventory report by item name.
+    Returns {} on any problem, in which case the sheets show "—"."""
+    try:
+        rows = db.query(
+            "SELECT inventory_report FROM analysis_results WHERE session_id=?",
+            (upload_session_id,)
+        )
+        if not rows:
+            return {}
+        inv = json.loads(rows[0]["inventory_report"] or "[]")
+        if isinstance(inv, dict):
+            inv = inv.get("report") if isinstance(inv.get("report"), list) else []
+        if not isinstance(inv, list):
+            return {}
+        out = {}
+        for it in inv:
+            if isinstance(it, dict):
+                name = str(it.get("item", "")).strip()
+                if name and name not in out:
+                    out[name] = it.get("stock")
+        return out
+    except Exception:
+        return {}
+
+
+def _order_by_text(rec):
+    """Order-by text shared by every order sheet so they stay consistent: an
+    overdue date becomes 'ASAP', a future date shows as-is, unknown shows '—'."""
+    ob = _compute_order_by(rec)
+    if ob.get("status") == "overdue":
+        return "ASAP"
+    return ob.get("order_by_date") or "—"
+
+
 @app.route("/results/<int:upload_session_id>/print")
 @login_required
 def print_results(upload_session_id):
@@ -2559,12 +2597,15 @@ def print_results(upload_session_id):
     except Exception:
         recommendations = []
     approved = [r for r in recommendations if r.get("approved") and not r.get("error")]
+    # Current stock (qty on hand) isn't on the rec — join it from the inventory report.
+    stock_map = _stock_on_hand_map(upload_session_id)
     # Enrich with effective values + order-by so the print template can stay simple.
     for r in approved:
         _normalise_confidence(r)
         r["_effective_qty"]      = _effective_qty(r)
         r["_effective_supplier"] = _effective_supplier(r)
         r["_order_by"]           = _compute_order_by(r)
+        r["_current_stock"]      = stock_map.get(str(r.get("item", "")).strip())
     return render_template("print_order.html", recommendations=approved, org_name=session["org_name"])
 
 
@@ -2588,12 +2629,15 @@ def export_csv(upload_session_id):
     approved = [r for r in recommendations if r.get("approved") and not r.get("error")]
     for r in approved:
         _normalise_confidence(r)
+    # Current stock (qty on hand) is joined from the inventory report by item name.
+    stock_map = _stock_on_hand_map(upload_session_id)
 
     buf = io.StringIO()
     writer = csv.writer(buf)
+    # Same columns and labels as the printed sheet and the PDF, so all three match.
     writer.writerow([
-        "Item", "Supplier", "Supplier Type", "Order Quantity", "AI Suggested Qty",
-        "Order By", "Days of Supply", "Stock Runway (months)", "Confidence", "Reason", "Note"
+        "Item", "On Hand", "Qty To Order", "Supplier",
+        "Order By", "Current Stock Lasts (months)", "Notes"
     ])
     # Free-text columns come from uploaded files and the model, so they're run
     # through csv_safe_cell to neutralise spreadsheet formula injection. The
@@ -2602,18 +2646,19 @@ def export_csv(upload_session_id):
     for r in approved:
         dos = r.get("days_of_supply")
         runway = round(dos / 30, 1) if dos else ""
-        order_by = _compute_order_by(r).get("order_by_date") or ""
+        on_hand = stock_map.get(str(r.get("item", "")).strip())
+        # Show the AI's original number inline when a human edited the quantity.
+        qty = str(_effective_qty(r) or "")
+        sug = str(r.get("suggested_quantity", "") or "")
+        if r.get("edited_quantity") and qty.strip() and sug.strip() and qty != sug:
+            qty = f"{qty} (AI: {sug})"
         writer.writerow([
             _safe(r.get("item", "")),
+            _safe("" if on_hand in (None, "") else on_hand),
+            _safe(qty),
             _safe(_effective_supplier(r)),
-            _safe(r.get("supplier_type", "")),
-            _safe(_effective_qty(r)),
-            _safe(r.get("suggested_quantity", "")),
-            order_by,
-            dos or "",
+            _order_by_text(r),
             runway,
-            ("N/A" if r.get("confidence") == "INSUFFICIENT_DATA" else r.get("confidence", "")),
-            _safe(r.get("reason", "")),
             _safe(r.get("note", "")),
         ])
 
@@ -2660,6 +2705,7 @@ def export_pdf(upload_session_id):
     approved = [r for r in recommendations if r.get("approved") and not r.get("error")]
     for r in approved:
         _normalise_confidence(r)
+    stock_map = _stock_on_hand_map(upload_session_id)
 
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -2704,45 +2750,46 @@ def export_pdf(upload_session_id):
     ]
 
     if approved:
-        header = ["#", "Item", "Supplier", "Qty", "Order by", "Runway", "Confidence", "Reason / Note"]
+        from xml.sax.saxutils import escape as _esc  # keep item/supplier names with & or < from breaking the PDF
+        # Same columns and labels as the printed sheet and the CSV, so all three match.
+        header = ["#", "Item", "On hand", "Qty to order", "Supplier", "Order by", "Current stock lasts", "Note"]
         rows = [header]
         for i, r in enumerate(approved, 1):
             dos = r.get("days_of_supply")
-            runway = f"{round(dos/30,1)} mo" if dos else "—"
-            reason = r.get("reason", "")
-            note   = r.get("note", "")
-            reason_cell = Paragraph(
-                reason + (f'<br/><font color="#9ca3af"><i>Note: {note}</i></font>' if note else ""),
-                cell_style
-            )
+            stock_lasts = f"~{round(dos/30,1)} mo" if dos else "—"
+            note = r.get("note", "")
+            note_cell = Paragraph(_esc(str(note)), cell_style) if note else Paragraph("—", cell_muted)
+
+            on_hand = stock_map.get(str(r.get("item", "")).strip())
+            on_hand_str = "—" if on_hand in (None, "") else _esc(str(on_hand))
 
             eff_qty = _effective_qty(r) or "—"
             sug_qty = r.get("suggested_quantity", "")
-            qty_html = str(eff_qty)
+            qty_html = _esc(str(eff_qty))
             if str(eff_qty).strip() and str(sug_qty).strip() and str(eff_qty) != str(sug_qty):
                 qty_html = (
-                    f"<b>{eff_qty}</b><br/>"
-                    f"<font color='#9ca3af' size='7'>AI: {sug_qty}</font>"
+                    f"<b>{_esc(str(eff_qty))}</b><br/>"
+                    f"<font color='#9ca3af' size='7'>AI: {_esc(str(sug_qty))}</font>"
                 )
 
-            order_by_str = _compute_order_by(r).get("order_by_date") or "—"
+            ob = _compute_order_by(r)
+            if ob.get("status") == "overdue":
+                order_by_cell = Paragraph("<b><font color='#b91c1c'>ASAP</font></b>", cell_style)
+            else:
+                order_by_cell = Paragraph(_esc(ob.get("order_by_date") or "—"), cell_style)
 
             rows.append([
                 str(i),
-                Paragraph(f"<b>{r.get('item','')}</b>", cell_style),
-                Paragraph(
-                    f"{_effective_supplier(r)}<br/>"
-                    f"<font color='#6b7280'>{r.get('supplier_type','')}</font>",
-                    cell_style
-                ),
+                Paragraph(f"<b>{_esc(str(r.get('item','')))}</b>", cell_style),
+                Paragraph(on_hand_str, cell_style),
                 Paragraph(qty_html, cell_style),
-                Paragraph(order_by_str, cell_style),
-                runway,
-                ("N/A" if r.get("confidence") == "INSUFFICIENT_DATA" else r.get("confidence", "—")),
-                reason_cell,
+                Paragraph(_esc(str(_effective_supplier(r))), cell_style),
+                order_by_cell,
+                stock_lasts,
+                note_cell,
             ])
 
-        col_widths = [7*mm, 34*mm, 28*mm, 18*mm, 20*mm, 14*mm, 18*mm, None]
+        col_widths = [7*mm, 30*mm, 18*mm, 22*mm, 30*mm, 20*mm, 16*mm, None]
         tbl = Table(rows, colWidths=col_widths, repeatRows=1)
         tbl.setStyle(TableStyle([
             # Header row
