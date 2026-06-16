@@ -108,7 +108,8 @@ body = r.get_data(as_text=True)
 _check("export.csv returns 200", r.status_code == 200, detail=str(r.status_code))
 _check("item formula is neutralised in CSV", "'=cmd" in body)
 _check("supplier formula is neutralised", "'+SUM(1+1)" in body)
-_check("reason formula is neutralised", "'-2+3+cmd" in body)
+# Note: the CSV no longer exports the AI 'reason' column (it now mirrors the
+# printed sheet — human notes only), so the note column carries the @ payload.
 _check("note formula is neutralised", "'@SUM(A1)" in body)
 _check("no CSV field begins a line with a bare =",
        not any(ln.startswith("=") for ln in body.splitlines()))
