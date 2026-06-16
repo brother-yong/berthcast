@@ -72,6 +72,7 @@ recs = [
     # Not overdue (dos 100 - lead 21 > 0) -> a future date. Has a human note; AI reason must be dropped.
     {"item": "EDAM CHEESE", "supplier": "AMMERLAND", "approved": True,
      "suggested_quantity": "8000 KG", "days_of_supply": 100, "lead_time_days": 21,
+     "avg_monthly_sales": 2433,  # 8000 / 2433 = ~3.3 months of coverage
      "confidence": "MEDIUM", "reason": "SECRET_REASON_TEXT_edam", "note": "Check with warehouse first"},
     # No matching inventory row -> On hand must show "—".
     {"item": "Ghost Item", "supplier": "Local SG", "approved": True,
@@ -104,6 +105,8 @@ _check("overdue order-by shows ASAP", "ASAP" in html)
 _check("no-match item falls back to dash", "Ghost Item" in html and "—" in html)
 _check("human note is shown", "Check with warehouse first" in html)
 _check("AI reasoning prose is NOT printed", "SECRET_REASON_TEXT" not in html)
+_check("has 'This order lasts' column", "This order lasts" in html)
+_check("order-coverage months computed (~3.3 mo)", "~3.3 mo" in html)
 
 
 # ── 2. CSV export (same columns) ─────────────────────────────────────────────
@@ -115,6 +118,8 @@ _check("CSV header 'Qty To Order'", "Qty To Order" in csv_body)
 _check("CSV header 'Current Stock Lasts (months)'", "Current Stock Lasts (months)" in csv_body)
 _check("CSV shows on-hand stock value", "50 KG" in csv_body or "0 CTN" in csv_body)
 _check("CSV overdue order-by shows ASAP", "ASAP" in csv_body)
+_check("CSV header 'This Order Lasts (months)'", "This Order Lasts (months)" in csv_body)
+_check("CSV order-coverage value present", "3.3" in csv_body)
 _check("CSV does NOT leak AI reasoning", "SECRET_REASON_TEXT" not in csv_body)
 
 

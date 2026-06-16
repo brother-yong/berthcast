@@ -2651,6 +2651,23 @@ def _order_by_text(rec):
     return ob.get("order_by_date") or "—"
 
 
+def _order_covers_months(rec):
+    """How long the RECOMMENDED ORDER quantity will last, at the recent sales
+    rate: order quantity / average monthly sales. Returns a rounded float, or
+    None when it can't be told (no sales rate on file, or the quantity isn't a
+    number) — in which case the sheets show '—'."""
+    try:
+        avg = float(rec.get("avg_monthly_sales") or 0)
+    except (TypeError, ValueError):
+        return None
+    if avg <= 0:
+        return None
+    qty = quantity.parse_quantity(_effective_qty(rec))
+    if qty is None or qty <= 0:
+        return None
+    return round(qty / avg, 1)
+
+
 @app.route("/results/<int:upload_session_id>/print")
 @login_required
 def print_results(upload_session_id):
@@ -2674,6 +2691,7 @@ def print_results(upload_session_id):
         r["_effective_supplier"] = _effective_supplier(r)
         r["_order_by"]           = _compute_order_by(r)
         r["_current_stock"]      = stock_map.get(str(r.get("item", "")).strip())
+        r["_order_covers"]       = _order_covers_months(r)
     return render_template("print_order.html", recommendations=approved, org_name=session["org_name"])
 
 
@@ -2705,7 +2723,7 @@ def export_csv(upload_session_id):
     # Same columns and labels as the printed sheet and the PDF, so all three match.
     writer.writerow([
         "Item", "On Hand", "Qty To Order", "Supplier",
-        "Order By", "Current Stock Lasts (months)", "Notes"
+        "Order By", "Current Stock Lasts (months)", "This Order Lasts (months)", "Notes"
     ])
     # Free-text columns come from uploaded files and the model, so they're run
     # through csv_safe_cell to neutralise spreadsheet formula injection. The
@@ -2720,6 +2738,7 @@ def export_csv(upload_session_id):
         sug = str(r.get("suggested_quantity", "") or "")
         if r.get("edited_quantity") and qty.strip() and sug.strip() and qty != sug:
             qty = f"{qty} (AI: {sug})"
+        covers = _order_covers_months(r)
         writer.writerow([
             _safe(r.get("item", "")),
             _safe("" if on_hand in (None, "") else on_hand),
@@ -2727,6 +2746,7 @@ def export_csv(upload_session_id):
             _safe(_effective_supplier(r)),
             _order_by_text(r),
             runway,
+            covers if covers else "",
             _safe(r.get("note", "")),
         ])
 
@@ -2820,11 +2840,14 @@ def export_pdf(upload_session_id):
     if approved:
         from xml.sax.saxutils import escape as _esc  # keep item/supplier names with & or < from breaking the PDF
         # Same columns and labels as the printed sheet and the CSV, so all three match.
-        header = ["#", "Item", "On hand", "Qty to order", "Supplier", "Order by", "Current stock lasts", "Note"]
+        header = ["#", "Item", "On hand", "Qty to order", "Supplier", "Order by",
+                  "Current stock lasts", "This order lasts", "Note"]
         rows = [header]
         for i, r in enumerate(approved, 1):
             dos = r.get("days_of_supply")
             stock_lasts = f"~{round(dos/30,1)} mo" if dos else "—"
+            covers = _order_covers_months(r)
+            order_lasts = f"~{covers} mo" if covers else "—"
             note = r.get("note", "")
             note_cell = Paragraph(_esc(str(note)), cell_style) if note else Paragraph("—", cell_muted)
 
@@ -2854,10 +2877,11 @@ def export_pdf(upload_session_id):
                 Paragraph(_esc(str(_effective_supplier(r))), cell_style),
                 order_by_cell,
                 stock_lasts,
+                order_lasts,
                 note_cell,
             ])
 
-        col_widths = [7*mm, 30*mm, 18*mm, 22*mm, 30*mm, 20*mm, 16*mm, None]
+        col_widths = [6*mm, 28*mm, 15*mm, 19*mm, 26*mm, 17*mm, 16*mm, 16*mm, None]
         tbl = Table(rows, colWidths=col_widths, repeatRows=1)
         tbl.setStyle(TableStyle([
             # Header row
