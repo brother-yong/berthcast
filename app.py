@@ -389,6 +389,31 @@ def inject_live_stats():
 
 
 
+@app.template_filter("status_label")
+def _status_label(value):
+    """Friendly, plain-English label for an inventory status. DISPLAY ONLY — the
+    stored value is unchanged, so all logic, filters and data attributes keep
+    using CRITICAL/LOW/HEALTHY/DEAD."""
+    return {
+        "CRITICAL": "Critical",
+        "LOW":      "Running low",
+        "HEALTHY":  "Well stocked",
+        "DEAD":     "Not selling",
+        "NORMAL":   "OK",
+    }.get((value or "").upper(), (value or "").title())
+
+
+@app.template_filter("conf_label")
+def _conf_label(value):
+    """Friendly label for a confidence level (display only)."""
+    return {
+        "HIGH":              "High",
+        "MEDIUM":            "Medium",
+        "LOW":               "Low",
+        "INSUFFICIENT_DATA": "Need more data",
+    }.get((value or "").upper(), (value or "").title() or "—")
+
+
 @app.route("/")
 def landing():
     if "user_id" in session:
@@ -1552,6 +1577,39 @@ def dashboard():
     )
 
 
+@app.route("/session/<int:upload_session_id>/delete", methods=["POST"])
+@login_required
+@analyst_required
+def delete_session(upload_session_id):
+    """Permanently remove one analysis from the dashboard: its per-session tables,
+    saved results, outcome rows, uploaded files, and the session row. Org-scoped +
+    CSRF; the dashboard asks the user to confirm before calling this."""
+    _verify_session_owner(upload_session_id)
+    try:
+        for _slot, table in FILE_SLOTS.items():
+            try:
+                db.execute(f'DROP TABLE IF EXISTS "{table}_{upload_session_id}"')
+            except Exception:
+                pass
+        db.execute("DELETE FROM analysis_results WHERE session_id=?", (upload_session_id,))
+        db.execute("DELETE FROM recommendation_outcomes WHERE session_id=?", (upload_session_id,))
+        db.execute("DELETE FROM upload_sessions WHERE id=?", (upload_session_id,))
+        # Best-effort: clear any leftover uploaded files for this session off the disk.
+        try:
+            for f in os.listdir(UPLOAD_FOLDER):
+                if f.startswith(f"{upload_session_id}_"):
+                    try:
+                        os.remove(os.path.join(UPLOAD_FOLDER, f))
+                    except OSError:
+                        pass
+        except OSError:
+            pass
+    except Exception:
+        logger.exception("Failed to delete session %s", upload_session_id)
+        return jsonify({"ok": False, "error": "Could not remove that analysis. Please try again."})
+    return jsonify({"ok": True})
+
+
 @app.route("/upload/start")
 @login_required
 @analyst_required
@@ -2529,8 +2587,18 @@ def results(upload_session_id):
             "stockouts_avoided": s.get("stockouts_avoided", 0),
         }
 
+    # A plain "what do I do now" line for the top of the page: how many items to
+    # order and how many can't wait. Order-by status was stamped on each rec above.
+    _valid = [r for r in recommendations if isinstance(r, dict) and not r.get("error")]
+    summary = {
+        "to_order":  len(_valid),
+        "order_now": sum(1 for r in _valid if (r.get("_order_by") or {}).get("status") == "overdue"),
+        "urgent":    sum(1 for r in _valid if (r.get("_order_by") or {}).get("status") == "urgent"),
+    }
+
     return render_template(
         "results.html",
+        summary=summary,
         recommendations=recommendations,
         rec_groups=rec_groups,
         inventory=inventory,
