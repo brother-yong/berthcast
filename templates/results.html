@@ -15,6 +15,37 @@
     </div>
   </section>
 
+  <style>
+    .results-summary {
+      margin-top: 16px; padding: 12px 18px;
+      background: var(--paper-2); border: 1px solid var(--border);
+      border-radius: 12px; font-size: 15px; color: var(--text); line-height: 1.5;
+    }
+    .results-summary .rs-urgent { color: var(--danger); font-weight: 600; }
+    .help-dot {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 16px; height: 16px; margin-left: 5px; padding: 0;
+      border: 1px solid var(--border); border-radius: 50%;
+      background: var(--paper); color: var(--muted);
+      font-size: 11px; font-weight: 600; line-height: 1; cursor: pointer;
+      vertical-align: middle;
+    }
+    .help-dot:hover { border-color: var(--brass); color: var(--text); }
+    .outcome-why { font-size: 12.5px; color: var(--muted); margin-top: 6px; }
+  </style>
+
+  {% if summary and summary.to_order %}
+  <div class="results-summary no-print">
+    <strong>{{ summary.to_order }}</strong> item{{ 's' if summary.to_order != 1 }} to order.
+    {% if summary.order_now %}
+      <span class="rs-urgent">{{ summary.order_now }} overdue — order {{ 'these' if summary.order_now != 1 else 'this' }} first.</span>
+    {% elif summary.urgent %}
+      <span class="rs-urgent">{{ summary.urgent }} urgent — start with {{ 'those' if summary.urgent != 1 else 'that' }}.</span>
+    {% endif %}
+    Work down the list from the top.
+  </div>
+  {% endif %}
+
   {% if data_notes %}
   <!-- Data-quality caveats: a number built on an assumption must never look
        as confident as one built on real dates. -->
@@ -40,7 +71,7 @@
     </button>
     {% if dead_count %}
     <button id="dead-tab-btn" class="tab-btn" onclick="showTab('tab-dead', this)">
-      Dead SKUs
+      Not selling
       <span style="margin-left:6px; background:var(--muted); color:#fff;
                    font-size:11px; padding:1px 7px; border-radius:10px;
                    font-weight:600;">{{ dead_count }}</span>
@@ -240,7 +271,7 @@
                           style="stroke-dashoffset: {{ offset }};"/>
                 </svg>
                 <div class="confidence-label">
-                  <span class="lbl">{{ 'N/A' if rec.confidence == 'INSUFFICIENT_DATA' else rec.confidence | lower }}</span>
+                  <span class="lbl">{{ '?' if rec.confidence == 'INSUFFICIENT_DATA' else rec.confidence | lower }}</span>
                 </div>
               </button>
               <div class="rec-card-title">
@@ -255,7 +286,7 @@
 
               <div class="conf-popover" id="conf-pop-{{ rec._card_idx }}">
                 <div class="conf-pop-title">
-                  Why {{ 'N/A' if rec.confidence == 'INSUFFICIENT_DATA' else rec.confidence | lower }} confidence?
+                  {% if rec.confidence == 'INSUFFICIENT_DATA' %}Need more data to be sure{% else %}Why this confidence?{% endif %}
                 </div>
                 <ul class="conf-pop-list">
                   {% for reason in rec._conf_reasons or [] %}
@@ -271,7 +302,10 @@
             <div class="rec-card-body">
               {% if rec._order_by and rec._order_by.order_by_date %}
               <p class="rec-order-by rec-order-by-{{ rec._order_by.status }}">
-                <strong>Order by:</strong> {{ rec._order_by.order_by_date }}
+                <strong>Order by:</strong>
+                <button type="button" class="help-dot no-print"
+                        onclick="showToast('Place the order by this date so it arrives before you run out of stock.', 'info')">?</button>
+                {{ rec._order_by.order_by_date }}
                 <span class="rec-order-by-meta">
                   {% if rec._order_by.status == 'overdue' %}
                     — already overdue by {{ rec._order_by.buffer_days | abs }} day{{ 's' if rec._order_by.buffer_days|abs != 1 }}
@@ -336,7 +370,10 @@
 
               {% if rec.days_of_supply %}
               <p style="margin-top:10px; color:var(--muted);">
-                <strong>Stock runway:</strong> {{ (rec.days_of_supply / 30) | round(1) }} months remaining
+                <strong>Current stock lasts:</strong>
+                <button type="button" class="help-dot no-print"
+                        onclick="showToast('How long your current stock will last before it runs out, at the recent rate of sales.', 'info')">?</button>
+                about {{ (rec.days_of_supply / 30) | round(1) }} more month{{ 's' if (rec.days_of_supply / 30) | round(1) != 1 }}
               </p>
               {% endif %}
               <p style="margin-top:8px;">{{ rec.reason }}</p>
@@ -396,9 +433,10 @@
                 </button>
                 <button class="btn btn-ghost btn-sm outcome-btn"
                         onclick="recordOutcome({{ rec._card_idx }}, '{{ rec.item | replace("'", "\\'") }}', 'order_placed', false)">
-                  No
+                  Not yet
                 </button>
               </div>
+              <div class="outcome-why no-print">Takes one tap — it's how berthcast proves it's saving you money.</div>
               {% elif not rec.outcome_status %}
               <div class="outcome-prompt">
                 <span class="outcome-check">Order placed</span>
@@ -470,7 +508,7 @@
             <td>{{ item.item }}</td>
             <td>{{ item.category }}</td>
             <td>{{ item.stock }}</td>
-            <td><span class="badge badge-{{ item.status | lower }}">{{ item.status }}</span></td>
+            <td><span class="badge badge-{{ item.status | lower }}">{{ item.status | status_label }}</span></td>
             <td><span class="badge badge-{{ item.spoilage_risk | lower }}">{{ item.spoilage_risk }}</span></td>
             <td>{{ item.days_of_supply or '—' }}</td>
             <td style="color:var(--muted); font-size:14px;">{{ item.observation }}</td>
@@ -481,9 +519,9 @@
     </div>
     {% if dead_count %}
     <p style="color:var(--muted); font-size:14px; margin-top:16px; text-align:center;">
-      {{ dead_count }} dead SKU{{ 's' if dead_count != 1 }} hidden —
+      {{ dead_count }} not-selling item{{ 's' if dead_count != 1 }} hidden —
       <button class="remove-link" onclick="showTab('tab-dead', document.getElementById('dead-tab-btn'))">
-        view dead SKUs →
+        view them →
       </button>
     </p>
     {% endif %}
@@ -500,8 +538,8 @@
   <div id="tab-dead" style="display:none; margin-top: 24px;">
     <div class="card" style="margin-bottom:16px; background:var(--paper-2);">
       <p style="font-size:14px; color:var(--muted); margin:0;">
-        These {{ dead_count }} SKU{{ 's' if dead_count != 1 }} have recorded zero sales and zero movement.
-        They are excluded from recommendations. Review periodically to decide whether to discontinue or write off stock.
+        These {{ dead_count }} item{{ 's' if dead_count != 1 }} have had no sales and no movement.
+        They're left out of the order recommendations. Review them now and then to decide whether to stop stocking them.
       </p>
     </div>
     <div class="card" style="overflow-x:auto;">

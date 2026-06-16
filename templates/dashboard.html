@@ -213,6 +213,11 @@
                   <a href="{{ url_for('diff_view', session_a_id=past_sessions[0].id, session_b_id=s.id) }}"
                      class="btn btn-ghost btn-sm">vs latest</a>
                   {% endif %}
+                  {% if session.role != 'viewer' %}
+                  <button type="button" class="dash-del" title="Remove this analysis"
+                          aria-label="Remove this analysis"
+                          onclick="deleteSession({{ s.id }}, this)">&times;</button>
+                  {% endif %}
                 </td>
               </tr>
               {% endfor %}
@@ -262,6 +267,14 @@
   padding: 11px 28px;
   font-size: 14px;
 }
+
+.dash-del {
+  background: none; border: none; cursor: pointer;
+  color: var(--muted); font-size: 18px; line-height: 1;
+  padding: 2px 6px; border-radius: 6px;
+  transition: color 140ms, background 140ms;
+}
+.dash-del:hover { color: var(--danger); background: var(--paper-2); }
 
 .dash-split {
   display: grid;
@@ -514,5 +527,22 @@
     requestAnimationFrame(tick);
   });
 })();
+
+// ── Remove an analysis from the dashboard ──────────────────────────────────
+function deleteSession(id, btn) {
+  showConfirm('Delete this analysis? This cannot be undone.', async () => {
+    try {
+      const res  = await fetch('/session/' + id + '/delete', { method: 'POST' });
+      const data = await res.json();
+      if (data.ok) {
+        const row = btn.closest('tr');
+        if (row) row.remove();
+        showToast('Analysis removed.', 'success');
+      } else {
+        showToast(data.error || 'Could not remove the analysis.');
+      }
+    } catch (e) { showToast('Network error. Please try again.'); }
+  }, { danger: true, label: 'Delete' });
+}
 </script>
 {% endblock %}

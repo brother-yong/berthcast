@@ -591,19 +591,18 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
     inv_batches = [inv_summary_lines[i:i+_INV_BATCH]
                    for i in range(0, len(inv_summary_lines), _INV_BATCH)]
     n_batches   = len(inv_batches)
+    total_items = len(inv_summary_lines)
     if n_batches > 1:
         _emit(progress_emit,
-              f"Catalogue too large for one pass — splitting into {n_batches} batches of up to {_INV_BATCH} items")
+              f"Reading your {total_items} items and checking each one against demand — this is the slow part")
     else:
-        _emit(progress_emit, "Asking Claude to assess inventory health (this is the slow part — up to a minute)")
+        _emit(progress_emit,
+              f"Reading your {total_items} items and checking each one against demand — up to a minute")
 
     try:
         all_items   = []
         any_repaired = False
         for i, batch in enumerate(inv_batches, 1):
-            if n_batches > 1:
-                _emit(progress_emit,
-                      f"Inventory health: batch {i}/{n_batches} ({len(batch)} items)")
             user_prompt = (
                 f"Inventory snapshot"
                 + (f" — batch {i}/{n_batches}" if n_batches > 1 else "")
@@ -623,6 +622,12 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
                 _emit(progress_emit,
                       f"WARNING: the reply for batch {i}/{n_batches} was cut short — "
                       f"kept {len(parsed)} of {len(batch)} items")
+            # Plain-language running count for the waiting screen.
+            _crit = sum(1 for r in all_items if r.get("status") == "CRITICAL")
+            _low  = sum(1 for r in all_items if r.get("status") == "LOW")
+            _emit(progress_emit,
+                  f"Checked {min(len(all_items), total_items)} of {total_items} items"
+                  f" — {_crit} critical, {_low} running low so far")
 
         if not all_items:
             _emit(progress_emit, "Inventory agent returned no usable response")
@@ -632,7 +637,7 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
         crit = sum(1 for r in report if r.get("status") == "CRITICAL")
         low  = sum(1 for r in report if r.get("status") == "LOW")
         _emit(progress_emit,
-              f"Inventory health complete — {len(report)} items reviewed, {crit} critical, {low} low")
+              f"Done checking stock — {len(report)} items: {crit} critical, {low} running low")
         return {"report": report, "items_analysed": len(report), "partial": any_repaired,
                 "data_notes": data_notes}
     except Exception as e:
