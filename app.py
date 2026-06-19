@@ -22,6 +22,7 @@ import rate_limit
 import validators
 import quantity
 import backup
+import usage
 from logging_setup import logger
 from agents import (
     run_pipeline,
@@ -32,6 +33,7 @@ from config import UPLOAD_FOLDER, FILE_SLOTS, AVAILABLE_MODELS
 from emails import (
     _send_critical_alert, _send_reset_email, _send_analysis_ready_email,
     _send_verification_email, _send_invite_email, _send_contact_email,
+    _send_run_failure_alert,
     _deliver as _deliver_email,
 )
 from auth_utils import (
@@ -593,6 +595,13 @@ def login():
             session["is_admin"] = bool(u["is_admin"])
             session["tier"]     = u["tier"]
             session["role"]     = u.get("role") or "admin"
+            # Stamp the sign-in time for the operator usage page. Must never break
+            # a login, so it's best-effort and swallows any error.
+            try:
+                db.execute("UPDATE users SET last_login=? WHERE id=?",
+                           (datetime.utcnow().isoformat(), u["id"]))
+            except Exception:
+                logger.warning("Could not record last_login for user %s", u["id"], exc_info=True)
             return redirect(url_for("admin_panel") if u["is_admin"] else url_for("chat"))
         rate_limit.record_failure(ip)
         if acct_key:
@@ -1283,6 +1292,88 @@ def admin_backup_download():
         download_name=os.path.basename(path),
         mimetype="application/octet-stream",
     )
+
+
+@app.route("/admin/usage")
+@login_required
+@admin_required
+def admin_usage():
+    """Operator-only view: who is actually using berthcast, and whether their
+    runs are any good. Read-only. Shows usage metadata (counts + health) only —
+    never a client's actual inventory data.
+
+    Most of this is computed live from existing rows; the only stored helper is
+    users.last_login. Fine at this scale (a handful of clients); if it ever grows
+    to hundreds, store each run's outcome once instead of re-counting here."""
+    DAYS = 30
+    sessions = db.query(
+        "SELECT us.id, us.org_name, us.status, us.created_at, "
+        "       ar.inventory_report, ar.recommendations_json, ar.data_notes "
+        "FROM upload_sessions us "
+        "LEFT JOIN analysis_results ar ON ar.session_id = us.id "
+        "WHERE us.created_at >= datetime('now', ?) "
+        "ORDER BY us.org_name ASC, us.created_at DESC",
+        (f"-{DAYS} days",)
+    )
+    login_rows = db.query(
+        "SELECT org_name, MAX(last_login) AS last_login FROM users GROUP BY org_name"
+    )
+    last_login = {r["org_name"]: r["last_login"] for r in login_rows}
+
+    # Group sessions by org (query is already ordered org, then newest-first).
+    grouped = {}
+    for s in sessions:
+        cls = usage.classify_session(
+            s["status"], s["inventory_report"],
+            s["recommendations_json"], s["data_notes"]
+        )
+        g = grouped.setdefault(s["org_name"], {"classes": [], "runs": []})
+        g["classes"].append(cls)
+        g["runs"].append({
+            "id":         s["id"],
+            "created_at": s["created_at"],
+            "category":   cls["category"],
+            "label":      usage.label(cls["category"]),
+            "tone":       usage.tone(cls["category"]),
+            "items":      cls["items"],
+            "recs":       cls["recs"],
+        })
+
+    org_rows = []
+    seen = set()
+    for org, g in grouped.items():
+        seen.add(org)
+        stats = db.get_outcome_stats(org)
+        org_rows.append({
+            "org_name":   org,
+            "last_login": last_login.get(org),
+            "summary":    usage.org_run_summary(g["classes"]),
+            "last_run":   g["runs"][0] if g["runs"] else None,
+            "recent":     g["runs"][:10],
+            "proof": {
+                "approved": stats.get("total_approved", 0),
+                "orders":   stats.get("total_order_placed", 0),
+                "outcomes": stats.get("stockout_avoided", 0) + stats.get("stockout_happened", 0),
+            },
+        })
+
+    # Clients who have an account (so they logged in at some point) but ran
+    # nothing in the window — the "logged in, never used it" signal.
+    for org, ll in last_login.items():
+        if org in seen:
+            continue
+        org_rows.append({
+            "org_name":   org,
+            "last_login": ll,
+            "summary":    usage.org_run_summary([]),
+            "last_run":   None,
+            "recent":     [],
+            "proof":      {"approved": 0, "orders": 0, "outcomes": 0},
+        })
+
+    # Most recently active client first; never-logged-in orgs (NULL) sink down.
+    org_rows.sort(key=lambda r: (r["last_login"] or ""), reverse=True)
+    return render_template("admin_usage.html", org_rows=org_rows, days=DAYS)
 
 
 @app.route("/settings", methods=["GET", "POST"])
@@ -2226,6 +2317,7 @@ def run_analysis(upload_session_id):
     model       = session["model"]
     _user_id    = session["user_id"]
     _user_tier  = user_tier
+    _org_name   = session.get("org_name", "")
     base_url    = request.host_url.rstrip("/")  # e.g. "https://berthcast.onrender.com"
     with analysis_progress_lock:
         analysis_progress[upload_session_id] = {
@@ -2293,6 +2385,19 @@ def run_analysis(upload_session_id):
                 ag["summary"] = summary
 
     def _run():
+        def _alert_failure(category, detail=""):
+            """Page the operator (ALERT_EMAIL) about a real failure. Threaded and
+            best-effort, so it can never slow down or break the run itself."""
+            try:
+                threading.Thread(
+                    target=_send_run_failure_alert,
+                    args=(_org_name, upload_session_id, category, detail, base_url),
+                    daemon=True,
+                ).start()
+            except Exception:
+                logger.warning("Run-failure alert step failed for session %s",
+                               upload_session_id, exc_info=True)
+
         try:
             rows    = db.query("SELECT context_json FROM upload_sessions WHERE id=?", (upload_session_id,))
             context = json.loads(rows[0]["context_json"] or "{}") if rows else {}
@@ -2321,6 +2426,9 @@ def run_analysis(upload_session_id):
                                 upload_session_id, result["error"])
                 else:
                     logger.error("Analysis %s failed: %s", upload_session_id, result["error"])
+                    # Real failure (not a polite "can't read this file" block) —
+                    # page the operator; the client may never report it.
+                    _alert_failure("failed", result.get("error", ""))
                 db.execute("UPDATE upload_sessions SET status='failed' WHERE id=?", (upload_session_id,))
                 with analysis_progress_lock:
                     analysis_progress[upload_session_id]["status"] = "error"
@@ -2338,6 +2446,15 @@ def run_analysis(upload_session_id):
                  json.dumps(result.get("data_notes") or []), upload_session_id)
             )
             db.execute("UPDATE upload_sessions SET status='complete' WHERE id=?", (upload_session_id,))
+
+            # Silent failure: the run finished and is saved as complete, but it
+            # produced zero items — the client just sees a blank report. Mark it
+            # complete (so the page behaves) but page the operator, because this
+            # is exactly the case that used to go unnoticed until a complaint.
+            if not any(isinstance(i, dict) for i in inventory_report):
+                logger.warning("Analysis %s completed BLANK (0 items) for %s",
+                               upload_session_id, _org_name)
+                _alert_failure("blank")
 
             # Increment analyses_used for free users
             if _user_tier == "free":
@@ -2420,6 +2537,7 @@ def run_analysis(upload_session_id):
                 db.execute("UPDATE upload_sessions SET status='failed' WHERE id=?", (upload_session_id,))
             except Exception:
                 logger.exception("Could not mark analysis %s failed", upload_session_id)
+            _alert_failure("failed", str(e))
             with analysis_progress_lock:
                 analysis_progress[upload_session_id]["status"] = "error"
                 analysis_progress[upload_session_id]["error"]  = str(e)

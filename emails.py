@@ -134,6 +134,51 @@ def _send_critical_alert(user_id: int, upload_session_id: int, new_critical: lis
     _deliver(msg, sender, password, to_email)
 
 
+def _send_run_failure_alert(org_name: str, upload_session_id: int, category: str,
+                             detail: str = "", base_url: str = "") -> None:
+    """Email the OPERATOR (ALERT_EMAIL) when a client's analysis fails in a way
+    worth knowing about: it crashed / the worker died ('failed'), or it came back
+    blank with zero items ('blank'). The run that produced 'blank' is still saved
+    as complete — the client just sees an empty report — so without this the
+    operator would never know it happened.
+
+    Deliberately NOT called for a 'refused' run: that's the safety net correctly
+    declining unreadable data, a coaching nudge, not an outage. Best-effort: logs
+    and never raises, like every other sender here. Goes to ALERT_EMAIL (the
+    operator), not to the client."""
+    alert_to = os.environ.get("ALERT_EMAIL", "")
+    sender   = os.environ.get("MAIL_SENDER", "")
+    password = os.environ.get("MAIL_APP_PASSWORD", "")
+    if not alert_to or not sender or not password:
+        return  # not configured — the admin usage page is still the source of truth
+
+    human = {
+        "blank":  "came back BLANK — 0 items reviewed",
+        "failed": "FAILED — it crashed or the server restarted mid-run",
+    }.get(category, f"ended as '{category}'")
+
+    link = f"{base_url}/results/{upload_session_id}" if base_url else f"session {upload_session_id}"
+
+    body = (
+        f"A berthcast analysis for {org_name} {human}.\n\n"
+        f"Session: {upload_session_id}\n"
+        + (f"Detail: {detail}\n" if detail else "")
+        + f"Link: {link}\n\n"
+        "This is the operator alert — the client may not have noticed yet.\n"
+        "Open the usage page (/admin/usage) for the full picture.\n\n"
+        "— berthcast"
+    )
+
+    msg = MIMEText(body)
+    # org_name and category go into the Subject (a header), so collapse newlines
+    # to stop a crafted org name injecting extra email headers.
+    msg["Subject"] = f"berthcast alert: {_oneline(org_name)}'s analysis {_oneline(category)}"
+    msg["From"]    = sender
+    msg["To"]      = alert_to
+
+    _deliver(msg, sender, password, alert_to)
+
+
 def _send_reset_email(to_email: str, reset_url: str) -> None:
     """Send a password reset link via Gmail SMTP. Fails silently if not configured."""
     sender   = os.environ.get("MAIL_SENDER", "")

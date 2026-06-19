@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block title %}Usage — berthcast{% endblock %}
+
+{% block content %}
+<style>
+  .usage-badge {
+    display:inline-block; padding:3px 10px; border-radius:999px;
+    font-size:12px; font-weight:600; font-family:'JetBrains Mono', monospace;
+    letter-spacing:0.02em; white-space:nowrap;
+  }
+  .tone-good  { background:#e8f3ec; color:#1f7a44; }
+  .tone-warn  { background:#fbf2e0; color:#9a6a1c; }
+  .tone-bad   { background:#fbe9e9; color:#b3261e; }
+  .tone-muted { background:var(--paper-2); color:var(--muted); }
+
+  .usage-org-head {
+    display:flex; align-items:baseline; justify-content:space-between;
+    gap:12px; flex-wrap:wrap; margin-bottom:10px;
+  }
+  .usage-org-name { font-size:18px; font-weight:700; }
+  .usage-sub { color:var(--muted); font-size:13px; }
+
+  .usage-chips { display:flex; flex-wrap:wrap; gap:8px; margin:12px 0; }
+  .usage-chip {
+    font-size:12px; padding:4px 10px; border-radius:8px;
+    background:var(--paper-2); color:var(--ink); border:1px solid var(--line, #e5e7eb);
+  }
+  .usage-chip b { font-family:'JetBrains Mono', monospace; }
+  .usage-chip.is-bad  b { color:#b3261e; }
+  .usage-chip.is-warn b { color:#9a6a1c; }
+
+  .usage-proof { color:var(--muted); font-size:13px; margin-top:4px; }
+  .usage-proof b { color:var(--ink); font-family:'JetBrains Mono', monospace; }
+
+  .usage-runs { list-style:none; margin:14px 0 0; padding:0; border-top:1px solid var(--line, #eee); }
+  .usage-runs li {
+    display:flex; align-items:center; justify-content:space-between; gap:12px;
+    padding:8px 0; border-bottom:1px solid var(--line, #f0f0f0); font-size:13px;
+  }
+  .usage-runs .run-when { color:var(--muted); font-family:'JetBrains Mono', monospace; font-size:12px; }
+  .usage-runs .run-counts { color:var(--muted); font-size:12px; }
+</style>
+
+<div class="page-wrap">
+  <div class="page-header">
+    <h1>Usage</h1>
+    <p>Who's using berthcast and whether their runs are any good — last {{ days }} days.
+       Counts and health only; never a client's actual data.</p>
+  </div>
+
+  {% if not org_rows %}
+  <div class="card">
+    <p style="margin:0; color:var(--muted);">No accounts yet.</p>
+  </div>
+  {% endif %}
+
+  {% for row in org_rows %}
+  <div class="card">
+    <div class="usage-org-head">
+      <span class="usage-org-name">{{ row.org_name }}</span>
+      <span class="usage-sub">
+        Last login:
+        {% if row.last_login %}{{ row.last_login[:16] | replace("T", " ") }}{% else %}<b>never</b>{% endif %}
+      </span>
+    </div>
+
+    {# Last run outcome — the headline signal #}
+    {% if row.last_run %}
+      <div>
+        Last run:
+        <span class="usage-badge tone-{{ row.last_run.tone }}">{{ row.last_run.label }}</span>
+        <span class="usage-sub">
+          &nbsp;{{ row.last_run.created_at[:16] | replace("T", " ") }}
+          {% if row.last_run.category == 'healthy' %}· {{ row.last_run.items }} items, {{ row.last_run.recs }} recs{% endif %}
+        </span>
+      </div>
+    {% else %}
+      <div><span class="usage-badge tone-muted">Logged in, never ran an analysis</span></div>
+    {% endif %}
+
+    {# 30-day run mix #}
+    {% set s = row.summary %}
+    {% if s.total %}
+    <div class="usage-chips">
+      <span class="usage-chip">{{ s.total }} run{{ 's' if s.total != 1 else '' }}</span>
+      <span class="usage-chip"><b>{{ s.healthy }}</b> healthy</span>
+      {% if s.blank %}<span class="usage-chip is-bad"><b>{{ s.blank }}</b> blank</span>{% endif %}
+      {% if s.failed %}<span class="usage-chip is-bad"><b>{{ s.failed }}</b> failed</span>{% endif %}
+      {% if s.recs_failed %}<span class="usage-chip is-bad"><b>{{ s.recs_failed }}</b> no-recs</span>{% endif %}
+      {% if s.incomplete %}<span class="usage-chip is-warn"><b>{{ s.incomplete }}</b> incomplete</span>{% endif %}
+      {% if s.running %}<span class="usage-chip is-warn"><b>{{ s.running }}</b> running</span>{% endif %}
+    </div>
+    {% endif %}
+
+    {# Proof loop — the number that matters for the pilot #}
+    <div class="usage-proof">
+      Proof so far: <b>{{ row.proof.approved }}</b> approved ·
+      <b>{{ row.proof.orders }}</b> orders placed ·
+      <b>{{ row.proof.outcomes }}</b> outcomes recorded
+    </div>
+
+    {# Recent runs detail #}
+    {% if row.recent %}
+    <ul class="usage-runs">
+      {% for r in row.recent %}
+      <li>
+        <span class="run-when">{{ r.created_at[:16] | replace("T", " ") }}</span>
+        <span class="usage-badge tone-{{ r.tone }}">{{ r.label }}</span>
+        <span class="run-counts">{{ r.items }} items · {{ r.recs }} recs</span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}
