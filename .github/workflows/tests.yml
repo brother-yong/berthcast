@@ -1,0 +1,25 @@
+name: tests
+
+# Run the full test suite on every push and pull request, so a break is caught
+# before it can reach a deploy. Mirrors what `python run_tests.py` does locally.
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          # Match Render's PYTHON_VERSION (render.yaml) so CI runs what ships.
+          python-version: "3.11.9"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run tests
+        run: python run_tests.py
