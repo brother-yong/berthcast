@@ -211,6 +211,21 @@ _mk_run("a regional food distributor", "complete",
 _mk_run("a regional food distributor", "complete", inventory=[], recs=[])      # blank
 _mk_run("a regional food distributor", "failed")
 
+# DupCo: ONE complete analysis that ended up with TWO analysis_results rows —
+# what a double-submitted dedup form leaves behind (INSERT OR REPLACE can't
+# replace without a UNIQUE on session_id). The page must count it as ONE run.
+_mk_user("ops2@dup.com", "DupCo")               # never logs in -> sorts to the bottom
+_dup_sid = db.execute(
+    "INSERT INTO upload_sessions (user_id, org_name, status) VALUES (?,?,?)",
+    (1, "DupCo", "complete"),
+)
+for _ in range(2):
+    db.execute(
+        "INSERT INTO analysis_results (session_id, inventory_report, recommendations_json, data_notes) "
+        "VALUES (?,?,?,?)",
+        (_dup_sid, json.dumps([{"item": "X", "status": "OK"}]), json.dumps([{"item": "X"}]), json.dumps([])),
+    )
+
 client = appmod.app.test_client()
 
 # Admin signs in — this should also stamp last_login.
@@ -236,6 +251,15 @@ _check("page surfaces a failed run", "Failed" in body)
 _check("page surfaces a healthy run", "Healthy" in body)
 _check("page flags 'logged in, never ran' client",
        "DormantCo" in body and "never ran an analysis" in body)
+
+# Issue #1 fix: a session with duplicate analysis_results rows counts as ONE run.
+# Isolate DupCo's card (from its name to the next org card, or end of page).
+_start = body.find("DupCo")
+_next = body.find("usage-org-name", _start + 1)
+_dup_card = body[_start:_next] if _next != -1 else body[_start:]
+_check("duplicate result rows counted as ONE run (not two)",
+       "1 run" in _dup_card and "2 runs" not in _dup_card,
+       detail=_dup_card[:160])
 
 # A non-admin must not reach it.
 client.get("/logout")
