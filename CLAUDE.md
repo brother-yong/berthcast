@@ -63,5 +63,5 @@ At the end of every session (or when something significant happens mid-session),
 - Whenever a new task is started in a project, read context/memory to keep yourself updated
 - Feel free to play the devil's advocate and push back on ideas, but it has to always be backed up with a solution
 - Whenever a guide is given to me to commit, assume that I am using PowerShell, not Git Bash
-- Before telling me a coding task is done, run it yourself with dummy data and confirm the results are what you expect — never conclude on untested code
+- Before telling me a coding task is done, run it yourself with dummy data and confirm the results are what you expect — never conclude on untested code. Then explain why it works.
 - Never run `git add .` or `git add -A`. Stage files by name — real client data and credentials sit untracked in the working folder, and a blanket add would commit them
