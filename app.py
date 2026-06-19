@@ -1310,7 +1310,15 @@ def admin_usage():
         "SELECT us.id, us.org_name, us.status, us.created_at, "
         "       ar.inventory_report, ar.recommendations_json, ar.data_notes "
         "FROM upload_sessions us "
-        "LEFT JOIN analysis_results ar ON ar.session_id = us.id "
+        # Join only the NEWEST analysis_results row per session. analysis_results
+        # has no UNIQUE on session_id and the dedup step uses INSERT OR REPLACE,
+        # so a re-submitted dedup form can leave more than one row for a session.
+        # A plain join would then count that one analysis as multiple runs here —
+        # on the page whose entire job is truthful usage counts.
+        "LEFT JOIN analysis_results ar ON ar.id = ("
+        "    SELECT ar2.id FROM analysis_results ar2 "
+        "    WHERE ar2.session_id = us.id ORDER BY ar2.id DESC LIMIT 1"
+        ") "
         "WHERE us.created_at >= datetime('now', ?) "
         "ORDER BY us.org_name ASC, us.created_at DESC",
         (f"-{DAYS} days",)
@@ -2388,6 +2396,11 @@ def run_analysis(upload_session_id):
         def _alert_failure(category, detail=""):
             """Page the operator (ALERT_EMAIL) about a real failure. Threaded and
             best-effort, so it can never slow down or break the run itself."""
+            # The single live gate on what's worth an alert. Keeping it here (not
+            # implicit in which call-sites exist) means a future call-site for a
+            # new category can't accidentally page on something like 'refused'.
+            if not usage.should_alert(category):
+                return
             try:
                 threading.Thread(
                     target=_send_run_failure_alert,
