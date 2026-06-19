@@ -1685,7 +1685,7 @@ def delete_session(upload_session_id):
     CSRF; the dashboard asks the user to confirm before calling this."""
     _verify_session_owner(upload_session_id)
     try:
-        for _slot, table in FILE_SLOTS.items():
+        for table in FILE_SLOTS:
             try:
                 db.execute(f'DROP TABLE IF EXISTS "{table}_{upload_session_id}"')
             except Exception:
@@ -1743,7 +1743,7 @@ def upload_start():
     }
     preserved = []
     for slot, label in slot_labels.items():
-        if db.table_exists(f"{FILE_SLOTS[slot]}_{last_complete['id']}"):
+        if db.table_exists(f"{slot}_{last_complete['id']}"):
             rows_count = conv_status.get(slot, {}).get("rows", 0)
             preserved.append({
                 "slot":  slot,
@@ -1791,9 +1791,9 @@ def upload_use_previous(source_id):
 
     cloned = 0
     failed = []
-    for slot, table in FILE_SLOTS.items():
-        old_table = f"{table}_{source_id}"
-        new_table = f"{table}_{new_id}"
+    for slot in FILE_SLOTS:
+        old_table = f"{slot}_{source_id}"
+        new_table = f"{slot}_{new_id}"
         if not db.table_exists(old_table):
             continue
         try:
@@ -1821,7 +1821,7 @@ def upload_use_previous(source_id):
 
 def _purge_uploading_session(session_id):
     """Drop all tables for an uploading session and remove its row. Used before reuse."""
-    for slot, table in FILE_SLOTS.items():
+    for table in FILE_SLOTS:
         try:
             db.execute(f'DROP TABLE IF EXISTS "{table}_{session_id}"')
         except Exception:
@@ -1916,7 +1916,7 @@ def upload():
 
             # Kick off background processing
             db.set_conversion_status(upload_session_id, slot, "converting")
-            _start_processing(filepath, FILE_SLOTS[slot], upload_session_id, slot, orig_name)
+            _start_processing(filepath, slot, upload_session_id, slot, orig_name)
             return jsonify({"ok": True, "processing": True, "filename": orig_name})
 
         # ── Single-file upload path (fallback for small files) ─────────────────
@@ -1928,7 +1928,7 @@ def upload():
         filepath = os.path.join(UPLOAD_FOLDER, f"{upload_session_id}_{slot}_{secure_filename(original_name)}")
         file.save(filepath)
         db.set_conversion_status(upload_session_id, slot, "converting")
-        _start_processing(filepath, FILE_SLOTS[slot], upload_session_id, slot, original_name)
+        _start_processing(filepath, slot, upload_session_id, slot, original_name)
         return jsonify({"ok": True, "processing": True, "filename": original_name})
 
     tables    = db.get_session_tables(upload_session_id)
@@ -2009,7 +2009,7 @@ def remove_upload():
     _verify_session_owner(session_id)
     try:
         # 1. Drop the per-session table (partial or complete).
-        db.execute(f'DROP TABLE IF EXISTS "{FILE_SLOTS[slot]}_{session_id}"')
+        db.execute(f'DROP TABLE IF EXISTS "{slot}_{session_id}"')
 
         # 2. Forget this slot in conversion_status_json so a page refresh
         #    no longer shows it as "done" or "converting".
@@ -2886,173 +2886,6 @@ def export_csv(upload_session_id):
     return Response(
         buf.getvalue(),
         mimetype="text/csv",
-        headers={"Content-Disposition": f"attachment; filename={filename}"}
-    )
-
-
-@app.route("/results/<int:upload_session_id>/export.pdf")
-@login_required
-def export_pdf(upload_session_id):
-    """Download approved recommendations as a formatted PDF."""
-    if session.get("tier") == "free":
-        flash("PDF export is available on Professional and Enterprise plans.", "error")
-        return redirect(url_for("results", upload_session_id=upload_session_id))
-    import io
-    from datetime import datetime
-    from reportlab.lib.pagesizes import A4
-    from reportlab.lib.units import mm
-    from reportlab.lib import colors
-    from reportlab.platypus import (
-        SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
-    )
-    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-
-    _verify_session_owner(upload_session_id)
-    ar = db.query(
-        "SELECT recommendations_json, created_at FROM analysis_results WHERE session_id=?",
-        (upload_session_id,)
-    )
-    if not ar:
-        flash("No results found.", "error")
-        return redirect(url_for("dashboard"))
-    try:
-        recommendations = json.loads(ar[0]["recommendations_json"] or "[]")
-        generated_at = (ar[0].get("created_at") or "")[:10]
-    except Exception:
-        recommendations = []
-        generated_at = ""
-    approved = [r for r in recommendations if r.get("approved") and not r.get("error")]
-    for r in approved:
-        _normalise_confidence(r)
-    stock_map = _stock_on_hand_map(upload_session_id)
-
-    buf = io.BytesIO()
-    doc = SimpleDocTemplate(
-        buf, pagesize=A4,
-        leftMargin=18*mm, rightMargin=18*mm,
-        topMargin=18*mm, bottomMargin=18*mm,
-    )
-
-    styles = getSampleStyleSheet()
-    BRASS  = colors.HexColor("#c8924c")
-    NAVY   = colors.HexColor("#0f1b2d")
-    LIGHT  = colors.HexColor("#f9fafb")
-    BORDER = colors.HexColor("#e5e7eb")
-    MUTED  = colors.HexColor("#6b7280")
-
-    title_style = ParagraphStyle(
-        "Title", fontName="Helvetica-Bold", fontSize=18,
-        textColor=NAVY, spaceAfter=2
-    )
-    sub_style = ParagraphStyle(
-        "Sub", fontName="Helvetica", fontSize=10,
-        textColor=MUTED, spaceAfter=12
-    )
-    cell_style = ParagraphStyle(
-        "Cell", fontName="Helvetica", fontSize=9,
-        textColor=NAVY, leading=12
-    )
-    cell_muted = ParagraphStyle(
-        "CellMuted", fontName="Helvetica", fontSize=8,
-        textColor=MUTED, leading=11
-    )
-
-    today = datetime.utcnow().strftime("%d %b %Y")
-    story = [
-        Paragraph("berthcast — Purchase Order Sheet", title_style),
-        Paragraph(
-            f"{session['org_name']}  ·  Prepared: {today}  ·  "
-            f"Analysis date: {generated_at}  ·  {len(approved)} item(s) approved",
-            sub_style
-        ),
-        Spacer(1, 4*mm),
-    ]
-
-    if approved:
-        from xml.sax.saxutils import escape as _esc  # keep item/supplier names with & or < from breaking the PDF
-        # Same columns and labels as the printed sheet and the CSV, so all three match.
-        header = ["#", "Item", "On hand", "Qty to order", "Supplier", "Order by",
-                  "Current stock lasts", "This order lasts", "Note"]
-        rows = [header]
-        for i, r in enumerate(approved, 1):
-            dos = r.get("days_of_supply")
-            stock_lasts = f"~{round(dos/30,1)} mo" if dos else "—"
-            covers = _order_covers_months(r)
-            order_lasts = f"~{covers} mo" if covers else "—"
-            note = r.get("note", "")
-            note_cell = Paragraph(_esc(str(note)), cell_style) if note else Paragraph("—", cell_muted)
-
-            on_hand = stock_map.get(str(r.get("item", "")).strip())
-            on_hand_str = "—" if on_hand in (None, "") else _esc(str(on_hand))
-
-            eff_qty = _effective_qty(r) or "—"
-            sug_qty = r.get("suggested_quantity", "")
-            qty_html = _esc(str(eff_qty))
-            if str(eff_qty).strip() and str(sug_qty).strip() and str(eff_qty) != str(sug_qty):
-                qty_html = (
-                    f"<b>{_esc(str(eff_qty))}</b><br/>"
-                    f"<font color='#9ca3af' size='7'>AI: {_esc(str(sug_qty))}</font>"
-                )
-
-            ob = _compute_order_by(r)
-            if ob.get("status") == "overdue":
-                order_by_cell = Paragraph("<b><font color='#b91c1c'>ASAP</font></b>", cell_style)
-            else:
-                order_by_cell = Paragraph(_esc(ob.get("order_by_date") or "—"), cell_style)
-
-            rows.append([
-                str(i),
-                Paragraph(f"<b>{_esc(str(r.get('item','')))}</b>", cell_style),
-                Paragraph(on_hand_str, cell_style),
-                Paragraph(qty_html, cell_style),
-                Paragraph(_esc(str(_effective_supplier(r))), cell_style),
-                order_by_cell,
-                stock_lasts,
-                order_lasts,
-                note_cell,
-            ])
-
-        col_widths = [6*mm, 28*mm, 15*mm, 19*mm, 26*mm, 17*mm, 16*mm, 16*mm, None]
-        tbl = Table(rows, colWidths=col_widths, repeatRows=1)
-        tbl.setStyle(TableStyle([
-            # Header row
-            ("BACKGROUND",   (0,0), (-1,0), BRASS),
-            ("TEXTCOLOR",    (0,0), (-1,0), colors.white),
-            ("FONTNAME",     (0,0), (-1,0), "Helvetica-Bold"),
-            ("FONTSIZE",     (0,0), (-1,0), 8),
-            ("TOPPADDING",   (0,0), (-1,0), 6),
-            ("BOTTOMPADDING",(0,0), (-1,0), 6),
-            # Body rows
-            ("FONTNAME",     (0,1), (-1,-1), "Helvetica"),
-            ("FONTSIZE",     (0,1), (-1,-1), 9),
-            ("TOPPADDING",   (0,1), (-1,-1), 6),
-            ("BOTTOMPADDING",(0,1), (-1,-1), 6),
-            ("ROWBACKGROUNDS",(0,1), (-1,-1), [colors.white, LIGHT]),
-            ("GRID",         (0,0), (-1,-1), 0.5, BORDER),
-            ("VALIGN",       (0,0), (-1,-1), "TOP"),
-            ("ALIGN",        (0,0), (0,-1), "CENTER"),
-        ]))
-        story.append(tbl)
-    else:
-        story.append(Paragraph(
-            "No approved orders to export. Go back and approve recommendations first.",
-            sub_style
-        ))
-
-    story.append(Spacer(1, 8*mm))
-    story.append(Paragraph(
-        "Generated by berthcast · For internal purchasing use only",
-        ParagraphStyle("Footer", fontName="Helvetica", fontSize=8, textColor=MUTED)
-    ))
-
-    doc.build(story)
-    buf.seek(0)
-
-    org_slug = session["org_name"].replace(" ", "_").lower()
-    filename = f"berthcast_orders_{org_slug}_{upload_session_id}.pdf"
-    return Response(
-        buf.read(),
-        mimetype="application/pdf",
         headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
 

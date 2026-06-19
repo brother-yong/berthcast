@@ -123,24 +123,6 @@ _check("CSV order-coverage value present", "3.3" in csv_body)
 _check("CSV does NOT leak AI reasoning", "SECRET_REASON_TEXT" not in csv_body)
 
 
-# ── 3. PDF export (builds without error) ─────────────────────────────────────
-# reportlab is a real dependency (requirements.txt) but may be absent locally;
-# skip the PDF assertion when it isn't installed rather than fail the suite.
-try:
-    import reportlab  # noqa: F401
-    _have_reportlab = True
-except ImportError:
-    _have_reportlab = False
-    print("skip: reportlab not installed locally — PDF export not exercised here")
-
-if _have_reportlab:
-    r = client.get(f"/results/{sid}/export.pdf")
-    _check("PDF returns 200", r.status_code == 200, detail=str(r.status_code))
-    _check("PDF is a non-empty application/pdf",
-           r.mimetype == "application/pdf" and len(r.get_data()) > 500,
-           detail=f"{r.mimetype}, {len(r.get_data())} bytes")
-
-
 if _FAILED:
     print("\nSOME TESTS FAILED")
     sys.exit(1)
