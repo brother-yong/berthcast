@@ -212,6 +212,9 @@ def init_db():
         "ALTER TABLE users ADD COLUMN chat_messages_used INTEGER NOT NULL DEFAULT 0",
         # Role column: admin / reviewer / viewer. Existing users default to admin.
         "ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'admin'",
+        # When this user last signed in — powers the operator usage page so we
+        # can see "logged in but never ran anything". NULL = never recorded yet.
+        "ALTER TABLE users ADD COLUMN last_login TIMESTAMP",
         # Org-scoped chat: add org_name to chat_conversations so all org members share them.
         "ALTER TABLE chat_conversations ADD COLUMN org_name TEXT",
         """CREATE TABLE IF NOT EXISTS email_verification_tokens (
