@@ -104,7 +104,9 @@
   width: 10px; height: 10px; border-radius: 50%;
   background: var(--brass);
   box-shadow: 0 0 0 0 rgba(200,146,76,0.6);
-  animation: pulseDot 1.4s ease-out infinite;
+  /* One calm "alive" pulse for the whole page. Slowed from 1.4s so it
+     breathes rather than throbs; the running agent's dot stays steady. */
+  animation: pulseDot 2.4s ease-out infinite;
 }
 .overall-dot.done  { background: var(--success); animation: none; }
 .overall-dot.error { background: var(--danger);  animation: none; }
@@ -189,7 +191,7 @@
   background: var(--muted);
 }
 .status-running .agent-status-pill { background: rgba(200,146,76,0.1); border-color: rgba(200,146,76,0.3); color: var(--brass-3); }
-.status-running .agent-status-dot  { background: var(--brass); animation: pulseDot 1.4s ease-out infinite; }
+.status-running .agent-status-dot  { background: var(--brass); }
 .status-done    .agent-status-pill { background: rgba(45,106,79,0.08); border-color: rgba(45,106,79,0.25); color: var(--success); }
 .status-done    .agent-status-dot  { background: var(--success); }
 .status-error   .agent-status-pill { background: rgba(192,57,43,0.1); border-color: rgba(192,57,43,0.3); color: var(--danger); }
@@ -233,15 +235,6 @@
 .agent-log-time   { color: var(--muted); flex-shrink: 0; min-width: 44px; }
 .agent-log-arrow  { color: var(--brass); flex-shrink: 0; }
 .agent-log-msg    { flex: 1; word-break: break-word; }
-.agent-log-cursor {
-  display: inline-block;
-  width: 7px; height: 13px;
-  background: var(--brass);
-  margin-left: 4px;
-  animation: blink 1s steps(2) infinite;
-  vertical-align: middle;
-}
-@keyframes blink { 50% { opacity: 0; } }
 </style>
 
 <script>
@@ -304,8 +297,6 @@ function setSummary(name, text) {
 function appendLogLine(name, t, msg) {
   const log = document.getElementById('log-' + name);
   if (!log) return;
-  // Remove any existing cursor before adding new line
-  log.querySelectorAll('.agent-log-cursor').forEach(c => c.remove());
 
   const line = document.createElement('div');
   line.className = 'agent-log-line';
@@ -314,11 +305,6 @@ function appendLogLine(name, t, msg) {
     '<span class="agent-log-arrow">→</span>' +
     '<span class="agent-log-msg">' + escapeHtml(msg) + '</span>';
   log.appendChild(line);
-
-  // Add cursor to the latest line
-  const cursor = document.createElement('span');
-  cursor.className = 'agent-log-cursor';
-  line.querySelector('.agent-log-msg').appendChild(cursor);
 
   log.scrollTop = log.scrollHeight;
 }
@@ -335,7 +321,7 @@ setInterval(() => {
       setElapsed(name, elapsed - st.startedAt);
     }
   }
-}, 250);
+}, 1000);
 
 // ── Polling ─────────────────────────────────────────────────────────────────
 async function poll() {
