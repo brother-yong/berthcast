@@ -4,866 +4,403 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>berthcast — Inventory intelligence for food distributors</title>
-  <meta name="description" content="berthcast reads your inventory, purchase, and sales exports, flags what's about to stock out, and tells you exactly what to reorder — before it costs you a sale.">
+  <meta name="description" content="berthcast reads your inventory, purchase, and sales exports, flags what's about to stock out, and writes the order you should place — before it costs you a sale.">
   <link rel="canonical" href="https://berthcast.com/">
   <link rel="icon" type="image/png" href="{{ url_for('static', filename='logo-icon.png') }}">
 
-  <!-- Link preview card (WhatsApp, LinkedIn, iMessage, Slack, etc.) -->
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="berthcast">
   <meta property="og:title" content="berthcast — Inventory intelligence for food distributors">
-  <meta property="og:description" content="Stop losing revenue to stockouts you could have seen coming. berthcast flags what's going critical and tells you exactly what to reorder.">
+  <meta property="og:description" content="Stop losing revenue to stockouts you could have seen coming. berthcast flags what's going critical and writes the order you should place.">
   <meta property="og:url" content="https://berthcast.com/">
   <meta property="og:image" content="https://berthcast.com/static/logo.png">
   <meta name="twitter:card" content="summary">
   <meta name="twitter:title" content="berthcast — Inventory intelligence for food distributors">
-  <meta name="twitter:description" content="Stop losing revenue to stockouts you could have seen coming. berthcast flags what's going critical and tells you exactly what to reorder.">
+  <meta name="twitter:description" content="Stop losing revenue to stockouts you could have seen coming. berthcast flags what's going critical and writes the order you should place.">
   <meta name="twitter:image" content="https://berthcast.com/static/logo.png">
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Inter+Tight:wght@500;600;700;800&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
   <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root{
+    --green-deep:#05140A; --green-900:#081C0F; --green-800:#0D2818; --green-700:#12351F;
+    --gold:#C9A227; --gold-light:#DcBE63;
+    --ivory:#F3EFDF; --ivory-dim:rgba(243,239,223,.66); --ivory-faint:rgba(243,239,223,.42);
+    --moss:#8FBC8F; --crit:#E89A92;
+    --gold-line:rgba(201,162,39,.22); --hair:rgba(243,239,223,.12);
+    --serif:'Cormorant Garamond', Georgia, serif;
+    --sans:'Inter', system-ui, sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{ background:var(--green-deep); color:var(--ivory); font-family:var(--sans); font-weight:400;
+        line-height:1.6; -webkit-font-smoothing:antialiased; position:relative; overflow-x:hidden; font-size:16px; }
+  img{max-width:100%;display:block}
+  body::before{ content:''; position:fixed; inset:0; pointer-events:none; z-index:0;
+    background:
+      radial-gradient(ellipse at 82% 4%, rgba(201,162,39,.10), transparent 50%),
+      radial-gradient(ellipse at 10% 88%, rgba(26,77,46,.28), transparent 55%); }
+  body::after{ content:''; position:fixed; inset:0; pointer-events:none; z-index:0; opacity:.018;
+    background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
 
-    :root {
-      --navy-900: #0B1424;
-      --navy-800: #0F1B2D;
-      --navy-700: #1B2B4A;
-      --navy-600: #243B66;
-      --brass:    #C89B5C;
-      --brass-2:  #E2B97A;
-      --brass-3:  #8B6B3D;
-      --paper:    #FAF8F3;
-      --paper-2:  #F3EFE3;
-      --surface:  #FFFFFF;
-      --border:   #E5DFCF;
-      --muted:    #6B7280;
-      --text:     #0F1B2D;
-      --success:  #2D6A4F;
-      --warning:  #B85C00;
-      --danger:   #8B2C2C;
-      --font-body:    'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-      --font-display: 'Inter Tight', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-      --font-serif:   'Instrument Serif', Georgia, 'Times New Roman', serif;
-      --font-mono:    'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
-      --ease-out:     cubic-bezier(0.23, 1, 0.32, 1);
-      --ease-in-out:  cubic-bezier(0.77, 0, 0.175, 1);
-    }
+  .wrap{ position:relative; z-index:2; max-width:1180px; margin:0 auto; padding-left:40px; padding-right:40px; }
+  .running-head{ position:relative; z-index:3; max-width:1180px; margin:0 auto; display:flex; justify-content:space-between;
+                 padding:16px 40px 0; font-family:var(--sans); font-size:10px; font-weight:500; letter-spacing:.16em;
+                 text-transform:uppercase; color:var(--ivory-faint); }
+  .running-head .g{ color:var(--gold); }
 
-    html { scroll-behavior: smooth; }
+  .eyebrow{ font-family:var(--sans); font-size:11.5px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
+            color:var(--gold); display:flex; align-items:center; gap:14px; }
+  .eyebrow::before{ content:''; width:30px; height:1px; background:var(--gold); }
+  .eyebrow.center{ justify-content:center; } .eyebrow.center::before{ display:none; }
+  h2.sec-title{ font-family:var(--serif); font-weight:600; font-size:clamp(34px,4.4vw,52px); line-height:1.04;
+                letter-spacing:-.005em; color:var(--ivory); margin-top:16px; }
+  h2.sec-title em{ font-style:normal; color:var(--gold); }
 
-    body {
-      font-family: var(--font-body);
-      background: var(--paper);
-      color: var(--text);
-      font-size: 16px;
-      line-height: 1.6;
-      -webkit-font-smoothing: antialiased;
-      overflow-x: hidden;
-    }
+  /* nav */
+  nav{ position:relative; z-index:3; max-width:1180px; margin:0 auto; padding:14px 40px;
+       display:flex; align-items:center; justify-content:space-between; }
+  .brand{ display:inline-flex; align-items:center; text-decoration:none; }
+  .brand img{ height:44px; width:auto; }
+  .nav-right{ display:flex; align-items:center; gap:6px; }
+  .nav-link{ font-family:var(--sans); font-size:13px; color:var(--ivory-dim); text-decoration:none; padding:8px 14px; transition:color .2s; }
+  .nav-link:hover{ color:var(--gold); }
+  .btn{ font-family:var(--sans); font-weight:600; text-decoration:none; cursor:pointer; border-radius:9px;
+        display:inline-flex; align-items:center; gap:8px; border:1px solid transparent; transition:all .2s; }
+  .btn-nav{ background:transparent; color:var(--ivory); font-size:13px; padding:9px 16px; border-color:var(--gold-line); }
+  .btn-nav:hover{ border-color:var(--gold); color:var(--gold); }
+  .btn-primary{ background:var(--gold); color:var(--green-deep); font-size:15px; padding:14px 26px; }
+  .btn-primary:hover{ background:var(--gold-light); }
+  .btn-secondary{ background:transparent; color:var(--ivory); font-size:15px; padding:14px 22px; border-color:var(--gold-line); }
+  .btn-secondary:hover{ border-color:var(--gold); }
 
-    h1 em, h2 em {
-      font-style: normal;
-      font-weight: inherit;
-      color: var(--brass-3);
-    }
+  /* hero */
+  .hero{ position:relative; z-index:2; max-width:1180px; margin:0 auto; padding:46px 40px 60px;
+         display:grid; grid-template-columns:1.05fr .95fr; gap:60px; align-items:center; }
+  .hero .eyebrow{ margin-bottom:24px; }
+  h1.hero-title{ font-family:var(--serif); font-weight:600; font-size:clamp(44px,5.4vw,72px); line-height:1.0; color:var(--ivory); }
+  h1.hero-title em{ font-style:normal; font-weight:600; color:var(--gold); }
+  .hero-sub{ font-size:17px; color:var(--ivory-dim); line-height:1.62; margin-top:24px; max-width:30em; }
+  .hero-ctas{ display:flex; gap:14px; flex-wrap:wrap; margin-top:30px; }
+  .hero-note{ display:flex; align-items:center; gap:9px; margin-top:20px; font-size:13px; color:var(--ivory-dim); }
+  .hero-note .tick{ color:var(--moss); }
 
-    .eyebrow {
-      font-family: var(--font-mono);
-      font-size: 12px;
-      font-weight: 500;
-      letter-spacing: 0.16em;
-      text-transform: uppercase;
-      color: var(--brass-3);
-    }
+  .snap{ background:linear-gradient(180deg, var(--green-800), var(--green-900)); border:1px solid var(--gold-line);
+         border-radius:8px; overflow:hidden; box-shadow:0 40px 90px -30px rgba(0,0,0,.7); }
+  .snap-head{ display:flex; justify-content:space-between; align-items:baseline; padding:14px 22px; border-bottom:1px solid var(--hair);
+              font-family:var(--sans); font-size:10px; font-weight:500; letter-spacing:.14em; text-transform:uppercase; color:var(--ivory-faint); }
+  .snap-head .g{ color:var(--gold); }
+  .snap-body{ padding:22px 24px 24px; }
+  .snap-title{ font-family:var(--serif); font-weight:600; font-size:25px; color:var(--ivory); line-height:1.05; }
+  .snap-rule{ height:1px; background:var(--gold-line); margin:14px 0 8px; position:relative; }
+  .snap-rule::before{ content:''; position:absolute; left:0; top:0; width:46px; height:1px; background:var(--gold); }
+  .row{ display:flex; align-items:center; gap:14px; padding:14px 0; border-bottom:1px solid var(--hair); }
+  .row:last-child{ border-bottom:none; }
+  .dot{ width:7px; height:7px; border-radius:50%; flex-shrink:0; }
+  .dot.c{ background:var(--crit); } .dot.l{ background:var(--gold); } .dot.h{ background:var(--moss); }
+  .nm{ flex:1; } .nm b{ font-family:var(--sans); font-weight:500; font-size:14px; color:var(--ivory); display:block; }
+  .nm span{ font-family:var(--sans); font-size:12px; color:var(--ivory-faint); }
+  .st{ font-family:var(--sans); font-size:10px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; }
+  .st.c{ color:var(--crit); } .st.l{ color:var(--gold); } .st.h{ color:var(--moss); }
+  .qty{ font-family:var(--sans); font-weight:600; font-size:15px; color:var(--ivory); text-align:right; min-width:70px; font-variant-numeric:tabular-nums; }
+  .qty span{ font-size:11px; color:var(--ivory-faint); }
+  .snap-foot{ display:flex; justify-content:space-between; margin-top:16px; padding-top:14px; border-top:1px solid var(--hair);
+              font-family:var(--sans); font-size:11px; font-weight:500; letter-spacing:.04em; color:var(--ivory-faint); }
+  .snap-foot .g{ color:var(--crit); }
 
-    /* ── Scroll reveal (subtle, Emil) ── */
-    .reveal {
-      opacity: 0;
-      transform: translateY(14px) scale(0.985);
-      transition: opacity 520ms var(--ease-out), transform 520ms var(--ease-out);
-      will-change: transform, opacity;
-    }
-    .reveal.in { opacity: 1; transform: none; }
+  /* figures strip */
+  .strip{ position:relative; z-index:2; border-top:1px solid var(--hair); border-bottom:1px solid var(--hair); background:rgba(13,40,24,.4); }
+  .strip-inner{ max-width:1180px; margin:0 auto; padding:22px 40px; display:flex; gap:48px; align-items:baseline; flex-wrap:wrap; }
+  .si{ display:flex; align-items:baseline; gap:12px; }
+  .si .n{ font-family:var(--serif); font-weight:600; font-size:30px; color:var(--gold); line-height:1; font-variant-numeric:tabular-nums; }
+  .si .t{ font-size:13px; color:var(--ivory-dim); max-width:17em; }
+  .strip .folio{ font-family:var(--sans); font-size:10px; font-weight:500; letter-spacing:.16em; text-transform:uppercase; color:var(--ivory-faint); margin-left:auto; }
 
-    /* ── Nav ── */
-    .nav {
-      position: sticky; top: 0; z-index: 100;
-      background: rgba(250, 248, 243, 0.82);
-      backdrop-filter: blur(20px) saturate(180%);
-      -webkit-backdrop-filter: blur(20px) saturate(180%);
-      border-bottom: 1px solid rgba(229, 223, 207, 0.7);
-      padding: 0 40px; height: 68px;
-      display: flex; align-items: center; justify-content: space-between;
-    }
-    .brand { display: inline-flex; align-items: center; text-decoration: none; }
-    .brand img { height: 46px; width: auto; display: block; }
-    .brand-text { font-family: var(--font-display); font-weight: 800; font-size: 22px; letter-spacing: -0.02em; }
-    .brand-text b { color: var(--navy-900); font-weight: 800; }
-    .brand-text i { color: var(--brass-3); font-style: normal; }
-    .nav-right { display: flex; align-items: center; gap: 10px; }
-    .nav-link {
-      color: var(--muted); text-decoration: none; font-size: 14px; font-weight: 500;
-      padding: 8px 14px; border-radius: 8px;
-      transition: color 180ms, background 180ms;
-    }
-    .nav-link:hover { color: var(--text); background: rgba(15,27,45,0.05); }
-    .btn {
-      display: inline-flex; align-items: center; gap: 8px;
-      font-weight: 600; text-decoration: none; cursor: pointer;
-      border: none; border-radius: 11px;
-      transition: background 180ms, transform 160ms var(--ease-out), box-shadow 180ms, border-color 180ms;
-    }
-    .btn:active { transform: scale(0.97); }
-    .btn-nav { background: var(--navy-800); color: #fff; font-size: 14px; padding: 9px 18px; }
-    .btn-nav:hover { background: var(--navy-700); }
-    .btn-primary {
-      background: var(--navy-800); color: #fff; font-size: 15px; padding: 13px 26px;
-      box-shadow: 0 4px 16px rgba(15,27,45,0.18);
-    }
-    .btn-primary:hover { background: var(--navy-700); box-shadow: 0 8px 24px rgba(15,27,45,0.24); }
-    .btn-secondary {
-      background: #fff; color: var(--navy-800); font-size: 15px; padding: 13px 22px;
-      border: 1.5px solid var(--border);
-    }
-    .btn-secondary:hover { border-color: var(--brass); }
-    @media (hover: hover) and (pointer: fine) {
-      .btn-primary:hover { transform: translateY(-2px); }
-      .btn-secondary:hover { transform: translateY(-1px); }
-    }
+  /* problem */
+  .problem{ padding:96px 0; }
+  .problem-grid{ display:grid; grid-template-columns:1fr .82fr; gap:64px; align-items:center; }
+  .problem p{ font-size:16.5px; color:var(--ivory-dim); line-height:1.7; margin-top:16px; }
+  .problem p strong{ color:var(--ivory); font-weight:500; }
+  .pullquote{ font-family:var(--serif); font-style:italic; font-size:clamp(1.5rem,2.6vw,2.1rem); line-height:1.3;
+              color:var(--gold); padding-left:26px; border-left:1px solid var(--gold); }
 
-    .wrap { max-width: 1120px; margin: 0 auto; padding-left: 40px; padding-right: 40px; }
+  /* sections */
+  .section-head{ text-align:center; max-width:640px; margin:0 auto 56px; }
+  .section-head .eyebrow{ margin-bottom:14px; }
+  .section-head p{ font-size:16px; color:var(--ivory-dim); margin-top:14px; }
+  .how{ padding:90px 0; border-top:1px solid var(--hair); }
+  .how-steps{ display:grid; grid-template-columns:repeat(3,1fr); gap:36px; }
+  .step__n{ font-family:var(--serif); font-weight:600; font-size:54px; color:var(--gold); line-height:1; }
+  .step h3{ font-family:var(--serif); font-weight:600; font-size:24px; color:var(--ivory); margin:14px 0 8px; }
+  .step p{ font-size:14px; color:var(--ivory-dim); line-height:1.6; }
+  .step__rule{ width:40px; height:1px; background:var(--gold-line); margin:18px 0; }
 
-    /* ── Hero ── */
-    .hero {
-      max-width: 1120px; margin: 0 auto; padding: clamp(72px, 8vw, 104px) 40px 80px;
-      display: grid; grid-template-columns: 1.05fr 1fr; gap: 56px; align-items: center;
-      position: relative;
-    }
-    .hero-copy { max-width: 520px; }
-    /* Static brass wash behind the hero visual — depth without motion */
-    .hero::before {
-      content: '';
-      position: absolute;
-      top: -60px; right: -140px;
-      width: 580px; height: 580px;
-      background: radial-gradient(circle, rgba(200,155,92,0.16), transparent 62%);
-      pointer-events: none;
-    }
-    /* FT-style double rule above the kicker — the editorial signature */
-    .hero-rule {
-      width: 56px;
-      border-top: 2px solid var(--brass);
-      border-bottom: 1px solid var(--border);
-      height: 7px;
-      margin-bottom: 22px;
-    }
-    .hero-label {
-      display: inline-flex; align-items: center; gap: 8px;
-      background: rgba(200, 155, 92, 0.12); border: 1px solid rgba(200, 155, 92, 0.3);
-      color: var(--brass-3); font-family: var(--font-mono); font-size: 11.5px; font-weight: 500;
-      letter-spacing: 0.12em; text-transform: uppercase;
-      padding: 5px 12px; border-radius: 100px; margin-bottom: 22px;
-    }
-    .hero-label-dot { width: 6px; height: 6px; background: var(--brass); border-radius: 50%; animation: pulse 2.4s infinite; }
-    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.35} }
-    .hero h1 {
-      font-family: var(--font-display); font-size: clamp(30px, 3.4vw, 42px); line-height: 1.12;
-      color: var(--navy-900); letter-spacing: -0.018em; margin-bottom: 20px;
-    }
-    .hero-sub { font-size: 17px; color: var(--muted); line-height: 1.62; margin-bottom: 30px; max-width: 440px; }
-    .hero-ctas { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
-    .hero-note { margin-top: 18px; font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 7px; }
-    .hero-note svg { color: var(--success); flex-shrink: 0; }
+  .features{ padding:90px 0; border-top:1px solid var(--hair); }
+  .feat-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:18px; }
+  .feat{ background:rgba(13,40,24,.45); border:1px solid var(--gold-line); border-radius:10px; padding:26px; }
+  .feat-ic{ width:42px; height:42px; border:1px solid var(--gold-line); border-radius:9px; display:flex; align-items:center; justify-content:center; color:var(--gold); margin-bottom:16px; }
+  .feat h3{ font-family:var(--serif); font-weight:600; font-size:21px; color:var(--ivory); margin-bottom:7px; }
+  .feat p{ font-size:13.5px; color:var(--ivory-dim); line-height:1.6; }
 
-    .hero-visual { position: relative; }
-    /* ── Hero loop demo: replays the real product flow on a light card ── */
-    .loopdemo { background: #fff; border: 1px solid var(--border); border-radius: 18px; overflow: hidden; box-shadow: 0 30px 80px rgba(11,20,36,0.18), 0 4px 16px rgba(11,20,36,0.08); animation: loopIn 760ms var(--ease-out) 140ms both; }
-    @keyframes loopIn { from { opacity: 0; transform: translateY(20px) scale(0.985); } }
-    .loop-head { display: flex; align-items: center; gap: 10px; background: var(--navy-800); padding: 12px 18px; position: relative; }
-    .loop-head::after { content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 1px; background: linear-gradient(90deg, transparent, var(--brass), transparent); opacity: 0.6; }
-    .loop-title { font-family: var(--font-mono); font-size: 11px; font-weight: 500; letter-spacing: 0.14em; text-transform: uppercase; color: var(--brass-2); }
-    .loop-tag { margin-left: auto; font-family: var(--font-serif); font-size: 14px; color: rgba(255,255,255,0.42); }
-    .loop-stage { position: relative; height: 332px; }
-    .scene { position: absolute; inset: 0; padding: 24px 26px; opacity: 0; transform: translateY(8px); transition: opacity 420ms var(--ease-out), transform 420ms var(--ease-out); pointer-events: none; }
-    .scene.on { opacity: 1; transform: none; }
-    .scene-label { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); margin-bottom: 15px; }
-    /* scene 1: upload */
-    .file-chip { display: flex; align-items: center; gap: 9px; background: var(--paper); border: 1px solid var(--border); border-radius: 10px; padding: 11px 14px; font-family: var(--font-mono); font-size: 12.5px; color: var(--navy-800); margin-bottom: 9px; opacity: 0; transform: translateY(8px); transition: opacity 380ms var(--ease-out), transform 380ms var(--ease-out); }
-    .file-chip svg { color: var(--brass-3); flex-shrink: 0; }
-    .chip-kb { margin-left: auto; font-size: 11px; color: var(--muted); }
-    .scene.on .file-chip { opacity: 1; transform: none; }
-    .scene.on .fc-2 { transition-delay: 150ms; }
-    .scene.on .fc-3 { transition-delay: 300ms; }
-    .upload-track { height: 6px; background: var(--paper-2); border-radius: 100px; margin-top: 18px; overflow: hidden; }
-    .upload-fill { height: 100%; width: 0; background: var(--brass); border-radius: 100px; transition: width 1500ms var(--ease-out) 600ms; }
-    .scene.on .upload-fill { width: 100%; }
-    .upload-note { margin-top: 11px; font-size: 12.5px; color: var(--muted); }
-    /* scene 2: agents */
-    .agent-row { display: flex; align-items: center; gap: 11px; padding: 12px 14px; background: var(--paper); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 9px; font-size: 13.5px; font-weight: 500; color: var(--navy-900); opacity: 0; transform: translateY(8px); transition: opacity 380ms var(--ease-out), transform 380ms var(--ease-out); }
-    .scene.on .agent-row { opacity: 1; transform: none; }
-    .scene.on .ar-2 { transition-delay: 650ms; }
-    .scene.on .ar-3 { transition-delay: 1300ms; }
-    .agent-ic { position: relative; width: 16px; height: 16px; flex-shrink: 0; }
-    .spin { position: absolute; inset: 1px; border: 2px solid var(--paper-2); border-top-color: var(--brass); border-radius: 50%; animation: rot 800ms linear infinite paused; transition: opacity 200ms; }
-    .scene.on .spin { animation-play-state: running; }
-    @keyframes rot { to { transform: rotate(360deg); } }
-    .tick { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--success); opacity: 0; transition: opacity 220ms; }
-    .scene.on .ar-1 .tick { opacity: 1; transition-delay: 1150ms; } .scene.on .ar-1 .spin { opacity: 0; transition-delay: 1150ms; }
-    .scene.on .ar-2 .tick { opacity: 1; transition-delay: 1850ms; } .scene.on .ar-2 .spin { opacity: 0; transition-delay: 1850ms; }
-    .scene.on .ar-3 .tick { opacity: 1; transition-delay: 2550ms; } .scene.on .ar-3 .spin { opacity: 0; transition-delay: 2550ms; }
-    /* scene 3: ranked table */
-    .mini-head { display: grid; grid-template-columns: 1fr auto 70px; gap: 12px; padding: 0 14px 8px; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
-    .mini-head span:last-child, .mini-days { text-align: right; }
-    .mini-row { display: grid; grid-template-columns: 1fr auto 70px; gap: 12px; align-items: center; padding: 10px 14px; background: var(--paper); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 8px; font-size: 13px; font-weight: 500; color: var(--navy-900); opacity: 0; transform: translateY(8px); transition: opacity 380ms var(--ease-out), transform 380ms var(--ease-out); }
-    .scene.on .mini-row { opacity: 1; transform: none; }
-    .scene.on .mr-2 { transition-delay: 140ms; }
-    .scene.on .mr-3 { transition-delay: 280ms; }
-    .scene.on .mr-4 { transition-delay: 420ms; }
-    .mini-days { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
-    /* scene 4: drafted order */
-    .order-card { background: var(--paper); border: 1px solid var(--border); border-radius: 14px; padding: 18px; }
-    .order-top { display: flex; align-items: center; gap: 14px; opacity: 0; transform: translateY(8px); transition: opacity 380ms var(--ease-out), transform 380ms var(--ease-out); }
-    .scene.on .order-top { opacity: 1; transform: none; }
-    .ringlet { width: 46px; height: 46px; border: 3px solid var(--brass); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-family: var(--font-mono); font-size: 8px; font-weight: 600; letter-spacing: 0.04em; color: var(--brass-3); flex-shrink: 0; }
-    .order-item { font-size: 15px; font-weight: 600; color: var(--navy-900); }
-    .order-meta { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
-    .order-qty { display: flex; align-items: center; justify-content: space-between; background: #fff; border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; margin: 14px 0; opacity: 0; transform: translateY(8px); transition: opacity 380ms var(--ease-out), transform 380ms var(--ease-out); }
-    .scene.on .order-qty { opacity: 1; transform: none; transition-delay: 400ms; }
-    .oq-label { font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
-    .oq-val { font-family: var(--font-mono); font-size: 15px; font-weight: 700; color: var(--navy-900); }
-    .order-btn { position: relative; background: var(--navy-900); color: #fff; border-radius: 100px; padding: 11px 16px; font-size: 13px; font-weight: 600; text-align: center; opacity: 0; transform: translateY(8px); transition: opacity 380ms var(--ease-out), transform 380ms var(--ease-out), background 280ms var(--ease-out); }
-    .scene.on .order-btn { opacity: 1; transform: none; background-color: var(--success); transition: opacity 380ms var(--ease-out) 800ms, transform 380ms var(--ease-out) 800ms, background-color 280ms var(--ease-out) 2000ms; }
-    .ob-done { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity 260ms var(--ease-out); }
-    .scene.on .ob-done { opacity: 1; transition-delay: 2000ms; }
-    .ob-default { transition: opacity 200ms; }
-    .scene.on .ob-default { opacity: 0; transition-delay: 2000ms; }
-    /* step strip */
-    .loop-steps { display: flex; gap: 6px; padding: 11px 16px; border-top: 1px solid var(--border); background: var(--paper); }
-    .loop-step { flex: 1; text-align: center; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); padding: 6px 0; border-radius: 8px; transition: color 200ms, background 200ms; }
-    .loop-step.on { color: var(--brass-3); background: rgba(200,155,92,0.12); }
-    .badge { display: inline-flex; align-items: center; gap: 5px; font-family: var(--font-mono); font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; padding: 4px 9px; border-radius: 100px; }
-    .badge.ok { background: rgba(45,106,79,0.1); color: var(--success); }
-    .badge.warn { background: rgba(184,92,0,0.1); color: var(--warning); }
-    .badge.danger { background: rgba(139,44,44,0.1); color: var(--danger); }
+  /* interactive demo */
+  .demo{ padding:90px 0; border-top:1px solid var(--hair); }
+  .demo-grid{ display:grid; grid-template-columns:1fr 1fr; gap:24px; align-items:stretch; }
+  .panel{ background:rgba(13,40,24,.5); border:1px solid var(--gold-line); border-radius:10px; padding:28px; }
+  .panel.read{ background:linear-gradient(180deg, var(--green-800), var(--green-900)); }
+  .panel-tag{ font-family:var(--sans); font-size:10px; font-weight:500; letter-spacing:.14em; text-transform:uppercase; color:var(--ivory-faint); margin-bottom:18px; }
+  .sku-name{ font-family:var(--serif); font-weight:600; font-size:24px; color:var(--ivory); }
+  .sku-meta{ font-family:var(--sans); font-size:12px; color:var(--ivory-faint); margin-top:4px; }
+  .sku-facts{ display:flex; gap:26px; margin-top:22px; }
+  .sku-fact .l{ font-size:10px; letter-spacing:.06em; text-transform:uppercase; color:var(--ivory-faint); }
+  .sku-fact .v{ font-family:var(--serif); font-weight:600; font-size:26px; color:var(--ivory); margin-top:3px; font-variant-numeric:tabular-nums; }
+  .slider-block{ margin-top:26px; }
+  .slider-top{ display:flex; justify-content:space-between; align-items:baseline; margin-bottom:6px; }
+  .slider-top .lbl{ font-size:13px; font-weight:500; color:var(--ivory-dim); }
+  .slider-top .val{ font-family:var(--serif); font-weight:600; font-size:22px; color:var(--gold); }
+  .slider-top .val span{ font-size:12px; color:var(--ivory-faint); font-weight:400; font-family:var(--sans); }
+  input[type=range]{ -webkit-appearance:none; appearance:none; width:100%; height:6px; border-radius:100px;
+    background:linear-gradient(90deg, var(--moss), var(--gold), var(--crit)); outline:none; cursor:pointer; }
+  input[type=range]::-webkit-slider-thumb{ -webkit-appearance:none; appearance:none; width:20px; height:20px; border-radius:50%;
+    background:var(--ivory); border:2px solid var(--gold); box-shadow:0 2px 8px rgba(0,0,0,.45); cursor:grab; }
+  input[type=range]::-moz-range-thumb{ width:20px; height:20px; border-radius:50%; background:var(--ivory); border:2px solid var(--gold); cursor:grab; }
+  .slider-hint{ display:flex; justify-content:space-between; font-family:var(--sans); font-size:10px; letter-spacing:.06em;
+                text-transform:uppercase; color:var(--ivory-faint); margin-top:9px; }
+  .read-top{ display:flex; align-items:center; gap:22px; }
+  .ring{ width:92px; height:92px; flex-shrink:0; position:relative; }
+  .ring svg{ transform:rotate(-90deg); }
+  .ring .bg{ fill:none; stroke:rgba(243,239,223,.12); stroke-width:7; }
+  .ring .fg{ fill:none; stroke:var(--crit); stroke-width:7; stroke-linecap:round; stroke-dasharray:251.3; stroke-dashoffset:170; transition:stroke-dashoffset .4s ease, stroke .3s ease; }
+  .ring .lab{ position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; }
+  .ring .lab b{ font-family:var(--serif); font-weight:600; font-size:22px; color:var(--ivory); line-height:1; }
+  .ring .lab span{ font-family:var(--sans); font-size:8px; font-weight:500; letter-spacing:.1em; text-transform:uppercase; color:var(--ivory-faint); margin-top:3px; }
+  .pill{ display:inline-flex; align-items:center; gap:6px; font-family:var(--sans); font-size:11px; font-weight:600; letter-spacing:.06em;
+         padding:5px 11px; border-radius:100px; background:rgba(232,154,146,.16); color:var(--crit); }
+  .read-line{ font-size:13.5px; color:var(--ivory-dim); margin-top:12px; max-width:24em; line-height:1.5; }
+  .read-line b{ color:var(--ivory); }
+  .read-out{ display:flex; gap:28px; margin-top:24px; padding-top:20px; border-top:1px solid var(--hair); }
+  .read-out .l{ font-family:var(--sans); font-size:10px; font-weight:500; letter-spacing:.08em; text-transform:uppercase; color:var(--ivory-faint); }
+  .read-out .v{ font-family:var(--serif); font-weight:600; font-size:28px; margin-top:5px; color:var(--gold); }
+  .read-out .v.crit{ color:var(--crit); }
 
-    /* ── Signature demo ── */
-    .demo { background: var(--paper-2); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 84px 0; }
-    .demo-head { text-align: center; max-width: 640px; margin: 0 auto 44px; }
-    .demo-head h2 { font-family: var(--font-display); font-size: clamp(28px, 3.6vw, 42px); line-height: 1.12; color: var(--navy-900); letter-spacing: -0.02em; margin: 12px 0 12px; }
-    .demo-head p { font-size: 16.5px; color: var(--muted); }
-    .demo-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: stretch; }
-    .panel { background: #fff; border: 1px solid var(--border); border-radius: 18px; padding: 26px; box-shadow: 0 8px 32px rgba(15,27,45,0.06); }
-    .panel-tag { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); margin-bottom: 18px; }
-    .sku-name { font-family: var(--font-display); font-size: 20px; font-weight: 700; color: var(--navy-900); }
-    .sku-meta { font-family: var(--font-mono); font-size: 12px; color: var(--muted); margin-top: 4px; }
-    .sku-facts { display: flex; gap: 22px; margin: 20px 0 6px; }
-    .sku-fact-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
-    .sku-fact-value { font-family: var(--font-display); font-size: 22px; font-weight: 700; color: var(--navy-800); margin-top: 2px; font-variant-numeric: tabular-nums; }
+  /* proof */
+  .proof{ padding:90px 0; border-top:1px solid var(--hair); }
+  .proof-stage{ display:grid; grid-template-columns:1.1fr .9fr; gap:28px; align-items:start; margin-top:48px; }
+  .shot{ background:var(--green-800); border:1px solid var(--gold-line); border-radius:10px; overflow:hidden; }
+  .shot-head{ display:flex; align-items:center; gap:10px; padding:11px 16px; border-bottom:1px solid var(--hair);
+              font-family:var(--sans); font-size:10px; font-weight:600; letter-spacing:.1em; text-transform:uppercase; color:var(--gold); }
+  .shot-dot{ width:7px; height:7px; border-radius:50%; background:var(--gold); }
+  .shot img{ width:100%; height:auto; }
+  .shot--order{ margin-top:54px; }
 
-    .slider-block { margin-top: 22px; padding-top: 22px; border-top: 1px solid var(--border); }
-    .slider-top { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 12px; }
-    .slider-top .lbl { font-size: 13px; font-weight: 600; color: var(--text); }
-    .slider-top .val { font-family: var(--font-display); font-size: 24px; font-weight: 700; color: var(--brass-3); font-variant-numeric: tabular-nums; }
-    .slider-top .val span { font-size: 13px; color: var(--muted); font-weight: 500; font-family: var(--font-body); }
-    input[type="range"] {
-      -webkit-appearance: none; appearance: none; width: 100%; height: 6px; border-radius: 100px;
-      background: linear-gradient(90deg, var(--success), var(--brass), var(--danger));
-      outline: none; cursor: pointer;
-    }
-    input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 22px; height: 22px; border-radius: 50%; background: #fff; border: 2px solid var(--navy-800); box-shadow: 0 2px 8px rgba(15,27,45,0.25); cursor: grab; transition: transform 140ms var(--ease-out); }
-    input[type="range"]::-webkit-slider-thumb:active { transform: scale(1.12); cursor: grabbing; }
-    input[type="range"]::-moz-range-thumb { width: 22px; height: 22px; border-radius: 50%; background: #fff; border: 2px solid var(--navy-800); box-shadow: 0 2px 8px rgba(15,27,45,0.25); cursor: grab; }
-    .slider-hint { display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-top: 9px; }
-    .drag-tip { margin-top: 16px; font-size: 12.5px; color: var(--brass-3); display: flex; align-items: center; gap: 7px; font-weight: 500; }
-    .drag-tip svg { animation: nudge 2.2s var(--ease-in-out) infinite; }
-    @keyframes nudge { 0%,100%{transform:translateX(0)} 50%{transform:translateX(4px)} }
+  /* cta */
+  .cta{ padding:104px 0; border-top:1px solid var(--hair); text-align:center; }
+  .cta h2{ font-family:var(--serif); font-weight:600; font-size:clamp(38px,5vw,60px); line-height:1.05; color:var(--ivory); }
+  .cta h2 em{ font-style:normal; color:var(--gold); }
+  .cta p{ font-size:17px; color:var(--ivory-dim); margin:18px auto 32px; max-width:34em; }
+  .cta-btns{ display:flex; gap:14px; justify-content:center; flex-wrap:wrap; }
 
-    /* Read-out panel */
-    .read-panel { background: var(--navy-900); border-color: var(--navy-700); color: #fff; position: relative; overflow: hidden; }
-    .read-panel .panel-tag { color: rgba(255,255,255,0.5); }
-    .read-top { display: flex; align-items: center; gap: 20px; }
-    .ring-wrap { position: relative; width: 96px; height: 96px; flex-shrink: 0; }
-    .ring-wrap svg { transform: rotate(-90deg); }
-    .ring-bg { fill: none; stroke: rgba(255,255,255,0.1); stroke-width: 8; }
-    .ring-fg { fill: none; stroke-width: 8; stroke-linecap: round; transition: stroke-dashoffset 480ms var(--ease-out), stroke 320ms ease; }
-    .ring-label { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
-    .ring-num { font-family: var(--font-display); font-size: 22px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
-    .ring-cap { font-family: var(--font-mono); font-size: 8.5px; letter-spacing: 0.1em; text-transform: uppercase; color: rgba(255,255,255,0.5); margin-top: 3px; }
-    .read-status .status-pill { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: 12px; font-weight: 600; letter-spacing: 0.08em; padding: 6px 12px; border-radius: 100px; transition: background 280ms ease, color 280ms ease; }
-    .read-status .status-line { font-size: 13.5px; color: rgba(255,255,255,0.6); margin-top: 10px; line-height: 1.5; max-width: 230px; }
-    .read-out { margin-top: 22px; padding-top: 20px; border-top: 1px solid rgba(255,255,255,0.1); display: flex; gap: 26px; }
-    .read-out-block .ro-label { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: rgba(255,255,255,0.45); }
-    .read-out-block .ro-value { font-family: var(--font-display); font-size: 30px; font-weight: 700; line-height: 1.1; margin-top: 4px; font-variant-numeric: tabular-nums; transition: color 280ms ease; }
-    .read-out-block .ro-sub { font-size: 11px; color: rgba(255,255,255,0.4); margin-top: 2px; }
-    .ro-value.brass { color: var(--brass-2); }
-    .ro-value.danger { color: #E58B8B; }
+  /* footer */
+  footer.site{ border-top:1px solid var(--hair); padding:40px 0; }
+  .foot{ max-width:1180px; margin:0 auto; padding:0 40px; display:flex; align-items:center; justify-content:space-between; gap:20px; flex-wrap:wrap; }
+  .foot img{ height:34px; }
+  .foot-links{ display:flex; gap:22px; flex-wrap:wrap; }
+  .foot-links a{ font-size:13px; color:var(--ivory-dim); text-decoration:none; }
+  .foot-links a:hover{ color:var(--gold); }
+  .colophon{ font-family:var(--serif); font-style:italic; color:var(--ivory-faint); font-size:14px; }
 
-    .run-row { margin-top: 24px; }
-    .btn-run { width: 100%; justify-content: center; background: var(--brass); color: var(--navy-900); font-size: 14px; font-weight: 700; padding: 13px; letter-spacing: 0.01em; }
-    .btn-run:hover { background: var(--brass-2); }
-    .btn-run:disabled { opacity: 0.65; cursor: default; }
-    .log { margin-top: 18px; display: flex; flex-direction: column; gap: 9px; }
-    .log-line { display: flex; align-items: center; gap: 10px; font-family: var(--font-mono); font-size: 12px; color: rgba(255,255,255,0.75); opacity: 0; transform: translateX(-6px); transition: opacity 300ms var(--ease-out), transform 300ms var(--ease-out); }
-    .log-line.show { opacity: 1; transform: none; }
-    .log-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--brass); flex-shrink: 0; }
-    .log-line.done .log-dot { background: var(--success); }
-    .log-check { margin-left: auto; color: var(--success); opacity: 0; transition: opacity 200ms ease; }
-    .log-line.done .log-check { opacity: 1; }
-
-    /* Other SKUs revealed by Run */
-    .queue { margin-top: 24px; }
-    .queue-head { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
-    .q-row { display: grid; grid-template-columns: 30px 1fr auto auto; align-items: center; gap: 14px; padding: 13px 14px; background: var(--paper); border: 1px solid var(--border); border-radius: 12px; margin-bottom: 8px; opacity: 0; transform: translateY(10px); transition: opacity 460ms var(--ease-out), transform 460ms var(--ease-out); }
-    .demo.run .q-row { opacity: 1; transform: none; }
-    .demo.run .q-row:nth-child(2){transition-delay:60ms}.demo.run .q-row:nth-child(3){transition-delay:130ms}.demo.run .q-row:nth-child(4){transition-delay:200ms}
-    .q-ring { width: 30px; height: 30px; }
-    .q-ring svg { transform: rotate(-90deg); }
-    .q-ring .ring-bg { stroke: var(--border); stroke-width: 4; }
-    .q-ring .ring-fg { stroke-width: 4; stroke-dashoffset: 0; }
-    .q-name { font-size: 13.5px; font-weight: 600; color: var(--text); }
-    .q-detail { font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
-    .q-qty { font-family: var(--font-mono); font-size: 12px; font-weight: 600; color: var(--navy-800); }
-
-    /* ── Real screens (proof) ── */
-    .proof { padding: 96px 0 110px; }
-    .proof-head { max-width: 600px; margin-bottom: 54px; }
-    .proof-head h2 { font-family: var(--font-display); font-size: clamp(28px, 3.6vw, 42px); line-height: 1.14; color: var(--navy-900); letter-spacing: -0.02em; margin: 14px 0 16px; }
-    .proof-head h2 em { color: var(--brass-3); }
-    .proof-head p { font-size: 16.5px; color: var(--muted); line-height: 1.66; }
-    .proof-stage { display: flex; align-items: flex-start; }
-    .shot { margin: 0; background: #fff; border: 1px solid var(--border); border-radius: 18px; overflow: hidden; box-shadow: 0 30px 80px rgba(11,20,36,0.18), 0 4px 16px rgba(11,20,36,0.08); }
-    .shot-head { display: flex; align-items: center; gap: 10px; background: var(--navy-800); padding: 12px 18px; position: relative; }
-    .shot-head::after { content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 1px; background: linear-gradient(90deg, transparent, var(--brass), transparent); opacity: 0.6; }
-    .shot-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--brass); flex-shrink: 0; }
-    .shot-title { font-family: var(--font-mono); font-size: 11px; font-weight: 500; letter-spacing: 0.14em; text-transform: uppercase; color: var(--brass-2); }
-    .shot-tag { margin-left: auto; font-family: var(--font-serif); font-size: 14px; color: rgba(255,255,255,0.42); }
-    .shot img { display: block; width: 100%; height: auto; }
-    .shot--report { width: 58%; }
-    .shot--order { width: 46%; margin-left: -54px; margin-top: 76px; position: relative; z-index: 2; }
-
-    /* ── Problem / cost ── */
-    .problem { padding: 90px 0; }
-    .problem-grid { display: grid; grid-template-columns: 1fr 0.9fr; gap: 64px; align-items: center; }
-    .problem h2 { font-family: var(--font-display); font-size: clamp(28px, 3.6vw, 42px); line-height: 1.14; color: var(--navy-900); letter-spacing: -0.02em; margin: 14px 0 18px; }
-    .problem p { font-size: 16.5px; color: var(--muted); line-height: 1.68; margin-bottom: 14px; }
-    .problem p strong { color: var(--text); font-weight: 600; }
-    .stat-stack { display: flex; flex-direction: column; gap: 2px; }
-    .stat-card { padding: 22px 24px; background: #fff; border: 1px solid var(--border); }
-    .stat-card:first-child { border-radius: 16px 16px 0 0; }
-    .stat-card:last-child { border-radius: 0 0 16px 16px; }
-    .stat-card + .stat-card { border-top: none; }
-    .stat-num { font-family: var(--font-display); font-size: 40px; font-weight: 800; color: var(--brass-3); line-height: 1; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
-    .stat-desc { font-size: 14px; color: var(--muted); margin-top: 7px; }
-
-    /* ── Features ── */
-    .features { background: var(--navy-900); padding: 92px 0; }
-    .sec-head { text-align: center; margin-bottom: 52px; }
-    .sec-head h2 { font-family: var(--font-display); font-size: clamp(28px, 3.6vw, 42px); line-height: 1.15; color: #fff; letter-spacing: -0.02em; margin-top: 12px; }
-    .sec-head h2.dark { color: var(--navy-900); }
-    .sec-head p { font-size: 16.5px; color: rgba(255,255,255,0.55); margin: 14px auto 0; max-width: 520px; }
-    .sec-head p.dark { color: var(--muted); }
-    .feat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
-    .feat { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; padding: 26px; transition: background 220ms, transform 220ms var(--ease-out); }
-    @media (hover: hover) and (pointer: fine) { .feat:hover { background: rgba(255,255,255,0.08); transform: translateY(-3px); } }
-    .feat-ic { width: 42px; height: 42px; background: rgba(200,155,92,0.15); border: 1px solid rgba(200,155,92,0.25); border-radius: 11px; display: flex; align-items: center; justify-content: center; margin-bottom: 16px; color: var(--brass-2); }
-    .feat h3 { font-size: 16px; font-weight: 600; color: #fff; margin-bottom: 8px; }
-    .feat p { font-size: 13.5px; color: rgba(255,255,255,0.5); line-height: 1.62; }
-
-    /* ── How ── */
-    .how { padding: 92px 0; }
-    .how-steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 36px; margin-top: 52px; position: relative; }
-    .how-steps::before { content:''; position: absolute; top: 24px; left: calc(12.5% + 24px); right: calc(12.5% + 24px); height: 1px; background: var(--border); }
-    .step { text-align: center; }
-    .step-num { width: 48px; height: 48px; background: #fff; border: 1.5px solid var(--border); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-family: var(--font-display); font-weight: 700; font-size: 16px; color: var(--navy-800); margin: 0 auto 18px; position: relative; z-index: 1; box-shadow: 0 2px 8px rgba(15,27,45,0.08); }
-    .step h3 { font-size: 15px; font-weight: 600; color: var(--navy-900); margin-bottom: 8px; }
-    .step p { font-size: 13px; color: var(--muted); line-height: 1.58; }
-
-    /* ── CTA ── */
-    .cta { background: var(--paper-2); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
-    .cta-inner { text-align: center; padding: 80px 40px; max-width: 660px; margin: 0 auto; }
-    .cta-inner h2 { font-family: var(--font-display); font-size: clamp(30px, 4vw, 44px); color: var(--navy-900); line-height: 1.12; letter-spacing: -0.02em; margin-bottom: 14px; }
-    .cta-inner h2 em { color: var(--brass-3); }
-    .cta-inner p { font-size: 17px; color: var(--muted); margin-bottom: 32px; }
-    .cta-btns { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
-
-    /* ── Footer ── */
-    .footer { padding: 32px 40px; display: flex; align-items: center; justify-content: space-between; max-width: 1120px; margin: 0 auto; flex-wrap: wrap; gap: 16px; }
-    .footer-brand { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--muted); }
-    .footer-brand img { height: 30px; }
-    .footer-links { display: flex; gap: 20px; }
-    .footer-links a { font-size: 13px; color: var(--muted); text-decoration: none; transition: color 150ms; }
-    .footer-links a:hover { color: var(--text); }
-
-    /* ── Responsive ── */
-    @media (max-width: 940px) {
-      .hero { grid-template-columns: 1fr; padding: 64px 24px 48px; gap: 40px; }
-      .demo-grid { grid-template-columns: 1fr; }
-      .problem-grid { grid-template-columns: 1fr; gap: 36px; }
-      .proof-stage { flex-direction: column; }
-      .shot--report, .shot--order { width: 100%; max-width: 600px; margin: 0 auto 26px; }
-      .feat-grid { grid-template-columns: 1fr 1fr; }
-      .how-steps { grid-template-columns: 1fr 1fr; gap: 30px; }
-      .how-steps::before { display: none; }
-      .wrap { padding-left: 24px; padding-right: 24px; }
-    }
-    @media (max-width: 560px) {
-      .nav { padding: 0 18px; }
-      .nav-link { display: none; }
-      .feat-grid { grid-template-columns: 1fr; }
-      .footer { flex-direction: column; text-align: center; }
-      .read-out { flex-direction: column; gap: 16px; }
-    }
-
-    @media (prefers-reduced-motion: reduce) {
-      *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
-      .reveal { opacity: 1; transform: none; }
-      .loopdemo * { transition-delay: 0ms !important; }
-    }
+  @media (max-width:900px){
+    .hero,.problem-grid,.how-steps,.feat-grid,.demo-grid,.proof-stage{ grid-template-columns:1fr; gap:36px; }
+    .hero{ padding:34px 22px 44px; }
+    nav,.running-head,.strip-inner,.wrap,.foot{ padding-left:22px; padding-right:22px; }
+    .nav-link{ display:none; }
+    .shot--order{ margin-top:0; }
+  }
+  @media (prefers-reduced-motion: reduce){ *{ transition-duration:.01ms !important; } html{ scroll-behavior:auto; } }
   </style>
 </head>
 <body>
 
-<!-- ── Nav ── -->
-<nav class="nav">
-  <a class="brand" href="{{ url_for('landing') }}">
-    <img src="{{ url_for('static', filename='logo.png') }}" alt="berthcast" onerror="this.style.display='none';this.nextElementSibling.style.display='inline'">
-    <span class="brand-text" style="display:none"><b>berth</b><i>cast</i></span>
-  </a>
+<div class="running-head"><span>berthcast — <span class="g">operations intelligence</span></span><span>Singapore</span></div>
+
+<nav>
+  <a class="brand" href="{{ url_for('landing') }}"><img src="{{ url_for('static', filename='logo-dark.png') }}" alt="berthcast"></a>
   <div class="nav-right">
-    <a href="#demo" class="nav-link">Live demo</a>
-    <a href="#features" class="nav-link">Features</a>
-    <a href="#how" class="nav-link">How it works</a>
-    <a href="{{ url_for('pricing') }}" class="nav-link">Pricing</a>
-    <a href="{{ url_for('login') }}" class="btn btn-nav">Sign in →</a>
+    <a class="nav-link" href="#demo">Live demo</a><a class="nav-link" href="#features">Features</a>
+    <a class="nav-link" href="#how">How it works</a><a class="nav-link" href="{{ url_for('pricing') }}">Pricing</a>
+    <a class="btn btn-nav" href="{{ url_for('login') }}">Sign in →</a>
   </div>
 </nav>
 
-<!-- ── Hero ── -->
-<section class="hero" id="top">
-  <div class="hero-copy">
-    <div class="hero-rule" aria-hidden="true"></div>
-    <div class="hero-label"><span class="hero-label-dot"></span> AI inventory operations for food distributors</div>
-    <h1>Stop losing revenue to <em>stockouts</em> you could have seen coming.</h1>
-    <p class="hero-sub">berthcast reads your inventory, purchase orders, and sales exports, ranks what's going critical, and tells you exactly what to reorder — before the gap shows up as an order you can't fill.</p>
-    <div class="hero-ctas">
-      <a href="#demo" class="btn btn-primary">Try the live demo →</a>
-      <a href="#how" class="btn btn-secondary">See how it works</a>
-    </div>
-    <div class="hero-note">
-      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6L9 17l-5-5"/></svg>
-      Send your own exports and we'll run a full analysis free — no commitment.
-    </div>
+<!-- HERO -->
+<section class="hero">
+  <div>
+    <div class="eyebrow">AI inventory operations for food distributors</div>
+    <h1 class="hero-title">Stop losing revenue to <em>stockouts</em> you could have seen coming.</h1>
+    <p class="hero-sub">berthcast reads your inventory, purchase, and sales exports, ranks what's going critical, and writes the order you should place — before the gap shows up as a sale you can't fill.</p>
+    <div class="hero-ctas"><a class="btn btn-primary" href="#demo">Try the live demo →</a><a class="btn btn-secondary" href="#how">See how it works</a></div>
+    <div class="hero-note"><span class="tick">✓</span> Send your own exports and we'll run a full analysis free — no commitment.</div>
   </div>
-  <div class="hero-visual">
-    <div class="loopdemo" id="loopDemo" role="img"
-         aria-label="Product preview on a loop: upload your ERP exports, three agents run, every item is ranked, and a purchase order is drafted.">
-      <div class="loop-head">
-        <span class="shot-dot"></span>
-        <span class="loop-title">berthcast · product preview</span>
-        <span class="loop-tag">sample run</span>
-      </div>
-      <div class="loop-stage" aria-hidden="true">
-        <div class="scene sc-upload on">
-          <div class="scene-label">Your ERP exports</div>
-          <div class="file-chip fc-1"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>inventory.xlsx<span class="chip-kb">412 KB</span></div>
-          <div class="file-chip fc-2"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>sales_2026.xlsx<span class="chip-kb">1.1 MB</span></div>
-          <div class="file-chip fc-3"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>purchase_orders.xlsx<span class="chip-kb">228 KB</span></div>
-          <div class="upload-track"><div class="upload-fill"></div></div>
-          <div class="upload-note">Straight from your ERP. No setup, no integration.</div>
-        </div>
-        <div class="scene sc-agents">
-          <div class="scene-label">Three agents run</div>
-          <div class="agent-row ar-1"><span class="agent-ic"><span class="spin"></span><span class="tick"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg></span></span>Normalising your columns</div>
-          <div class="agent-row ar-2"><span class="agent-ic"><span class="spin"></span><span class="tick"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg></span></span>Scoring stock health</div>
-          <div class="agent-row ar-3"><span class="agent-ic"><span class="spin"></span><span class="tick"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg></span></span>Drafting reorder quantities</div>
-        </div>
-        <div class="scene sc-table">
-          <div class="scene-label">Every item ranked</div>
-          <div class="mini-head"><span>Item</span><span>Status</span><span>Days left</span></div>
-          <div class="mini-row mr-1"><span>Drinking Water 1.5L ×12</span><span class="badge danger">CRITICAL</span><span class="mini-days">0</span></div>
-          <div class="mini-row mr-2"><span>Fresh Milk 1L ×12</span><span class="badge danger">CRITICAL</span><span class="mini-days">15</span></div>
-          <div class="mini-row mr-3"><span>Sandwich Bread 400g</span><span class="badge warn">LOW</span><span class="mini-days">51</span></div>
-          <div class="mini-row mr-4"><span>Canned Tuna 185g ×48</span><span class="badge ok">HEALTHY</span><span class="mini-days">300</span></div>
-        </div>
-        <div class="scene sc-order">
-          <div class="scene-label">The order, drafted</div>
-          <div class="order-card">
-            <div class="order-top">
-              <span class="ringlet">MEDIUM</span>
-              <div><div class="order-item">Drinking Water 1.5L ×12</div><div class="order-meta">zero stock · sells 120 CTN/month</div></div>
-            </div>
-            <div class="order-qty"><span class="oq-label">Quantity to order</span><span class="oq-val">420 CTN</span></div>
-            <div class="order-btn"><span class="ob-default">Approve order</span><span class="ob-done">✓ Approved · PO ready</span></div>
-          </div>
-        </div>
-      </div>
-      <div class="loop-steps" aria-hidden="true">
-        <span class="loop-step on">Upload</span><span class="loop-step">Run</span><span class="loop-step">Rank</span><span class="loop-step">Order</span>
+  <div>
+    <div class="snap">
+      <div class="snap-head"><span>berthcast · <span class="g">priorities</span></span><span>This week</span></div>
+      <div class="snap-body">
+        <div class="snap-title">What to order this week</div>
+        <div class="snap-rule"></div>
+        <div class="row"><span class="dot c"></span><div class="nm"><b>Cowhead UHT Milk Full Cream 1L</b><span>0 in stock · sells ~300/mo · import</span></div><span class="st c">Critical</span><div class="qty">1,570 <span>CTN</span></div></div>
+        <div class="row"><span class="dot l"></span><div class="nm"><b>Emborg Mature Cheddar Block 200g</b><span>1.2 months cover · import</span></div><span class="st l">Low</span><div class="qty">628 <span>CTN</span></div></div>
+        <div class="row"><span class="dot h"></span><div class="nm"><b>SunRice Premium Jasmine Rice 5kg</b><span>8 months cover · local</span></div><span class="st h">Healthy</span><div class="qty">—</div></div>
+        <div class="snap-foot"><span>12 items to order · <span class="g">1 critical</span></span><span>Generated by berthcast</span></div>
       </div>
     </div>
   </div>
 </section>
 
-<!-- ── Signature interactive demo ── -->
-<section class="demo" id="demo">
-  <div class="wrap">
-    <div class="demo-head reveal">
-      <div class="eyebrow">Live demo · no sign-up</div>
-      <h2>Watch it catch a stockout <em>in real time</em></h2>
-      <p>This runs the same logic the product uses. Drag the sell-through and berthcast re-reads the SKU live — no black box, no fake numbers.</p>
-    </div>
-    <div class="demo-grid">
-      <!-- Left: the SKU -->
-      <div class="panel reveal">
-        <div class="panel-tag">The SKU</div>
-        <div class="sku-name">Bottled Water 1.5L</div>
-        <div class="sku-meta">SKU BW-1500-CS · case of 12 · SGD 9.00 / case</div>
-        <div class="sku-facts">
-          <div><div class="sku-fact-label">On hand</div><div class="sku-fact-value">140<span style="font-size:13px;color:var(--muted);font-weight:500"> cs</span></div></div>
-          <div><div class="sku-fact-label">Supplier</div><div class="sku-fact-value" style="font-size:15px">Local</div><div style="font-family:var(--font-mono);font-size:11px;color:var(--muted)">3-week lead</div></div>
-          <div><div class="sku-fact-label">Safety buffer</div><div class="sku-fact-value">7<span style="font-size:13px;color:var(--muted);font-weight:500"> days</span></div></div>
-        </div>
-        <div class="slider-block">
-          <div class="slider-top">
-            <span class="lbl">Daily sales</span>
-            <span class="val"><span id="salesVal">8</span> <span>cases / day</span></span>
-          </div>
-          <input type="range" id="salesSlider" min="2" max="30" value="8" step="1">
-          <div class="slider-hint"><span>Slow mover</span><span>Fast runner</span></div>
-          <div class="drag-tip">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
-            Drag to change how fast it sells — everything on the right updates live
-          </div>
-        </div>
-      </div>
+<div class="strip"><div class="strip-inner">
+  <div class="si"><span class="n">16<span style="font-size:15px"> wks</span></span><span class="t">longest import lead time every reorder is planned around</span></div>
+  <div class="si"><span class="n">400+</span><span class="t">SKUs ranked by revenue at risk, every run</span></div>
+  <div class="si"><span class="n">3</span><span class="t">passes — read, score health, write the order</span></div>
+  <span class="folio">No. 01 — berthcast</span>
+</div></div>
 
-      <!-- Right: berthcast's read -->
-      <div class="panel read-panel reveal">
-        <div class="panel-tag">berthcast's read</div>
-        <div class="read-top">
-          <div class="ring-wrap">
-            <svg width="96" height="96" viewBox="0 0 96 96">
-              <circle class="ring-bg" cx="48" cy="48" r="40"></circle>
-              <circle class="ring-fg" id="ringFg" cx="48" cy="48" r="40" stroke="#E58B8B" stroke-dasharray="251.3" stroke-dashoffset="160"></circle>
-            </svg>
-            <div class="ring-label"><div class="ring-num" id="ringNum">17<span style="font-size:12px">d</span></div><div class="ring-cap">cover</div></div>
-          </div>
-          <div class="read-status">
-            <span class="status-pill" id="statusPill" style="background:rgba(139,44,44,0.22);color:#E58B8B">● CRITICAL</span>
-            <div class="status-line" id="statusLine">Stock runs out in <strong style="color:#fff" id="dosInline">17.5</strong> days — sooner than the 21-day lead time. Reorder now or it goes out before stock lands.</div>
-          </div>
-        </div>
-        <div class="read-out">
-          <div class="read-out-block">
-            <div class="ro-label">Recommended reorder</div>
-            <div class="ro-value brass" id="reorderVal">85 <span style="font-size:15px;color:rgba(255,255,255,0.45)">cs</span></div>
-            <div class="ro-sub">covers lead time + 7-day buffer</div>
-          </div>
-          <div class="read-out-block">
-            <div class="ro-label">Revenue exposed / week out</div>
-            <div class="ro-value danger" id="exposureVal">SGD 504</div>
-            <div class="ro-sub">at the sell-through set on the left</div>
-          </div>
-        </div>
-        <div class="run-row">
-          <button class="btn btn-run" id="runBtn">▶ Run the full analysis on the catalogue</button>
-          <div class="log" id="log">
-            <div class="log-line" data-line="0"><span class="log-dot"></span> Agent 1 · Normalising columns &amp; units<span class="log-check">✓</span></div>
-            <div class="log-line" data-line="1"><span class="log-dot"></span> Agent 2 · Scoring inventory health<span class="log-check">✓</span></div>
-            <div class="log-line" data-line="2"><span class="log-dot"></span> Agent 3 · Building the reorder plan<span class="log-check">✓</span></div>
-          </div>
-        </div>
+<!-- PROBLEM -->
+<section class="problem"><div class="wrap"><div class="problem-grid">
+  <div>
+    <div class="eyebrow">Why this is expensive</div>
+    <h2 class="sec-title">A stockout doesn't warn you. It just <em>arrives</em>.</h2>
+    <p>A high-runner quietly draws down. A supplier slips a week. The first real signal is a customer order you can't fill — and on import lines with lead times measured in months, that gap isn't a bad afternoon. It's weeks of orders walking out the door.</p>
+    <p><strong>The maths is unforgiving on the items that matter most.</strong> The faster a line sells, the less warning you get; the longer the lead time, the earlier you needed to act. Spreadsheets don't flag that. berthcast does — every line, every run.</p>
+  </div>
+  <div class="pullquote">The faster it sells, the less warning you get. The longer the lead, the earlier you needed to act.</div>
+</div></div></section>
+
+<!-- HOW -->
+<section class="how" id="how"><div class="wrap">
+  <div class="section-head"><div class="eyebrow center">How it works</div><h2 class="sec-title">From your exports to a written order</h2><p>No integration. It works directly from the Excel reports you already pull out of your ERP.</p></div>
+  <div class="how-steps">
+    <div class="step"><div class="step__n">01</div><div class="step__rule"></div><h3>Upload your files</h3><p>Drop in your inventory, purchase, and sales exports. No setup, no mapping, no formulas to maintain.</p></div>
+    <div class="step"><div class="step__n">02</div><div class="step__rule"></div><h3>It reads and scores</h3><p>Three passes normalise your columns, score every SKU against demand and real lead times, and rank what's at risk.</p></div>
+    <div class="step"><div class="step__n">03</div><div class="step__rule"></div><h3>Approve and order</h3><p>Review the written recommendations, adjust anything, approve the ones you want, and send the order.</p></div>
+  </div>
+</div></section>
+
+<!-- FEATURES -->
+<section class="features" id="features"><div class="wrap">
+  <div class="section-head"><div class="eyebrow center">What berthcast does</div><h2 class="sec-title">Built for the lines that <em>matter most</em></h2></div>
+  <div class="feat-grid">
+    <div class="feat"><div class="feat-ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 3v18h18M7 14l4-4 4 4 5-6"/></svg></div><h3>Inventory health</h3><p>Every SKU classified Critical, Low, or Healthy from days of stock left versus your real import-vs-local lead times.</p></div>
+    <div class="feat"><div class="feat-ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M21 16V8a2 2 0 0 0-1-1.7l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.7l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg></div><h3>Written reorders</h3><p>An exact quantity per item, sized from sales velocity, spoilage thresholds, and supplier lead times. No guesswork.</p></div>
+    <div class="feat"><div class="feat-ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0zM12 9v4M12 17h.01"/></svg></div><h3>Stockout flagging</h3><p>Surfaces what's most likely to run dry from current velocity, stock on hand, and lead time — before the gap, not after.</p></div>
+    <div class="feat"><div class="feat-ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7h18M3 12h18M3 17h18"/></svg></div><h3>Supplier-aware</h3><p>Knows which suppliers are import versus local and applies the right buffer automatically, so orders land before you run dry.</p></div>
+    <div class="feat"><div class="feat-ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M9 13h6M9 17h6"/></svg></div><h3>Ready-to-send orders</h3><p>Approve with one click and berthcast produces a clean order you can send straight to the supplier — no reformatting.</p></div>
+    <div class="feat"><div class="feat-ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div><h3>Ask in plain language</h3><p>"Which items are critical this week?" "What do I order before the long weekend?" Answered from your own data, instantly.</p></div>
+  </div>
+</div></section>
+
+<!-- INTERACTIVE DEMO -->
+<section class="demo" id="demo"><div class="wrap">
+  <div class="section-head"><div class="eyebrow center">Live demo · no sign-up</div><h2 class="sec-title">Watch it catch a stockout <em>in real time</em></h2><p>Drag the sell-through and berthcast re-reads the SKU live — the same logic the product uses, no black box.</p></div>
+  <div class="demo-grid">
+    <div class="panel">
+      <div class="panel-tag">The SKU</div>
+      <div class="sku-name">Bottled Water 1.5L</div>
+      <div class="sku-meta">BW-1500-CS · case of 12 · local supplier · 3-week lead · SGD 9.00/case</div>
+      <div class="sku-facts">
+        <div class="sku-fact"><div class="l">On hand</div><div class="v">140</div></div>
+        <div class="sku-fact"><div class="l">Buffer</div><div class="v">7d</div></div>
+      </div>
+      <div class="slider-block">
+        <div class="slider-top"><span class="lbl">Daily sales</span><span class="val"><span id="salesVal">8</span> <span>cases / day</span></span></div>
+        <input type="range" id="salesSlider" min="2" max="30" value="8" step="1" aria-label="Daily sales">
+        <div class="slider-hint"><span>Slow mover</span><span>Fast runner</span></div>
       </div>
     </div>
-
-    <!-- Catalogue queue, revealed by Run -->
-    <div class="queue panel reveal" style="margin-top:20px">
-      <div class="queue-head"><span id="queueHeadText">Run the analysis to rank the rest of the catalogue</span></div>
-      <div class="q-row">
-        <div class="q-ring"><svg width="30" height="30" viewBox="0 0 30 30"><circle class="ring-bg" cx="15" cy="15" r="12"></circle><circle class="ring-fg" cx="15" cy="15" r="12" stroke="#8B2C2C" stroke-dasharray="75.4" stroke-dashoffset="54"></circle></svg></div>
-        <div><div class="q-name">Long-grain Rice 50kg</div><div class="q-detail">9 days cover · 16-week import lead</div></div>
-        <span class="badge danger">CRITICAL</span>
-        <span class="q-qty">order 60 bags</span>
+    <div class="panel read">
+      <div class="panel-tag">berthcast's read</div>
+      <div class="read-top">
+        <div class="ring"><svg width="92" height="92" viewBox="0 0 92 92"><circle class="bg" cx="46" cy="46" r="40"/><circle class="fg" id="ringFg" cx="46" cy="46" r="40"/></svg><div class="lab"><b id="ringNum">17<span style="font-size:12px">d</span></b><span>cover</span></div></div>
+        <div><span class="pill" id="statusPill">● Critical</span><div class="read-line" id="statusLine">Stock runs out in <b id="dosInline">17.5</b> days — sooner than the 21-day lead time. Reorder now or it goes out before stock lands.</div></div>
       </div>
-      <div class="q-row">
-        <div class="q-ring"><svg width="30" height="30" viewBox="0 0 30 30"><circle class="ring-bg" cx="15" cy="15" r="12"></circle><circle class="ring-fg" cx="15" cy="15" r="12" stroke="#C89B5C" stroke-dasharray="75.4" stroke-dashoffset="29"></circle></svg></div>
-        <div><div class="q-name">Cooking Oil 5L</div><div class="q-detail">26 days cover · 3-week local lead</div></div>
-        <span class="badge warn">LOW</span>
-        <span class="q-qty">order 40 btl</span>
-      </div>
-      <div class="q-row">
-        <div class="q-ring"><svg width="30" height="30" viewBox="0 0 30 30"><circle class="ring-bg" cx="15" cy="15" r="12"></circle><circle class="ring-fg" cx="15" cy="15" r="12" stroke="#2D6A4F" stroke-dasharray="75.4" stroke-dashoffset="6"></circle></svg></div>
-        <div><div class="q-name">Canned Tuna 185g (carton)</div><div class="q-detail">58 days cover · 16-week import lead</div></div>
-        <span class="badge ok">NORMAL</span>
-        <span class="q-qty">no action</span>
+      <div class="read-out">
+        <div><div class="l">Recommended reorder</div><div class="v" id="reorderVal">85 <span style="font-size:14px;color:var(--ivory-faint)">cs</span></div></div>
+        <div><div class="l">Revenue exposed / wk</div><div class="v crit" id="exposureVal">SGD 504</div></div>
       </div>
     </div>
   </div>
-</section>
+</div></section>
 
-<!-- ── Real screens (dummy dataset — never client data) ── -->
-<section class="proof">
-  <div class="wrap">
-    <div class="proof-head reveal">
-      <div class="eyebrow">Straight from the product</div>
-      <h2>The report it writes. <em>The order it drafts.</em></h2>
-      <p>Real berthcast screens, reading a sample dataset: every item ranked by urgency in plain English, then a draft purchase decision with the trade-offs spelled out, ready to approve.</p>
-    </div>
-    <div class="proof-stage">
-      <figure class="shot shot--report reveal">
-        <div class="shot-head"><span class="shot-dot"></span><span class="shot-title">Health report · every SKU ranked</span><span class="shot-tag">sample data</span></div>
-        <img src="{{ url_for('static', filename='screenshot-inventory.png') }}" width="696" height="724" loading="lazy"
-             alt="berthcast health report: items ranked CRITICAL to HEALTHY with stock, spoilage risk, days of supply and a plain-English note per item">
-      </figure>
-      <figure class="shot shot--order reveal" style="transition-delay: 130ms">
-        <div class="shot-head"><span class="shot-dot"></span><span class="shot-title">Reorder card · decision drafted</span><span class="shot-tag">sample data</span></div>
-        <img src="{{ url_for('static', filename='screenshot-recommendations.png') }}" width="583" height="703" loading="lazy"
-             alt="berthcast reorder recommendation: suggested quantity with confidence level, what happens if you order or wait, and a supplier-risk action plan">
-      </figure>
-    </div>
+<!-- PROOF -->
+<section class="proof"><div class="wrap">
+  <div class="section-head" style="text-align:left;margin-left:0;max-width:600px;"><div class="eyebrow">Straight from the product</div><h2 class="sec-title">The report it writes. <em>The order it drafts.</em></h2></div>
+  <div class="proof-stage">
+    <figure class="shot"><div class="shot-head"><span class="shot-dot"></span> Health report — every SKU ranked</div><img src="{{ url_for('static', filename='screenshot-inventory.png') }}" alt="berthcast health report: items ranked CRITICAL to HEALTHY with stock, spoilage risk, days of supply and a plain-English note per item" loading="lazy"></figure>
+    <figure class="shot shot--order"><div class="shot-head"><span class="shot-dot"></span> Reorder — decision drafted</div><img src="{{ url_for('static', filename='screenshot-recommendations.png') }}" alt="berthcast reorder recommendation: suggested quantity with confidence level, what happens if you order or wait, and a supplier-risk action plan" loading="lazy"></figure>
   </div>
-</section>
+</div></section>
 
-<!-- ── Problem / cost (no client named) ── -->
-<section class="problem">
-  <div class="wrap">
-    <div class="problem-grid">
-      <div class="reveal">
-        <div class="eyebrow">Why this is expensive</div>
-        <h2>A stockout doesn't warn you. It just <em>arrives</em>.</h2>
-        <p>A high-runner quietly draws down. A supplier slips a week. The first real signal is a customer order you can't fill — and on import SKUs with lead times measured in months, that gap isn't a bad afternoon. It's weeks of orders walking out the door.</p>
-        <p><strong>The math is unforgiving on the items that matter most.</strong> The faster a SKU sells, the less warning you get, and the longer the lead time, the earlier you needed to act. Spreadsheets don't flag that. berthcast does — for every line, every run.</p>
-      </div>
-      <div class="stat-stack reveal">
-        <div class="stat-card"><div class="stat-num" data-count="16" data-suffix=" wks">0</div><div class="stat-desc">Longest import lead time the engine plans every reorder around</div></div>
-        <div class="stat-card"><div class="stat-num" data-count="400" data-suffix="+">0</div><div class="stat-desc">SKUs ranked by revenue at risk, on every single analysis</div></div>
-        <div class="stat-card"><div class="stat-num" data-count="3" data-suffix=" agents">0</div><div class="stat-desc">Specialised passes — normalise, score health, build the order</div></div>
-      </div>
-    </div>
-  </div>
-</section>
+<!-- CTA -->
+<section class="cta"><div class="wrap">
+  <h2>Ready to stop <em>guessing</em> your reorders?</h2>
+  <p>Send us your exports and we'll run a full analysis on your actual data — free, no commitment.</p>
+  <div class="cta-btns"><a class="btn btn-primary" href="#demo">Try the live demo →</a><a class="btn btn-secondary" href="{{ url_for('register') }}">Get a free analysis</a></div>
+</div></section>
 
-<!-- ── Features ── -->
-<section class="features" id="features">
-  <div class="wrap">
-    <div class="sec-head reveal">
-      <div class="eyebrow">What berthcast does</div>
-      <h2>Three agents work your data, step by step</h2>
-      <p>Upload your exports once. No setup, no configuration, no spreadsheet formulas to maintain.</p>
-    </div>
-    <div class="feat-grid">
-      <div class="feat reveal"><div class="feat-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 3v18h18M7 14l4-4 4 4 5-6"/></svg></div><h3>Inventory health analysis</h3><p>Classifies every SKU as CRITICAL, LOW, or NORMAL from days of stock left versus your real lead times — import versus local.</p></div>
-      <div class="feat reveal"><div class="feat-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 16V8a2 2 0 0 0-1-1.7l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.7l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg></div><h3>Reorder recommendations</h3><p>Exact reorder quantity per item, accounting for sales velocity, spoilage thresholds, and supplier lead times. No guesswork.</p></div>
-      <div class="feat reveal"><div class="feat-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0zM12 9v4M12 17h.01"/></svg></div><h3>Stockout risk flagging</h3><p>Flags which items are most likely to stock out based on current velocity, on-hand levels, and lead times — so you act before the gap, not after.</p></div>
-      <div class="feat reveal"><div class="feat-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7h18M3 12h18M3 17h18"/></svg></div><h3>Supplier-aware planning</h3><p>Knows which suppliers are import versus local and applies the right buffer automatically, so orders land before you run dry.</p></div>
-      <div class="feat reveal"><div class="feat-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M9 13h6M9 17h6"/></svg></div><h3>Printable purchase orders</h3><p>Approve recommendations with one click. berthcast generates a formatted PO you can send directly — no reformatting.</p></div>
-      <div class="feat reveal"><div class="feat-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div><h3>Chat with your data</h3><p>Ask in plain language. "Which items are critical this week?" or "What do I order before the long weekend?" Answered instantly.</p></div>
-    </div>
+<!-- FOOTER -->
+<footer class="site"><div class="foot">
+  <img src="{{ url_for('static', filename='logo-dark.png') }}" alt="berthcast">
+  <span class="colophon">Inventory operations for food distributors</span>
+  <div class="foot-links">
+    <a href="{{ url_for('about') }}">About</a><a href="{{ url_for('data_promise') }}">Your data</a>
+    <a href="{{ url_for('pricing') }}">Pricing</a><a href="{{ url_for('contact') }}">Contact</a>
+    <a href="{{ url_for('terms') }}">Terms</a><a href="{{ url_for('privacy') }}">Privacy</a>
+    <a href="{{ url_for('login') }}">Sign in</a>
   </div>
-</section>
-
-<!-- ── How ── -->
-<section class="how" id="how">
-  <div class="wrap">
-    <div class="sec-head reveal">
-      <div class="eyebrow">How it works</div>
-      <h2 class="dark">From your exports to a purchase order in four steps</h2>
-      <p class="dark">No integration required. Works directly from the Excel reports you already pull out of your ERP.</p>
-    </div>
-    <div class="how-steps">
-      <div class="step reveal"><div class="step-num">1</div><h3>Upload your files</h3><p>Export inventory, purchase orders, and sales from your ERP. Drop the Excel files in — that's it.</p></div>
-      <div class="step reveal"><div class="step-num">2</div><h3>Add context</h3><p>Flag delayed suppliers, big upcoming orders, or items you're discontinuing. Takes 30 seconds.</p></div>
-      <div class="step reveal"><div class="step-num">3</div><h3>AI runs the analysis</h3><p>Three agents work the data step by step — normalise, score health, then recommend. You watch each one run.</p></div>
-      <div class="step reveal"><div class="step-num">4</div><h3>Approve &amp; order</h3><p>Review, approve the ones you want, and print a ready-to-send purchase order.</p></div>
-    </div>
-  </div>
-</section>
-
-<!-- ── CTA ── -->
-<section class="cta">
-  <div class="cta-inner reveal">
-    <h2>Ready to stop <em>guessing</em> your reorders?</h2>
-    <p>Send us your exports and we'll run a full analysis on your actual data — free, no commitment.</p>
-    <div class="cta-btns">
-      <a href="#demo" class="btn btn-primary">Try the live demo →</a>
-      <a href="{{ url_for('register') }}" class="btn btn-secondary">Get a free analysis</a>
-    </div>
-  </div>
-</section>
-
-<!-- ── Footer ── -->
-<footer>
-  <div class="footer">
-    <div class="footer-brand">
-      <img src="{{ url_for('static', filename='logo.png') }}" alt="berthcast" onerror="this.style.display='none';this.nextElementSibling.style.display='inline'">
-      <span class="brand-text" style="display:none;font-size:16px"><b>berth</b><i>cast</i></span>
-      <span>© 2026 berthcast · Inventory operations for food distributors</span>
-    </div>
-    <div class="footer-links">
-      <a href="{{ url_for('about') }}">About</a><a href="{{ url_for('data_promise') }}">Your data</a><a href="{{ url_for('pricing') }}">Pricing</a><a href="{{ url_for('contact') }}">Contact</a><a href="{{ url_for('terms') }}">Terms</a><a href="{{ url_for('privacy') }}">Privacy</a><a href="{{ url_for('login') }}">Sign in</a>
-    </div>
-  </div>
-</footer>
+</div></footer>
 
 <script>
-(function () {
-  var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-
-  var revealEls = document.querySelectorAll('.reveal');
-  if (reduce || !('IntersectionObserver' in window)) {
-    revealEls.forEach(function (el) { el.classList.add('in'); });
-  } else {
-    var io = new IntersectionObserver(function (entries) {
-      entries.forEach(function (e) {
-        if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
-      });
-    }, { threshold: 0.12, rootMargin: '0px 0px -60px 0px' });
-    revealEls.forEach(function (el) { io.observe(el); });
-  }
-
-  function runCount(el) {
-    var target = parseFloat(el.getAttribute('data-count'));
-    var suffix = el.getAttribute('data-suffix') || '';
-    if (reduce) { el.textContent = target + suffix; return; }
-    var dur = 1100, start = null;
-    function tick(ts) {
-      if (!start) start = ts;
-      var p = Math.min((ts - start) / dur, 1);
-      var eased = 1 - Math.pow(1 - p, 3);
-      el.textContent = Math.round(target * eased) + suffix;
-      if (p < 1) requestAnimationFrame(tick);
-    }
-    requestAnimationFrame(tick);
-  }
-  // Hero loop: replays the product flow (upload -> run -> rank -> order).
-  // Pauses off-screen; reduced-motion users get the ranked table, frozen.
-  var loop = document.getElementById('loopDemo');
-  if (loop) {
-    var scenes = loop.querySelectorAll('.scene');
-    var steps  = loop.querySelectorAll('.loop-step');
-    var durs   = [2800, 3400, 4200, 3800];
-    var sIdx = 0, loopTimer = null;
-    function showScene(i) {
-      for (var n = 0; n < scenes.length; n++) {
-        scenes[n].classList.toggle('on', n === i);
-        steps[n].classList.toggle('on', n === i);
-      }
-    }
-    function loopAdvance() {
-      loopTimer = setTimeout(function () {
-        sIdx = (sIdx + 1) % scenes.length;
-        showScene(sIdx);
-        loopAdvance();
-      }, durs[sIdx]);
-    }
-    if (reduce) {
-      showScene(2);
-    } else if ('IntersectionObserver' in window) {
-      var loopIO = new IntersectionObserver(function (entries) {
-        entries.forEach(function (e) {
-          if (e.isIntersecting) { if (!loopTimer) loopAdvance(); }
-          else { clearTimeout(loopTimer); loopTimer = null; }
-        });
-      }, { threshold: 0.25 });
-      loopIO.observe(loop);
-    } else {
-      loopAdvance();
-    }
-  }
-
-  if (!reduce && 'IntersectionObserver' in window) {
-    var statIO = new IntersectionObserver(function (entries) {
-      entries.forEach(function (e) { if (e.isIntersecting) { runCount(e.target); statIO.unobserve(e.target); } });
-    }, { threshold: 0.6 });
-    document.querySelectorAll('.problem [data-count]').forEach(function (el) { statIO.observe(el); });
-  } else {
-    document.querySelectorAll('.problem [data-count]').forEach(runCount);
-  }
-
-  var ON_HAND = 140, LEAD = 21, SAFETY = 7, COVER = LEAD + SAFETY, PRICE = 9, RING_C = 251.3;
-  var slider = document.getElementById('salesSlider');
-  var salesVal = document.getElementById('salesVal');
-  var ringFg = document.getElementById('ringFg');
-  var ringNum = document.getElementById('ringNum');
-  var statusPill = document.getElementById('statusPill');
-  var statusLine = document.getElementById('statusLine');
-  var dosInline = document.getElementById('dosInline');
-  var reorderVal = document.getElementById('reorderVal');
-  var exposureVal = document.getElementById('exposureVal');
-
-  var PALETTE = {
-    CRITICAL: { ring: '#E58B8B', pillBg: 'rgba(139,44,44,0.22)', pillFg: '#E58B8B' },
-    LOW:      { ring: '#E2B97A', pillBg: 'rgba(184,92,0,0.22)',  pillFg: '#E2B97A' },
-    NORMAL:   { ring: '#7FC8A4', pillBg: 'rgba(45,106,79,0.22)', pillFg: '#7FC8A4' }
+(function(){
+  var ON_HAND=140, LEAD=21, COVER=28, PRICE=9, RING_C=251.3;
+  var PAL={
+    CRITICAL:{c:'#E89A92', bg:'rgba(232,154,146,.16)', label:'Critical'},
+    LOW:     {c:'#C9A227', bg:'rgba(201,162,39,.16)',  label:'Low'},
+    NORMAL:  {c:'#8FBC8F', bg:'rgba(143,188,143,.16)', label:'Healthy'}
   };
+  var $ = function(id){ return document.getElementById(id); };
+  var slider=$('salesSlider'), salesVal=$('salesVal'), ringFg=$('ringFg'), ringNum=$('ringNum'),
+      statusPill=$('statusPill'), statusLine=$('statusLine'), dosInline=$('dosInline'),
+      reorderVal=$('reorderVal'), exposureVal=$('exposureVal');
+  if(!slider) return;
 
-  function compute(d) {
-    var dos = ON_HAND / d;
-    var status = dos <= LEAD ? 'CRITICAL' : (dos <= COVER ? 'LOW' : 'NORMAL');
-    var reorder = Math.max(0, Math.round((d * COVER - ON_HAND) / 5) * 5);
-    var lostWk = d * 7 * PRICE;
-    var ringPct = Math.min(100, dos / 30 * 100);
-    return { dos: dos, status: status, reorder: reorder, lostWk: lostWk, ringPct: ringPct };
+  function compute(d){
+    var dos=ON_HAND/d;
+    var status = dos<=LEAD ? 'CRITICAL' : (dos<=COVER ? 'LOW' : 'NORMAL');
+    var reorder=Math.max(0, Math.round((d*COVER-ON_HAND)/5)*5);
+    return { dos:dos, status:status, reorder:reorder, lostWk:d*7*PRICE, ringPct:Math.min(100,dos/30*100) };
   }
-
-  function line(status, dos) {
-    if (status === 'CRITICAL') return 'Stock runs out in <strong style="color:#fff">' + dos.toFixed(1) + '</strong> days — sooner than the 21-day lead time. Reorder now or it goes out before stock lands.';
-    if (status === 'LOW') return 'About <strong style="color:#fff">' + dos.toFixed(1) + '</strong> days of cover — it survives the lead time but eats into your safety buffer. Queue a reorder.';
-    return 'Comfortable — <strong style="color:#fff">' + dos.toFixed(1) + '</strong> days of cover, well clear of the 21-day lead time. No action needed yet.';
+  function line(status,dos){
+    var x='<b>'+dos.toFixed(1)+'</b>';
+    if(status==='CRITICAL') return 'Stock runs out in '+x+' days — sooner than the 21-day lead time. Reorder now or it goes out before stock lands.';
+    if(status==='LOW') return 'About '+x+' days of cover — it survives the lead time but eats into your buffer. Queue a reorder.';
+    return 'Comfortable — '+x+' days of cover, well clear of the 21-day lead time. No action needed yet.';
   }
-
-  function render(d) {
-    var r = compute(d);
-    var pal = PALETTE[r.status];
-    salesVal.textContent = d;
-    dosInline.textContent = r.dos.toFixed(1);
-    ringNum.innerHTML = Math.round(r.dos) + '<span style="font-size:12px">d</span>';
-    ringFg.setAttribute('stroke', pal.ring);
-    ringFg.style.strokeDashoffset = (RING_C * (1 - r.ringPct / 100)).toFixed(1);
-    statusPill.textContent = '● ' + r.status;
-    statusPill.style.background = pal.pillBg;
-    statusPill.style.color = pal.pillFg;
-    statusLine.innerHTML = line(r.status, r.dos);
-    if (r.reorder > 0) {
-      reorderVal.innerHTML = r.reorder + ' <span style="font-size:15px;color:rgba(255,255,255,0.45)">cs</span>';
-      reorderVal.className = 'ro-value brass';
-    } else {
-      reorderVal.innerHTML = 'Hold <span style="font-size:15px;color:rgba(255,255,255,0.45)">— stocked</span>';
-      reorderVal.className = 'ro-value';
-    }
-    exposureVal.textContent = 'SGD ' + r.lostWk.toLocaleString();
+  function render(d){
+    var r=compute(d), pal=PAL[r.status];
+    salesVal.textContent=d;
+    if(dosInline) dosInline.textContent=r.dos.toFixed(1);
+    ringNum.innerHTML=Math.round(r.dos)+'<span style="font-size:12px">d</span>';
+    ringFg.setAttribute('stroke',pal.c);
+    ringFg.style.strokeDashoffset=(RING_C*(1-r.ringPct/100)).toFixed(1);
+    statusPill.textContent='● '+pal.label;
+    statusPill.style.color=pal.c; statusPill.style.background=pal.bg;
+    statusLine.innerHTML=line(r.status,r.dos);
+    reorderVal.innerHTML = r.reorder>0
+      ? r.reorder+' <span style="font-size:14px;color:var(--ivory-faint)">cs</span>'
+      : 'Hold <span style="font-size:14px;color:var(--ivory-faint)">— stocked</span>';
+    reorderVal.style.color = r.reorder>0 ? 'var(--gold)' : 'var(--ivory)';
+    exposureVal.textContent='SGD '+r.lostWk.toLocaleString();
   }
-
-  if (slider) {
-    slider.addEventListener('input', function () { render(parseInt(this.value, 10)); });
-    render(parseInt(slider.value, 10));
-  }
-
-  var runBtn = document.getElementById('runBtn');
-  var logLines = document.querySelectorAll('#log .log-line');
-  var demoSection = document.getElementById('demo');
-  var queueHeadText = document.getElementById('queueHeadText');
-
-  function runAnalysis() {
-    runBtn.disabled = true;
-    runBtn.textContent = 'Running…';
-    logLines.forEach(function (l) { l.classList.remove('show', 'done'); });
-    var stepGap = reduce ? 60 : 520;
-    logLines.forEach(function (l, i) {
-      setTimeout(function () { l.classList.add('show'); }, i * stepGap + 80);
-      setTimeout(function () { l.classList.add('done'); }, i * stepGap + stepGap - 60);
-    });
-    var total = logLines.length * stepGap + 120;
-    setTimeout(function () {
-      demoSection.classList.add('run');
-      queueHeadText.textContent = 'Catalogue ranked — 1 critical, 1 low, 1 clear';
-      runBtn.disabled = false;
-      runBtn.textContent = '↻ Run again';
-    }, total);
-  }
-  if (runBtn) runBtn.addEventListener('click', runAnalysis);
+  slider.addEventListener('input', function(){ render(parseInt(this.value,10)); });
+  render(parseInt(slider.value,10));
 })();
 </script>
 
