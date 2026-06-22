@@ -143,7 +143,7 @@
   .feat h3{ font-family:var(--serif); font-weight:600; font-size:21px; color:var(--ivory); margin-bottom:7px; }
   .feat p{ font-size:13.5px; color:var(--ivory-dim); line-height:1.6; }
 
-  /* interactive demo */
+  /* worked example */
   .demo{ padding:90px 0; border-top:1px solid var(--hair); }
   .demo-grid{ display:grid; grid-template-columns:1fr 1fr; gap:24px; align-items:stretch; }
   .panel{ background:rgba(13,40,24,.5); border:1px solid var(--gold-line); border-radius:10px; padding:28px; }
@@ -151,29 +151,12 @@
   .panel-tag{ font-family:var(--sans); font-size:10px; font-weight:500; letter-spacing:.14em; text-transform:uppercase; color:var(--ivory-faint); margin-bottom:18px; }
   .sku-name{ font-family:var(--serif); font-weight:600; font-size:24px; color:var(--ivory); }
   .sku-meta{ font-family:var(--sans); font-size:12px; color:var(--ivory-faint); margin-top:4px; }
-  .sku-facts{ display:flex; gap:26px; margin-top:22px; }
+  .sku-facts{ display:grid; grid-template-columns:1fr 1fr; gap:18px 30px; margin-top:24px; }
   .sku-fact .l{ font-size:10px; letter-spacing:.06em; text-transform:uppercase; color:var(--ivory-faint); }
   .sku-fact .v{ font-family:var(--serif); font-weight:600; font-size:26px; color:var(--ivory); margin-top:3px; font-variant-numeric:tabular-nums; }
-  .slider-block{ margin-top:26px; }
-  .slider-top{ display:flex; justify-content:space-between; align-items:baseline; margin-bottom:6px; }
-  .slider-top .lbl{ font-size:13px; font-weight:500; color:var(--ivory-dim); }
-  .slider-top .val{ font-family:var(--serif); font-weight:600; font-size:22px; color:var(--gold); }
-  .slider-top .val span{ font-size:12px; color:var(--ivory-faint); font-weight:400; font-family:var(--sans); }
-  input[type=range]{ -webkit-appearance:none; appearance:none; width:100%; height:6px; border-radius:100px;
-    background:linear-gradient(90deg, var(--moss), var(--gold), var(--crit)); outline:none; cursor:pointer; }
-  input[type=range]::-webkit-slider-thumb{ -webkit-appearance:none; appearance:none; width:20px; height:20px; border-radius:50%;
-    background:var(--ivory); border:2px solid var(--gold); box-shadow:0 2px 8px rgba(0,0,0,.45); cursor:grab; }
-  input[type=range]::-moz-range-thumb{ width:20px; height:20px; border-radius:50%; background:var(--ivory); border:2px solid var(--gold); cursor:grab; }
-  .slider-hint{ display:flex; justify-content:space-between; font-family:var(--sans); font-size:10px; letter-spacing:.06em;
-                text-transform:uppercase; color:var(--ivory-faint); margin-top:9px; }
-  .read-top{ display:flex; align-items:center; gap:22px; }
-  .ring{ width:92px; height:92px; flex-shrink:0; position:relative; }
-  .ring svg{ transform:rotate(-90deg); }
-  .ring .bg{ fill:none; stroke:rgba(243,239,223,.12); stroke-width:7; }
-  .ring .fg{ fill:none; stroke:var(--crit); stroke-width:7; stroke-linecap:round; stroke-dasharray:251.3; stroke-dashoffset:170; transition:stroke-dashoffset .4s ease, stroke .3s ease; }
-  .ring .lab{ position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; }
-  .ring .lab b{ font-family:var(--serif); font-weight:600; font-size:22px; color:var(--ivory); line-height:1; }
-  .ring .lab span{ font-family:var(--sans); font-size:8px; font-weight:500; letter-spacing:.1em; text-transform:uppercase; color:var(--ivory-faint); margin-top:3px; }
+  .sku-fact .v span{ font-size:13px; color:var(--ivory-faint); }
+  .ex-num{ font-family:var(--serif); font-weight:700; font-size:56px; color:var(--gold); line-height:1; margin:16px 0 2px; font-variant-numeric:tabular-nums; }
+  .ex-num span{ font-size:18px; color:var(--ivory-faint); font-weight:600; }
   .pill{ display:inline-flex; align-items:center; gap:6px; font-family:var(--sans); font-size:11px; font-weight:600; letter-spacing:.06em;
          padding:5px 11px; border-radius:100px; background:rgba(232,154,146,.16); color:var(--crit); }
   .read-line{ font-size:13.5px; color:var(--ivory-dim); margin-top:12px; max-width:24em; line-height:1.5; }
@@ -226,7 +209,7 @@
 <nav>
   <a class="brand" href="{{ url_for('landing') }}"><img src="{{ url_for('static', filename='logo-dark.png') }}" alt="berthcast"></a>
   <div class="nav-right">
-    <a class="nav-link" href="#demo">Live demo</a><a class="nav-link" href="#features">Features</a>
+    <a class="nav-link" href="#demo">Worked example</a><a class="nav-link" href="#features">Features</a>
     <a class="nav-link" href="#how">How it works</a><a class="nav-link" href="{{ url_for('pricing') }}">Pricing</a>
     <a class="btn btn-nav" href="{{ url_for('login') }}">Sign in →</a>
   </div>
@@ -238,7 +221,7 @@
     <div class="eyebrow">AI inventory operations for food distributors</div>
     <h1 class="hero-title">Stop losing revenue to <em>stockouts</em> you could have seen coming.</h1>
     <p class="hero-sub">berthcast reads your inventory, purchase, and sales exports, ranks what's going critical, and writes the order you should place — before the gap shows up as a sale you can't fill.</p>
-    <div class="hero-ctas"><a class="btn btn-primary" href="#demo">Try the live demo →</a><a class="btn btn-secondary" href="#how">See how it works</a></div>
+    <div class="hero-ctas"><a class="btn btn-primary" href="#demo">See a real decision →</a><a class="btn btn-secondary" href="#how">See how it works</a></div>
     <div class="hero-note"><span class="tick">✓</span> Send your own exports and we'll run a full analysis free — no commitment.</div>
   </div>
   <div>
@@ -266,7 +249,7 @@
 <!-- PROBLEM -->
 <section class="problem"><div class="wrap"><div class="problem-grid">
   <div>
-    <div class="eyebrow">Why this is expensive</div>
+    <div class="eyebrow">What stockouts really cost</div>
     <h2 class="sec-title">A stockout doesn't warn you. It just <em>arrives</em>.</h2>
     <p>A high-runner quietly draws down. A supplier slips a week. The first real signal is a customer order you can't fill — and on import lines with lead times measured in months, that gap isn't a bad afternoon. It's weeks of orders walking out the door.</p>
     <p><strong>The maths is unforgiving on the items that matter most.</strong> The faster a line sells, the less warning you get; the longer the lead time, the earlier you needed to act. Spreadsheets don't flag that. berthcast does — every line, every run.</p>
@@ -297,33 +280,29 @@
   </div>
 </div></section>
 
-<!-- INTERACTIVE DEMO -->
+<!-- WORKED EXAMPLE -->
 <section class="demo" id="demo"><div class="wrap">
-  <div class="section-head"><div class="eyebrow center">Live demo · no sign-up</div><h2 class="sec-title">Watch it catch a stockout <em>in real time</em></h2><p>Drag the sell-through and berthcast re-reads the SKU live — the same logic the product uses, no black box.</p></div>
+  <div class="section-head"><div class="eyebrow center">A worked example · no black box</div><h2 class="sec-title">Why berthcast says order <em>1,570</em></h2><p>One real line from a live run — and the read behind the number. The same logic runs on every SKU, every time.</p></div>
   <div class="demo-grid">
     <div class="panel">
-      <div class="panel-tag">The SKU</div>
-      <div class="sku-name">Bottled Water 1.5L</div>
-      <div class="sku-meta">BW-1500-CS · case of 12 · local supplier · 3-week lead · SGD 9.00/case</div>
+      <div class="panel-tag">The line · as berthcast reads it</div>
+      <div class="sku-name">Cowhead UHT Milk Full Cream 1L</div>
+      <div class="sku-meta">UHT-CH-1L · case of 12 · import supplier</div>
       <div class="sku-facts">
-        <div class="sku-fact"><div class="l">On hand</div><div class="v">140</div></div>
-        <div class="sku-fact"><div class="l">Buffer</div><div class="v">7d</div></div>
-      </div>
-      <div class="slider-block">
-        <div class="slider-top"><span class="lbl">Daily sales</span><span class="val"><span id="salesVal">8</span> <span>cases / day</span></span></div>
-        <input type="range" id="salesSlider" min="2" max="30" value="8" step="1" aria-label="Daily sales">
-        <div class="slider-hint"><span>Slow mover</span><span>Fast runner</span></div>
+        <div class="sku-fact"><div class="l">On hand</div><div class="v">0</div></div>
+        <div class="sku-fact"><div class="l">Days of cover</div><div class="v">0</div></div>
+        <div class="sku-fact"><div class="l">Sells</div><div class="v">~300<span> /mo</span></div></div>
+        <div class="sku-fact"><div class="l">Lead time</div><div class="v">16<span> wks</span></div></div>
       </div>
     </div>
     <div class="panel read">
       <div class="panel-tag">berthcast's read</div>
-      <div class="read-top">
-        <div class="ring"><svg width="92" height="92" viewBox="0 0 92 92"><circle class="bg" cx="46" cy="46" r="40"/><circle class="fg" id="ringFg" cx="46" cy="46" r="40"/></svg><div class="lab"><b id="ringNum">17<span style="font-size:12px">d</span></b><span>cover</span></div></div>
-        <div><span class="pill" id="statusPill">● Critical</span><div class="read-line" id="statusLine">Stock runs out in <b id="dosInline">17.5</b> days — sooner than the 21-day lead time. Reorder now or it goes out before stock lands.</div></div>
-      </div>
+      <span class="pill">● Critical</span>
+      <div class="read-line" style="margin-top:14px">Nothing on the shelf, and the next shipment is <b>~16 weeks</b> out. To cover demand until fresh stock can land — plus a safety buffer — the order is sized at:</div>
+      <div class="ex-num">1,570 <span>CTN</span></div>
       <div class="read-out">
-        <div><div class="l">Recommended reorder</div><div class="v" id="reorderVal">85 <span style="font-size:14px;color:var(--ivory-faint)">cs</span></div></div>
-        <div><div class="l">Revenue exposed / wk</div><div class="v crit" id="exposureVal">SGD 504</div></div>
+        <div><div class="l">Decision</div><div class="v">Order now</div></div>
+        <div><div class="l">Wait one week and</div><div class="v crit">~70 CTN walk out</div></div>
       </div>
     </div>
   </div>
@@ -342,7 +321,7 @@
 <section class="cta"><div class="wrap">
   <h2>Ready to stop <em>guessing</em> your reorders?</h2>
   <p>Send us your exports and we'll run a full analysis on your actual data — free, no commitment.</p>
-  <div class="cta-btns"><a class="btn btn-primary" href="#demo">Try the live demo →</a><a class="btn btn-secondary" href="{{ url_for('register') }}">Get a free analysis</a></div>
+  <div class="cta-btns"><a class="btn btn-primary" href="#demo">See a real decision →</a><a class="btn btn-secondary" href="{{ url_for('register') }}">Get a free analysis</a></div>
 </div></section>
 
 <!-- FOOTER -->
@@ -356,53 +335,6 @@
     <a href="{{ url_for('login') }}">Sign in</a>
   </div>
 </div></footer>
-
-<script>
-(function(){
-  var ON_HAND=140, LEAD=21, COVER=28, PRICE=9, RING_C=251.3;
-  var PAL={
-    CRITICAL:{c:'#E89A92', bg:'rgba(232,154,146,.16)', label:'Critical'},
-    LOW:     {c:'#C9A227', bg:'rgba(201,162,39,.16)',  label:'Low'},
-    NORMAL:  {c:'#8FBC8F', bg:'rgba(143,188,143,.16)', label:'Healthy'}
-  };
-  var $ = function(id){ return document.getElementById(id); };
-  var slider=$('salesSlider'), salesVal=$('salesVal'), ringFg=$('ringFg'), ringNum=$('ringNum'),
-      statusPill=$('statusPill'), statusLine=$('statusLine'), dosInline=$('dosInline'),
-      reorderVal=$('reorderVal'), exposureVal=$('exposureVal');
-  if(!slider) return;
-
-  function compute(d){
-    var dos=ON_HAND/d;
-    var status = dos<=LEAD ? 'CRITICAL' : (dos<=COVER ? 'LOW' : 'NORMAL');
-    var reorder=Math.max(0, Math.round((d*COVER-ON_HAND)/5)*5);
-    return { dos:dos, status:status, reorder:reorder, lostWk:d*7*PRICE, ringPct:Math.min(100,dos/30*100) };
-  }
-  function line(status,dos){
-    var x='<b>'+dos.toFixed(1)+'</b>';
-    if(status==='CRITICAL') return 'Stock runs out in '+x+' days — sooner than the 21-day lead time. Reorder now or it goes out before stock lands.';
-    if(status==='LOW') return 'About '+x+' days of cover — it survives the lead time but eats into your buffer. Queue a reorder.';
-    return 'Comfortable — '+x+' days of cover, well clear of the 21-day lead time. No action needed yet.';
-  }
-  function render(d){
-    var r=compute(d), pal=PAL[r.status];
-    salesVal.textContent=d;
-    if(dosInline) dosInline.textContent=r.dos.toFixed(1);
-    ringNum.innerHTML=Math.round(r.dos)+'<span style="font-size:12px">d</span>';
-    ringFg.setAttribute('stroke',pal.c);
-    ringFg.style.strokeDashoffset=(RING_C*(1-r.ringPct/100)).toFixed(1);
-    statusPill.textContent='● '+pal.label;
-    statusPill.style.color=pal.c; statusPill.style.background=pal.bg;
-    statusLine.innerHTML=line(r.status,r.dos);
-    reorderVal.innerHTML = r.reorder>0
-      ? r.reorder+' <span style="font-size:14px;color:var(--ivory-faint)">cs</span>'
-      : 'Hold <span style="font-size:14px;color:var(--ivory-faint)">— stocked</span>';
-    reorderVal.style.color = r.reorder>0 ? 'var(--gold)' : 'var(--ivory)';
-    exposureVal.textContent='SGD '+r.lostWk.toLocaleString();
-  }
-  slider.addEventListener('input', function(){ render(parseInt(this.value,10)); });
-  render(parseInt(slider.value,10));
-})();
-</script>
 
 </body>
 </html>
