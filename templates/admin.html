@@ -215,9 +215,9 @@
     <table class="data-table">
       <thead>
         <tr>
-          <th>Account</th>
-          <th>AI model</th>
-          <th>Actions</th>
+          <th style="width:44%;">Account</th>
+          <th style="width:14%;">AI model</th>
+          <th style="width:42%; text-align:right;">Actions</th>
         </tr>
       </thead>
       <tbody>
@@ -253,26 +253,27 @@
           </td>
           <td style="vertical-align:top;">
             <form method="POST" action="{{ url_for('admin_panel') }}"
-                  style="display:flex; gap:6px; align-items:center; margin-bottom:6px;"
+                  style="display:flex; gap:8px; align-items:center; justify-content:flex-end; margin-bottom:10px;"
                   data-confirm="Change this account's email? Make sure the new address is correct."
                   data-confirm-label="Change email">
               <input type="hidden" name="action" value="change_email">
               <input type="hidden" name="user_id" value="{{ u.id }}">
               <input type="email" name="new_email" placeholder="new email…" required
-                     style="font-size:12px; padding:4px 6px; width:150px;">
+                     style="font-size:13px; padding:6px 10px; width:220px;">
               <button type="submit" class="btn btn-outline btn-sm">Change</button>
             </form>
             <form method="POST" action="{{ url_for('admin_panel') }}"
-                  style="display:flex; gap:6px; align-items:center; margin-bottom:6px;"
+                  style="display:flex; gap:8px; align-items:center; justify-content:flex-end; margin-bottom:10px;"
                   data-confirm="Set a new password for this account? You'll need to share it with the user."
                   data-confirm-label="Set password">
               <input type="hidden" name="action" value="set_password">
               <input type="hidden" name="user_id" value="{{ u.id }}">
               <input type="text" name="new_password" placeholder="new password" required minlength="8"
-                     style="font-size:12px; padding:4px 6px; width:150px;">
+                     style="font-size:13px; padding:6px 10px; width:220px;">
               <button type="submit" class="btn btn-outline btn-sm">Set</button>
             </form>
             <form method="POST" action="{{ url_for('admin_panel') }}"
+                  style="display:flex; justify-content:flex-end;"
                   data-confirm="Remove this account? This cannot be undone." data-confirm-label="Remove">
               <input type="hidden" name="action" value="delete_user">
               <input type="hidden" name="user_id" value="{{ u.id }}">
