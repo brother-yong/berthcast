@@ -8,29 +8,33 @@
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 :root {
-  /* Brand */
-  --navy-900: #0B1424;
-  --navy-800: #0F1B2D;
-  --navy-700: #1B2B4A;
-  --navy-600: #243B66;
-  --brass:    #C89B5C;
-  --brass-2:  #E2B97A;
-  --brass-3:  #8B6B3D;
-  --paper:    #FAF8F3;
-  --paper-2:  #F3EFE3;
+  /* Brand — dark green + gold (matches the landing). Variable NAMES kept so
+     every component + template inline style flips with no markup changes.
+     navy-800/900 are now light (they were used mostly as TEXT); the few places
+     that used them as a solid BACKGROUND are overridden in the dark block at
+     the end of this file. */
+  --navy-900: #F3EFDF;   /* strong heading / emphasis text (ivory); the few BG uses are re-asserted dark in the dark block */
+  --navy-800: #F3EFDF;   /* primary heading + body text (ivory) */
+  --navy-700: rgba(243,239,223,0.58);  /* secondary text / faint lines */
+  --navy-600: rgba(243,239,223,0.50);
+  --brass:    #C9A227;   /* gold accent */
+  --brass-2:  #DCBE63;   /* light gold */
+  --brass-3:  #C9A227;   /* accent text (was dark brass → now gold) */
+  --paper:    #05140A;   /* page background */
+  --paper-2:  #12351F;   /* secondary surface / tiles */
 
   /* Back-compat aliases (used in template inline styles) */
-  --bg:        #F3EFE3;
-  --surface:   #FFFFFF;
-  --border:    #E5DFCF;
-  --line:      #E5DFCF;
-  --primary:   #0F1B2D;
-  --primary-h: #0B1424;
-  --text:      #0F1B2D;
-  --muted:     #6B7280;
-  --success:   #2D6A4F;
-  --warning:   #B85C00;
-  --danger:    #8B2C2C;
+  --bg:        #05140A;
+  --surface:   #0D2818;  /* card surface */
+  --border:    rgba(201,162,39,0.22);
+  --line:      rgba(201,162,39,0.22);
+  --primary:   #C9A227;  /* primary action = gold */
+  --primary-h: #DCBE63;
+  --text:      #F3EFDF;  /* ivory */
+  --muted:     rgba(243,239,223,0.62);
+  --success:   #8FBC8F;  /* moss */
+  --warning:   #E6B450;  /* amber */
+  --danger:    #E89A92;  /* soft red */
 
   /* Typography system. Inter is the workhorse, Inter Tight for big editorial
      headings and tabular numbers, Instrument Serif for serif accents/leads, and
@@ -43,8 +47,8 @@
   /* Geometry */
   --radius:    14px;
   --radius-sm: 10px;
-  --shadow:    0 4px 24px rgba(15,27,45,0.05);
-  --shadow-lg: 0 12px 40px rgba(15,27,45,0.1);
+  --shadow:    0 4px 24px rgba(0,0,0,0.45);
+  --shadow-lg: 0 12px 40px rgba(0,0,0,0.60);
 
   /* Motion */
   --ease-out:    cubic-bezier(0.23, 1, 0.32, 1);
@@ -1195,7 +1199,7 @@ tbody tr:hover td { background: var(--paper); }
   flex: 1;
   min-width: 240px;
   padding: 11px 14px 11px 38px !important;
-  background: var(--surface) url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%238B6B3D' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='11' cy='11' r='8'/><path d='m21 21-4.3-4.3'/></svg>") 12px center no-repeat !important;
+  background: var(--surface) url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23C9A227' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='11' cy='11' r='8'/><path d='m21 21-4.3-4.3'/></svg>") 12px center no-repeat !important;
   font-size: 14px !important;
 }
 .mc-result-count {
@@ -1510,3 +1514,84 @@ tbody tr:hover td { background: var(--paper); }
 .rec-supplier-cards > .rec-card:last-child {
   margin-bottom: 0;
 }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   DARK THEME — green + gold (matches the landing). These rules override the
+   hardcoded light-theme literals earlier in the file. Colours only; no layout
+   or class changes, so every JS hook and the analysis pipeline stay untouched.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* nav glass */
+nav { background: rgba(8,28,15,0.82); border-bottom-color: rgba(201,162,39,0.18); box-shadow: 0 1px 0 rgba(0,0,0,0.25); }
+.nav-links a:hover { background: rgba(255,255,255,0.05); color: var(--brass); }
+
+/* form fields: dark field, gold focus */
+input[type="text"], input[type="email"], input[type="password"], select, textarea {
+  background: rgba(255,255,255,0.03); color: var(--text); border-color: rgba(201,162,39,0.22);
+}
+input::placeholder, textarea::placeholder { color: rgba(243,239,223,0.34); }
+input:focus, select:focus, textarea:focus {
+  background: rgba(255,255,255,0.05); border-color: var(--brass); box-shadow: 0 0 0 3px rgba(201,162,39,0.16);
+}
+
+/* solid buttons → gold / moss / soft-red with dark text */
+.btn-primary { background: var(--brass); color: var(--paper); border-color: var(--brass); }
+.btn-primary:hover { background: var(--brass-2); border-color: var(--brass-2); color: var(--paper); }
+.btn-outline { color: var(--text); border-color: rgba(201,162,39,0.32); }
+.btn-outline:hover { background: rgba(201,162,39,0.10); border-color: var(--brass); color: var(--brass); }
+.btn-success { background: var(--success); color: var(--paper); border-color: var(--success); }
+.btn-success:hover { background: #7BAE7B; border-color: #7BAE7B; }
+.btn-danger { background: var(--danger); color: var(--paper); border-color: var(--danger); }
+.btn-danger:hover { background: #D98379; border-color: #D98379; }
+.btn-muted { background: rgba(255,255,255,0.05); color: var(--muted); border-color: rgba(201,162,39,0.2); }
+.btn-muted:hover { background: rgba(255,255,255,0.09); color: var(--text); }
+
+/* alerts */
+.alert-error { background: rgba(232,154,146,0.14); color: #E89A92; border-color: rgba(232,154,146,0.32); }
+.alert-success { background: rgba(143,188,143,0.14); color: #8FBC8F; border-color: rgba(143,188,143,0.32); }
+
+/* status badges */
+.badge-healthy, .badge-none { background: rgba(143,188,143,0.16); color: #8FBC8F; }
+.badge-low, .badge-medium { background: rgba(201,162,39,0.18); color: var(--brass-2); }
+.badge-critical, .badge-high { background: rgba(232,154,146,0.16); color: #E89A92; }
+
+/* upload slots */
+.upload-slot.done { background: rgba(143,188,143,0.08); }
+.upload-slot.error { background: rgba(232,154,146,0.08); }
+.upload-slot-icon::before { background: rgba(243,239,223,0.72); }
+.upload-slot.uploading .upload-slot-icon { background: rgba(201,162,39,0.18); }
+.upload-slot.done .upload-slot-icon { background: rgba(143,188,143,0.18); }
+.upload-slot.error .upload-slot-icon { background: rgba(232,154,146,0.18); }
+
+/* recommendation cards */
+.flag-chip { background: rgba(201,162,39,0.12); border-color: rgba(201,162,39,0.3); color: var(--brass-2); }
+.rec-card.approved { background: rgba(143,188,143,0.08); }
+.rec-edit-input { background: rgba(255,255,255,0.03); }
+.rec-edit-input:hover { border-color: rgba(201,162,39,0.4); }
+.rec-order-by-urgent { background: rgba(230,164,80,0.12); border-color: rgba(230,164,80,0.35); color: #E6B450; }
+.rec-order-by-urgent .rec-order-by-meta { color: #E6B450; }
+.rec-order-by-overdue { background: rgba(232,154,146,0.12); border-color: rgba(232,154,146,0.35); color: #E89A92; }
+.rec-order-by-overdue .rec-order-by-meta { color: #E89A92; }
+.conf-popover { background: var(--surface); }
+.rec-supplier-cards { background: rgba(13,40,24,0.4); }
+.rec-supplier-name { color: var(--text); }
+.rec-supplier-sep { color: rgba(243,239,223,0.2); }
+
+/* steps + filter chips (solid active states) */
+.step.active .step-num { background: var(--brass); border-color: var(--brass); color: var(--paper); }
+.step.done .step-num { background: var(--success); border-color: var(--success); color: var(--paper); }
+.mc-chip:hover { background: rgba(201,162,39,0.1); color: var(--brass); border-color: var(--brass); }
+.mc-chip.is-active { background: var(--brass); color: var(--paper); border-color: var(--brass); }
+
+/* tables */
+tbody tr:hover td { background: rgba(255,255,255,0.03); }
+
+/* analysis stream + ticker panels (navy-900 is now ivory text, so re-assert dark bg) */
+.stream-card { background: #081C0F; border-color: rgba(201,162,39,0.2); }
+.stream-log { background: #081C0F; }
+.stream-header { background: #0D2818; }
+.ticker-strip { background: #081C0F; }
+
+/* surfaces that were translucent white */
+.ai-byline { background: rgba(13,40,24,0.7); }
+.site-footer .powered { background: rgba(13,40,24,0.5); }
