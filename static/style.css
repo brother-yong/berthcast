@@ -180,6 +180,7 @@ label .hint {
 input[type="text"],
 input[type="email"],
 input[type="password"],
+input[type="number"],
 select,
 textarea {
   width: 100%;
@@ -1526,7 +1527,7 @@ nav { background: rgba(8,28,15,0.82); border-bottom-color: rgba(201,162,39,0.18)
 .nav-links a:hover { background: rgba(255,255,255,0.05); color: var(--brass); }
 
 /* form fields: dark field, gold focus */
-input[type="text"], input[type="email"], input[type="password"], select, textarea {
+input[type="text"], input[type="email"], input[type="password"], input[type="number"], select, textarea {
   background: rgba(255,255,255,0.03); color: var(--text); border-color: rgba(201,162,39,0.22);
 }
 input::placeholder, textarea::placeholder { color: rgba(243,239,223,0.34); }
