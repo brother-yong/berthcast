@@ -1541,8 +1541,13 @@ input:focus, select:focus, textarea:focus {
 .btn-outline:hover { background: rgba(201,162,39,0.10); border-color: var(--brass); color: var(--brass); }
 .btn-success { background: var(--success); color: var(--paper); border-color: var(--success); }
 .btn-success:hover { background: #7BAE7B; border-color: #7BAE7B; }
-.btn-danger { background: var(--danger); color: var(--paper); border-color: var(--danger); }
-.btn-danger:hover { background: #D98379; border-color: #D98379; }
+/* danger triggers are quiet ghost buttons; they fill in only on hover, so a
+   destructive action never out-shouts the safe ones next to it */
+.btn-danger { background: transparent; color: var(--danger); border-color: rgba(232,154,146,0.45); }
+.btn-danger:hover { background: var(--danger); color: var(--paper); border-color: var(--danger); }
+/* the confirm dialog is the commitment moment — stay solid and loud there */
+.confirm-dialog .btn-danger { background: var(--danger); color: var(--paper); border-color: var(--danger); }
+.confirm-dialog .btn-danger:hover { background: #D98379; border-color: #D98379; }
 .btn-muted { background: rgba(255,255,255,0.05); color: var(--muted); border-color: rgba(201,162,39,0.2); }
 .btn-muted:hover { background: rgba(255,255,255,0.09); color: var(--text); }
 
