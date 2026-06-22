@@ -211,48 +211,25 @@
   <div class="card">
     <div class="card-title">Existing accounts ({{ users|length }})</div>
     {% if users %}
+    <div style="overflow-x:auto;">
     <table class="data-table">
       <thead>
         <tr>
-          <th>Email</th>
-          <th>Organisation</th>
+          <th>Account</th>
           <th>AI model</th>
-          <th>Verified</th>
-          <th>Created</th>
           <th>Actions</th>
         </tr>
       </thead>
       <tbody>
         {% for u in users %}
         <tr>
-          <td>
-            <div style="margin-bottom:6px;">{{ u.email }}</div>
-            <form method="POST" action="{{ url_for('admin_panel') }}"
-                  style="display:flex; gap:6px; align-items:center;"
-                  data-confirm="Change this account's email? Make sure the new address is correct."
-                  data-confirm-label="Change email">
-              <input type="hidden" name="action" value="change_email">
-              <input type="hidden" name="user_id" value="{{ u.id }}">
-              <input type="email" name="new_email" placeholder="new email…" required
-                     style="font-size:12px; padding:4px 6px; width:170px;">
-              <button type="submit" class="btn btn-outline btn-sm">Change</button>
-            </form>
-          </td>
-          <td>{{ u.org_name }}</td>
-          <td>
-            <form method="POST" action="{{ url_for('admin_panel') }}" style="display:flex; gap:8px; align-items:center;">
-              <input type="hidden" name="action" value="change_model">
-              <input type="hidden" name="user_id" value="{{ u.id }}">
-              <select name="model" onchange="this.form.submit()" style="width:auto; font-size:13px; padding:4px 8px;">
-                {% for val, label in models %}
-                <option value="{{ val }}" {% if u.model == val %}selected{% endif %}>{{ val.split('-')[1]|capitalize }}</option>
-                {% endfor %}
-              </select>
-            </form>
-          </td>
-          <td>
+          <td style="vertical-align:top;">
+            <div style="font-weight:600; margin-bottom:3px;">{{ u.email }}</div>
+            <div style="font-size:12.5px; color:var(--muted); margin-bottom:8px;">
+              {{ u.org_name }} · {{ u.created_at[:10] }}
+            </div>
             {% if u.email_verified %}
-              <span style="color:var(--success);font-size:13px;">✓ Verified</span>
+              <span style="color:var(--success); font-size:12px;">✓ Verified</span>
             {% else %}
               <form method="POST" action="{{ url_for('admin_panel') }}" style="display:inline;">
                 <input type="hidden" name="action" value="verify_user">
@@ -263,8 +240,28 @@
               </form>
             {% endif %}
           </td>
-          <td style="font-size:13px; color:var(--muted);">{{ u.created_at[:10] }}</td>
-          <td>
+          <td style="vertical-align:top;">
+            <form method="POST" action="{{ url_for('admin_panel') }}" style="display:flex; gap:8px; align-items:center;">
+              <input type="hidden" name="action" value="change_model">
+              <input type="hidden" name="user_id" value="{{ u.id }}">
+              <select name="model" onchange="this.form.submit()" style="width:auto; font-size:13px; padding:4px 8px;">
+                {% for val, label in models %}
+                <option value="{{ val }}" {% if u.model == val %}selected{% endif %}>{{ val.split('-')[1]|capitalize }}</option>
+                {% endfor %}
+              </select>
+            </form>
+          </td>
+          <td style="vertical-align:top;">
+            <form method="POST" action="{{ url_for('admin_panel') }}"
+                  style="display:flex; gap:6px; align-items:center; margin-bottom:6px;"
+                  data-confirm="Change this account's email? Make sure the new address is correct."
+                  data-confirm-label="Change email">
+              <input type="hidden" name="action" value="change_email">
+              <input type="hidden" name="user_id" value="{{ u.id }}">
+              <input type="email" name="new_email" placeholder="new email…" required
+                     style="font-size:12px; padding:4px 6px; width:150px;">
+              <button type="submit" class="btn btn-outline btn-sm">Change</button>
+            </form>
             <form method="POST" action="{{ url_for('admin_panel') }}"
                   style="display:flex; gap:6px; align-items:center; margin-bottom:6px;"
                   data-confirm="Set a new password for this account? You'll need to share it with the user."
@@ -286,6 +283,7 @@
         {% endfor %}
       </tbody>
     </table>
+    </div>
     {% else %}
       <p style="color:var(--muted);">No accounts yet. Create one above.</p>
     {% endif %}
