@@ -2215,8 +2215,14 @@ def dedup_review(upload_session_id):
         except Exception:
             confirmed = []
         db.execute("UPDATE upload_sessions SET dedup_confirmed=1 WHERE id=?", (upload_session_id,))
+        # Keep exactly ONE analysis_results row per session. INSERT OR REPLACE
+        # never actually replaced (there's no UNIQUE on session_id), so
+        # re-submitting this form left duplicate rows — and get_outcome_stats /
+        # update_supplier_scores then counted that session's recommendations
+        # twice in the ROI/proof numbers. Delete-then-insert guarantees one row.
+        db.execute("DELETE FROM analysis_results WHERE session_id=?", (upload_session_id,))
         db.execute(
-            "INSERT OR REPLACE INTO analysis_results (session_id, inventory_report, recommendations_json) VALUES (?,?,?)",
+            "INSERT INTO analysis_results (session_id, inventory_report, recommendations_json) VALUES (?,?,?)",
             (upload_session_id, json.dumps({"confirmed_groups": confirmed}), "[]")
         )
         return redirect(url_for("run_analysis", upload_session_id=upload_session_id))
@@ -2952,7 +2958,7 @@ def recommend_action():
     in the same call."""
     data            = request.get_json(force=True, silent=True) or {}
     session_id      = data.get("session_id")
-    item            = data.get("item", "").strip()
+    item            = (data.get("item") or "").strip()
     action          = data.get("action", "")   # "approve" | "dismiss"
     note            = data.get("note", "").strip()
     edited_qty      = data.get("edited_quantity", None)
@@ -3011,7 +3017,7 @@ def recommend_edit():
     latest values are persisted before any approve_all is fired."""
     data            = request.get_json(force=True, silent=True) or {}
     session_id      = data.get("session_id")
-    item            = data.get("item", "").strip()
+    item            = (data.get("item") or "").strip()
     edited_qty      = data.get("edited_quantity", None)
     edited_supplier = data.get("edited_supplier", None)
 
@@ -3132,7 +3138,7 @@ def recommend_outcome():
     outcome_status (stockout_avoided | stockout_happened | '')."""
     data       = request.get_json(force=True, silent=True) or {}
     session_id = data.get("session_id")
-    item       = data.get("item", "").strip()
+    item       = (data.get("item") or "").strip()
     field      = data.get("field", "")         # "order_placed" or "outcome_status"
     value      = data.get("value")
 

@@ -399,14 +399,9 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
             if alias_map.get(str(row.get(_desc_col) or "").strip().lower(),
                              str(row.get(_desc_col) or "").strip().lower()) in top_item_names
         ]
-        # Second-chance: direct raw name match (catches items alias_map didn't normalise)
+        # Second-chance: match top items by their raw (un-normalised) name, for
+        # items alias_map didn't fold to a canonical key.
         if not inventory_sorted and top_item_names:
-            raw_top = {r["item"].strip().lower() for r in
-                       (query(
-                           f'SELECT "{desc_col_s}" as item FROM {sal_table} '
-                           f'WHERE "{desc_col_s}" IS NOT NULL GROUP BY "{desc_col_s}" '
-                           f'ORDER BY SUM({_num_sql(rank_col)}) DESC LIMIT {n}'
-                       ) if 'desc_col_s' in dir() else [])} if False else set()
             inventory_sorted = [
                 row for row in sorted(inventory, key=_qty_key)
                 if str(row.get(_desc_col) or "").strip().lower() in top_item_names

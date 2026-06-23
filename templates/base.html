@@ -53,7 +53,7 @@
 <div class="page-wrap" style="padding-top:16px; padding-bottom:0;">
   {% if trial_status.expired %}
   <div class="alert alert-error" style="display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap;">
-    <span>Your free trial ended on {{ trial_status.date }}. Upgrade to keep running analyses, uploads and chat.</span>
+    <span>Your free trial ended on {{ trial_status.date }}. Get in touch to keep running analyses, uploads and chat.</span>
     <a href="{{ url_for('contact') }}" class="btn btn-sm btn-primary" style="white-space:nowrap;">Contact berthcast</a>
   </div>
   {% else %}
