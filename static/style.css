@@ -181,6 +181,7 @@ input[type="text"],
 input[type="email"],
 input[type="password"],
 input[type="number"],
+input[type="date"],
 select,
 textarea {
   width: 100%;
@@ -1527,12 +1528,26 @@ nav { background: rgba(8,28,15,0.82); border-bottom-color: rgba(201,162,39,0.18)
 .nav-links a:hover { background: rgba(255,255,255,0.05); color: var(--brass); }
 
 /* form fields: dark field, gold focus */
-input[type="text"], input[type="email"], input[type="password"], input[type="number"], select, textarea {
+input[type="text"], input[type="email"], input[type="password"], input[type="number"], input[type="date"], select, textarea {
   background: rgba(255,255,255,0.03); color: var(--text); border-color: rgba(201,162,39,0.22);
 }
 input::placeholder, textarea::placeholder { color: rgba(243,239,223,0.34); }
 input:focus, select:focus, textarea:focus {
   background: rgba(255,255,255,0.05); border-color: var(--brass); box-shadow: 0 0 0 3px rgba(201,162,39,0.16);
+}
+/* date inputs: the native calendar icon ships dark — invert it so it shows on the dark field */
+input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.85); opacity: 0.7; cursor: pointer; }
+input[type="date"]:hover::-webkit-calendar-picker-indicator { opacity: 1; }
+/* Browser autofill repaints fields white/yellow and ignores `background`. The inset
+   box-shadow is the only way to pin an autofilled field to the dark theme. */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--text, #F3EFDF);
+  -webkit-box-shadow: 0 0 0 1000px var(--surface, #0D2818) inset;
+  box-shadow: 0 0 0 1000px var(--surface, #0D2818) inset;
+  caret-color: var(--text, #F3EFDF);
+  transition: background-color 9999s ease-in-out 0s;
 }
 
 /* solid buttons → gold / moss / soft-red with dark text */
