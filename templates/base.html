@@ -49,6 +49,22 @@
 {% endif %}
 {% endif %}
 
+{% if trial_status %}
+<div class="page-wrap" style="padding-top:16px; padding-bottom:0;">
+  {% if trial_status.expired %}
+  <div class="alert alert-error" style="display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap;">
+    <span>Your free trial ended on {{ trial_status.date }}. Upgrade to keep running analyses, uploads and chat.</span>
+    <a href="{{ url_for('contact') }}" class="btn btn-sm btn-primary" style="white-space:nowrap;">Contact berthcast</a>
+  </div>
+  {% else %}
+  <div class="alert" style="border:1px solid rgba(201,162,39,0.4); background:rgba(201,162,39,0.10); color:var(--text); display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap;">
+    <span>Your free trial ends on {{ trial_status.date }} — {{ trial_status.days_left }} day{{ '' if trial_status.days_left == 1 else 's' }} left.</span>
+    <a href="{{ url_for('contact') }}" class="btn btn-sm btn-outline" style="white-space:nowrap;">Contact berthcast</a>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
 {% with messages = get_flashed_messages(with_categories=true) %}
   {% if messages %}
     <div class="page-wrap" style="padding-top:16px; padding-bottom:0;">

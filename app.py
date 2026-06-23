@@ -38,6 +38,7 @@ from emails import (
 )
 from auth_utils import (
     login_required, admin_required, analyst_required, _allowed, _verify_session_owner,
+    trial_active_required, trial_expired,
 )
 from rec_logic import (
     _normalise_confidence, _effective_qty, _effective_supplier,
@@ -391,6 +392,36 @@ def inject_live_stats():
 
 
 
+@app.context_processor
+def inject_trial_status():
+    """Expose the logged-in account's trial state to every template so base.html can
+    render the countdown / expired banner. Admins and permanent accounts get None."""
+    ends = session.get("trial_ends_at")
+    if not ends or session.get("is_admin"):
+        return {"trial_status": None}
+    try:
+        end_date = datetime.fromisoformat(str(ends)).date()
+    except (TypeError, ValueError):
+        return {"trial_status": None}
+    today = datetime.utcnow().date()
+    date_str = end_date.strftime("%d/%m/%Y")
+    if today > end_date:
+        return {"trial_status": {"expired": True, "date": date_str}}
+    return {"trial_status": {"expired": False, "date": date_str,
+                             "days_left": (end_date - today).days}}
+
+
+@app.template_filter("dmy")
+def _dmy(value):
+    """ISO date/timestamp -> DD/MM/YYYY (Singapore format). Blank/garbage -> safe fallback."""
+    if not value:
+        return ""
+    try:
+        return datetime.fromisoformat(str(value)).strftime("%d/%m/%Y")
+    except (TypeError, ValueError):
+        return str(value)[:10]
+
+
 @app.template_filter("status_label")
 def _status_label(value):
     """Friendly, plain-English label for an inventory status. DISPLAY ONLY — the
@@ -595,6 +626,7 @@ def login():
             session["is_admin"] = bool(u["is_admin"])
             session["tier"]     = u["tier"]
             session["role"]     = u.get("role") or "admin"
+            session["trial_ends_at"] = u["trial_ends_at"]
             # Stamp the sign-in time for the operator usage page. Must never break
             # a login, so it's best-effort and swallows any error.
             try:
@@ -630,107 +662,10 @@ def logout():
 
 @app.route("/register", methods=["GET", "POST"])
 def register():
-    if "user_id" in session:
-        return redirect(url_for("chat"))
-    if request.method == "POST":
-        if rate_limit.hit(f"register:{_client_ip()}", 8, 900):
-            return render_template("register.html",
-                error="Too many sign-up attempts from your network. Please wait a few minutes and try again.")
-        org_name     = request.form.get("org_name", "").strip()
-        email        = request.form.get("email", "").strip().lower()
-        password     = request.form.get("password", "")
-        password2    = request.form.get("password2", "")
-        # Browsers only send checkbox values when checked. Anything other than
-        # the exact "on" / "1" / "true" we consider unchecked — don't trust
-        # the front-end to enforce the agreement.
-        accept_terms = request.form.get("accept_terms", "").strip().lower() in ("on", "1", "true", "yes")
-
-        # Validation
-        error = None
-        if not org_name:
-            error = "Organisation name is required."
-        elif not email or "@" not in email:
-            error = "A valid email address is required."
-        elif len(password) < 8:
-            error = "Password must be at least 8 characters."
-        elif password != password2:
-            error = "Passwords don't match."
-        elif not accept_terms:
-            error = "Please tick the box to agree to the Terms of Service and Privacy Policy."
-        else:
-            existing = db.query("SELECT id FROM users WHERE email=?", (email,))
-            if existing:
-                error = "An account with that email already exists."
-            else:
-                # Org name is the tenant boundary, so a self-registration must
-                # never land inside an existing organisation. Colleagues join an
-                # existing org through the admin invite flow, not here — so a
-                # name that already exists is either a clash or an attempt to
-                # piggyback on someone else's data. Refuse it (case/space-insensitive).
-                org_taken = db.query(
-                    "SELECT id FROM users WHERE LOWER(TRIM(org_name)) = LOWER(TRIM(?)) LIMIT 1",
-                    (org_name,)
-                )
-                if org_taken:
-                    error = ("An organisation with that name is already registered. "
-                             "If you're joining a colleague's account, ask their admin to invite you. "
-                             "Otherwise please use a more specific name — for example, add your "
-                             "full company name or city.")
-
-        if error:
-            return render_template("register.html", error=error,
-                                   org_name=org_name, email=email,
-                                   accept_terms=accept_terms)
-
-        # If we can't actually send mail (MAIL_SENDER / MAIL_APP_PASSWORD
-        # unset on Render), auto-verify the account. Without this, the user
-        # gets stuck: they sign up, no email arrives, and login refuses them
-        # forever with "Please verify your email".
-        mail_configured = bool(os.environ.get("MAIL_SENDER")) and bool(os.environ.get("MAIL_APP_PASSWORD"))
-        verified_on_create = 0 if mail_configured else 1
-
-        db.execute(
-            """INSERT INTO users
-               (email, password_hash, org_name, model, tier, email_verified,
-                analyses_used, chat_messages_used)
-               VALUES (?,?,?,?,?,?,?,?)""",
-            (email, generate_password_hash(password), org_name,
-             "claude-haiku-4-5-20251001", "free", verified_on_create, 0, 0)
-        )
-        new_user = db.query("SELECT id FROM users WHERE email=?", (email,))[0]
-
-        if mail_configured:
-            # Issue verification token and email it. Only the HASH is stored —
-            # the raw token lives solely inside the emailed link.
-            db.execute(
-                "DELETE FROM email_verification_tokens WHERE user_id=?",
-                (new_user["id"],)
-            )
-            token = secrets.token_urlsafe(32)
-            db.execute(
-                "INSERT INTO email_verification_tokens (user_id, token) VALUES (?,?)",
-                (new_user["id"], _hash_token(token))
-            )
-            verify_url = url_for("verify_email", token=token, _external=True)
-            threading.Thread(
-                target=_send_verification_email,
-                args=(email, verify_url),
-                daemon=True,
-            ).start()
-            return render_template("register.html", submitted=True, email=email)
-
-        # Mail not configured — log them in immediately so they don't get stuck.
-        session["user_id"]  = new_user["id"]
-        session["email"]    = email
-        session["org_name"] = org_name
-        session["model"]    = "claude-haiku-4-5-20251001"
-        session["is_admin"] = False
-        session["tier"]     = "free"
-        session["role"]     = "admin"
-        flash("Account created. Welcome to berthcast.", "success")
-        return redirect(url_for("chat"))
-
-    return render_template("register.html")
+    # Public self-serve sign-up is retired — access is granted by the operator
+    # (paid clients + operator-set trials), never taken. The route stays so old
+    # links/bookmarks resolve to the contact page instead of 404ing.
+    return redirect(url_for("contact"))
 
 
 @app.route("/verify-email/<token>")
@@ -837,6 +772,7 @@ def chat():
 
 @app.route("/api/chat", methods=["POST"])
 @login_required
+@trial_active_required
 def chat_api():
     data = request.get_json() or {}
     conversation_id = data.get("conversation_id")
@@ -1140,21 +1076,31 @@ def admin_panel():
             password = request.form.get("password", "")
             org      = request.form.get("org_name", "").strip()
             model    = request.form.get("model", "claude-sonnet-4-6")
+            trial    = request.form.get("trial_ends_at", "").strip() or None
             if not email or not password or not org:
                 flash("All fields are required.", "error")
             else:
                 try:
                     db.execute(
-                        "INSERT INTO users (email, password_hash, org_name, model) VALUES (?,?,?,?)",
-                        (email, generate_password_hash(password), org, model)
+                        "INSERT INTO users (email, password_hash, org_name, model, trial_ends_at) VALUES (?,?,?,?,?)",
+                        (email, generate_password_hash(password), org, model, trial)
                     )
-                    flash(f"Account created for {email}.", "success")
+                    flash(f"Account created for {email}." + (f" Trial ends {trial}." if trial else ""), "success")
                 except Exception:
                     flash("That email is already registered.", "error")
         elif action == "delete_user":
             uid = request.form.get("user_id")
             db.execute("DELETE FROM users WHERE id=? AND is_admin=0", (uid,))
             flash("Account removed.", "success")
+        elif action == "make_permanent":
+            uid = request.form.get("user_id")
+            db.execute("UPDATE users SET trial_ends_at=NULL WHERE id=?", (uid,))
+            flash("Account set to permanent (no trial end).", "success")
+        elif action == "set_trial_date":
+            uid   = request.form.get("user_id")
+            trial = request.form.get("trial_ends_at", "").strip() or None
+            db.execute("UPDATE users SET trial_ends_at=? WHERE id=?", (trial, uid))
+            flash("Trial date updated." if trial else "Trial cleared — account is now permanent.", "success")
         elif action == "verify_user":
             # Safety net: manually mark a user as email-verified so they can
             # log in even when mail isn't configured or the link expired.
@@ -1246,7 +1192,7 @@ def admin_panel():
                 except Exception as e:
                     flash(f"Error saving supplier profile: {e}", "error")
 
-    users = db.query("SELECT id, email, org_name, model, email_verified, created_at FROM users WHERE is_admin=0 ORDER BY created_at DESC")
+    users = db.query("SELECT id, email, org_name, model, email_verified, created_at, trial_ends_at FROM users WHERE is_admin=0 ORDER BY created_at DESC")
     contact_requests = db.query(
         "SELECT id, name, email, company, message, status, created_at "
         "FROM contact_requests ORDER BY (status='new') DESC, created_at DESC"
@@ -1712,6 +1658,7 @@ def delete_session(upload_session_id):
 @app.route("/upload/start")
 @login_required
 @analyst_required
+@trial_active_required
 def upload_start():
     """Entry point for new analysis. Offer choice: reuse last data, or upload fresh."""
     rows = db.query(
@@ -1849,6 +1796,8 @@ def upload():
         )
 
     if request.method == "POST":
+        if trial_expired():
+            return jsonify({"ok": False, "error": "Your trial has ended. Contact berthcast to keep uploading."})
         if not _disk_has_room():
             return jsonify({"ok": False, "error": "Server storage is full — the team has "
                             "been notified. Please try again later."})
@@ -2089,6 +2038,7 @@ def dedup_loading(upload_session_id):
 @app.route("/dedup/stream/<int:upload_session_id>")
 @login_required
 @analyst_required
+@trial_active_required
 def dedup_stream(upload_session_id):
     """SSE endpoint — streams Claude tokens for the normalisation agent in real time."""
     _verify_session_owner(upload_session_id)
@@ -2288,6 +2238,7 @@ def dedup_review(upload_session_id):
 @app.route("/analyse/<int:upload_session_id>")
 @login_required
 @analyst_required
+@trial_active_required
 def run_analysis(upload_session_id):
     _verify_session_owner(upload_session_id)
 
@@ -2828,6 +2779,7 @@ def print_results(upload_session_id):
 
 @app.route("/results/<int:upload_session_id>/export.csv")
 @login_required
+@trial_active_required
 def export_csv(upload_session_id):
     """Download approved recommendations as a CSV file."""
     if session.get("tier") == "free":

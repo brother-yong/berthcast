@@ -117,9 +117,12 @@
     /* ── Cards ── */
     .pricing-grid {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
+      grid-template-columns: repeat(2, 1fr);
       gap: 20px;
       align-items: start;
+      max-width: 720px;
+      margin-left: auto;
+      margin-right: auto;
     }
     .pricing-card {
       background: #0D2818;
@@ -327,50 +330,11 @@
 <!-- ── Hero copy ── -->
 <div class="pricing-wrap">
   <p class="pricing-eyebrow">Pricing</p>
-  <h1 class="pricing-headline">Start free.<br>Scale when you're ready.</h1>
-  <p class="pricing-sub">One free analysis to see what berthcast finds in your data. No credit card, no commitment.</p>
+  <h1 class="pricing-headline">Pricing that fits<br>your operation.</h1>
+  <p class="pricing-sub">Two plans, priced to how you run. Want to see it on your own data first? Get in touch — we'll set you up with a trial.</p>
 
   <!-- ── Cards ── -->
   <div class="pricing-grid">
-
-    <!-- Free -->
-    <div class="pricing-card">
-      <div class="pricing-tier">Free</div>
-      <div class="pricing-price">$0</div>
-      <div class="pricing-price-note">No credit card needed</div>
-      <p class="pricing-desc">
-        One analysis on your real data so you can see exactly what berthcast does before deciding anything.
-      </p>
-      <ul class="pricing-features">
-        <li>
-          <svg class="check" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <circle cx="8" cy="8" r="7.5" stroke="currentColor" stroke-opacity="0.3"/>
-            <path d="M4.5 8.5L6.5 10.5L11.5 5.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-          1 inventory analysis
-        </li>
-        <li>
-          <svg class="check" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <circle cx="8" cy="8" r="7.5" stroke="currentColor" stroke-opacity="0.3"/>
-            <path d="M4.5 8.5L6.5 10.5L11.5 5.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-          20 AI chat messages
-        </li>
-        <li>
-          <svg class="dash" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M4 8H12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-          </svg>
-          <span style="color:var(--muted);">No PDF or CSV export</span>
-        </li>
-        <li>
-          <svg class="dash" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M4 8H12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-          </svg>
-          <span style="color:var(--muted);">No critical stock alerts</span>
-        </li>
-      </ul>
-      <a href="{{ url_for('register') }}" class="pricing-cta pricing-cta-outline">Get started free</a>
-    </div>
 
     <!-- Professional -->
     <div class="pricing-card is-featured">
@@ -481,8 +445,8 @@
     </div>
 
     <div class="faq-item">
-      <p class="faq-q">What does the free analysis actually show me?</p>
-      <p class="faq-a">A full inventory health report — every SKU flagged by status (Critical, Low, OK, Overstocked), days of supply remaining, and specific purchase recommendations with quantities. The same output as paid plans, just capped at one run.</p>
+      <p class="faq-q">Can I try it on my own data first?</p>
+      <p class="faq-a">Yes — get in touch and we'll set you up with a trial on your real files. You'll see the full report: every SKU flagged by status (Critical, Low, OK, Overstocked), days of supply remaining, and specific purchase recommendations with quantities — the same output as a paid plan.</p>
     </div>
 
     <div class="faq-item">

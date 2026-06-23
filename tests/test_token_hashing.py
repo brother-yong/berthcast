@@ -2,8 +2,9 @@
 
 1. Email-verification and password-reset tokens are stored as SHA-256 hashes:
    the raw token exists only inside the emailed link, so a leaked database
-   cannot be replayed as working reset/verify links. The full flows still work
-   end-to-end (register -> verify -> forgot -> reset -> login).
+   cannot be replayed as working reset/verify links. The reset flow still works
+   end-to-end (forgot -> reset -> login). Public sign-up + email verification are
+   retired (access is operator-granted), so those paths are no longer exercised.
 2. Login is throttled per ACCOUNT as well as per IP: five failures against one
    mailbox from five different IPs still lock the account.
 3. The new public endpoints exist: /robots.txt, /.well-known/security.txt,
@@ -31,7 +32,7 @@ for ext in ("", "-journal", "-wal", "-shm"):
 os.environ["DB_PATH"] = _tmp_db
 os.environ.pop("RENDER", None)
 os.environ.setdefault("ANTHROPIC_API_KEY", "dummy-key-not-used")
-# Mail must look configured so /register issues a verification token.
+# Mail env present but harmless — outbound mail is captured below, never sent.
 os.environ["MAIL_SENDER"] = "admin@berthcast.com"
 os.environ["MAIL_APP_PASSWORD"] = "not-a-real-password"
 
@@ -49,6 +50,7 @@ if "anthropic" not in sys.modules:
 import database as db          # noqa: E402
 import rate_limit              # noqa: E402
 import app as appmod          # noqa: E402
+from werkzeug.security import generate_password_hash  # noqa: E402
 
 appmod.app.config["WTF_CSRF_ENABLED"] = False
 appmod.app.config["TESTING"] = True
@@ -85,28 +87,14 @@ def _sha(s):
 EMAIL = "ops@example-distributor.com"
 PW1, PW2 = "first-password-9", "second-password-7"
 
-# ── 1. Register: stored verification token is the hash, not the raw token ────
-r = client.post("/register", data={
-    "org_name": "Example Distributor", "email": EMAIL,
-    "password": PW1, "password2": PW1, "accept_terms": "on",
-})
-_check("register returns 200", r.status_code == 200, detail=str(r.status_code))
-_check("verification email captured", _wait_for("verify", 1))
-verify_url = _sent["verify"][0]
-raw_verify = verify_url.rstrip("/").split("/")[-1]
-row = db.query("SELECT token FROM email_verification_tokens")[0]
-_check("DB does NOT hold the raw verification token", row["token"] != raw_verify)
-_check("DB holds sha256(raw token)", row["token"] == _sha(raw_verify))
-
-# ── 2. The emailed link still verifies the account ───────────────────────────
-r = client.get("/verify-email/" + raw_verify)
-verified = db.query("SELECT email_verified FROM users WHERE email=?", (EMAIL,))[0]["email_verified"]
-_check("verify link works end-to-end",
-       r.status_code == 200 and b"Email verified" in r.data and verified == 1)
-r_bad = client.get("/verify-email/not-the-token")
-_check("a wrong token shows the expired page, not success",
-       r_bad.status_code == 200 and b"Link expired" in r_bad.data
-       and b"Email verified" not in r_bad.data)
+# ── 1. Operator-provisioned account (public sign-up + verification retired) ──
+db.execute(
+    "INSERT INTO users (email, password_hash, org_name, model, email_verified, tier) "
+    "VALUES (?,?,?,?,1,'enterprise')",
+    (EMAIL, generate_password_hash(PW1), "Example Distributor", "claude-sonnet-4-6"),
+)
+_check("account provisioned directly (no self-serve sign-up)",
+       len(db.query("SELECT id FROM users WHERE email=?", (EMAIL,))) == 1)
 
 # ── 3. Forgot password: stored reset token is the hash ───────────────────────
 r = client.post("/forgot-password", data={"email": EMAIL})

@@ -1,11 +1,49 @@
 """Auth decorators and the session-ownership guard. Extracted verbatim from app.py."""
 from functools import wraps
+from datetime import datetime
 from flask import (
     session, request, redirect, url_for, flash, jsonify, abort, make_response
 )
 
 import database as db
 from config import ALLOWED_EXTENSIONS
+
+
+def trial_expired() -> bool:
+    """True when the logged-in account is on a trial whose end date has passed.
+
+    `trial_ends_at` is stamped into the session at login. NULL/blank = a permanent
+    account (never expires). Date-only comparison, so the whole end day stays
+    active — "ends on 24/07" means usable through the 24th."""
+    ends = session.get("trial_ends_at")
+    if not ends:
+        return False
+    try:
+        end_date = datetime.fromisoformat(str(ends)).date()
+    except (TypeError, ValueError):
+        return False  # unparseable → treat as permanent, never lock someone out by accident
+    return datetime.utcnow().date() > end_date
+
+
+def trial_active_required(f):
+    """Block the money/value actions once a trial has ended (soft lock). The
+    account can still log in and read past results — only new analyses, uploads,
+    chat and exports are gated. JSON endpoints get a JSON 403; pages flash + redirect."""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if trial_expired():
+            msg = "Your trial has ended. Contact berthcast to keep running analyses."
+            wants_json = (
+                request.is_json
+                or request.path.startswith(("/api/", "/recommend/", "/dedup/", "/upload"))
+                or "application/json" in (request.headers.get("Accept", "") or "")
+            )
+            if wants_json:
+                return jsonify({"ok": False, "error": msg}), 403
+            flash(msg, "error")
+            return redirect(url_for("dashboard"))
+        return f(*args, **kwargs)
+    return decorated
 
 
 def login_required(f):

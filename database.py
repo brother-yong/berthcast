@@ -215,6 +215,10 @@ def init_db():
         # When this user last signed in — powers the operator usage page so we
         # can see "logged in but never ran anything". NULL = never recorded yet.
         "ALTER TABLE users ADD COLUMN last_login TIMESTAMP",
+        # Trial end date (ISO yyyy-mm-dd). NULL = permanent account (no clock).
+        # Non-NULL = operator-granted trial that soft-locks the money actions once
+        # the date has passed. Access is granted, never self-served.
+        "ALTER TABLE users ADD COLUMN trial_ends_at TIMESTAMP",
         # Org-scoped chat: add org_name to chat_conversations so all org members share them.
         "ALTER TABLE chat_conversations ADD COLUMN org_name TEXT",
         """CREATE TABLE IF NOT EXISTS email_verification_tokens (
