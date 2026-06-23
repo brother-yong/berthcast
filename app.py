@@ -3010,9 +3010,7 @@ def recommend_action():
         return jsonify({"ok": False, "error": "Invalid parameters"}), 400
 
     # Ownership check (org-scoped)
-    rows = db.query("SELECT org_name FROM upload_sessions WHERE id=?", (session_id,))
-    if not rows or rows[0]["org_name"] != session.get("org_name"):
-        return jsonify({"ok": False, "error": "Forbidden"}), 403
+    _verify_session_owner(session_id)
 
     # A user-entered order quantity must never reach the PO sheet unless it's a
     # real, non-negative number. Reject garbage up front.
@@ -3068,9 +3066,7 @@ def recommend_edit():
     if not session_id or not item:
         return jsonify({"ok": False, "error": "Invalid parameters"}), 400
 
-    rows = db.query("SELECT org_name FROM upload_sessions WHERE id=?", (session_id,))
-    if not rows or rows[0]["org_name"] != session.get("org_name"):
-        return jsonify({"ok": False, "error": "Forbidden"}), 403
+    _verify_session_owner(session_id)
 
     # Same guard as the action route — no non-numeric/negative quantity gets saved.
     if edited_qty is not None and str(edited_qty).strip():
@@ -3120,9 +3116,7 @@ def recommend_approve_all():
     if not session_id:
         return jsonify({"ok": False, "error": "Missing session_id"}), 400
 
-    rows = db.query("SELECT org_name FROM upload_sessions WHERE id=?", (session_id,))
-    if not rows or rows[0]["org_name"] != session.get("org_name"):
-        return jsonify({"ok": False, "error": "Forbidden"}), 403
+    _verify_session_owner(session_id)
 
     def _mutate(recs):
         newly = []
@@ -3154,9 +3148,7 @@ def recommend_undo_approve_all():
     if not session_id:
         return jsonify({"ok": False, "error": "Missing session_id"}), 400
 
-    rows = db.query("SELECT org_name FROM upload_sessions WHERE id=?", (session_id,))
-    if not rows or rows[0]["org_name"] != session.get("org_name"):
-        return jsonify({"ok": False, "error": "Forbidden"}), 403
+    _verify_session_owner(session_id)
 
     items_set = set(items)
 
@@ -3195,9 +3187,7 @@ def recommend_outcome():
     if not session_id or not item or field not in ("order_placed", "outcome_status"):
         return jsonify({"ok": False, "error": "Invalid parameters"}), 400
 
-    rows = db.query("SELECT org_name FROM upload_sessions WHERE id=?", (session_id,))
-    if not rows or rows[0]["org_name"] != session.get("org_name"):
-        return jsonify({"ok": False, "error": "Forbidden"}), 403
+    _verify_session_owner(session_id)
 
     # Reject a bad outcome_status before we take the write lock.
     if field == "outcome_status" and value not in ("stockout_avoided", "stockout_happened", ""):
