@@ -10,10 +10,10 @@
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
-      --navy-900: #0B1424; --navy-800: #0F1B2D; --navy-700: #1B2B4A;
-      --brass: #C89B5C; --brass-2: #E2B97A; --brass-3: #8B6B3D;
-      --paper: #FAF8F3; --paper-2: #F3EFE3; --border: #E5DFCF;
-      --muted: #6B7280; --text: #0F1B2D;
+      --navy-900: #F3EFDF; --navy-800: #F3EFDF; --navy-700: rgba(243,239,223,0.72);
+      --brass: #C9A227; --brass-2: #DCBE63; --brass-3: #DCBE63;
+      --paper: #05140A; --paper-2: #0D2818; --border: rgba(201,162,39,0.22);
+      --muted: rgba(243,239,223,0.62); --text: #F3EFDF;
       --font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
       --font-display: 'Inter Tight', 'Inter', sans-serif;
       --font-serif: 'Instrument Serif', Georgia, serif;
@@ -30,7 +30,7 @@
       position: sticky; top: 0; z-index: 100;
       display: flex; align-items: center; justify-content: space-between;
       padding: 0 40px; height: 64px;
-      background: rgba(250,248,243,0.92);
+      background: rgba(8,28,15,0.86);
       backdrop-filter: blur(12px);
       border-bottom: 1px solid var(--border);
     }
@@ -155,7 +155,7 @@
 
 <nav class="legal-nav">
   <a class="legal-nav-logo" href="{{ url_for('landing') }}">
-    <img src="{{ url_for('static', filename='logo.png') }}" alt="berthcast">
+    <img src="{{ url_for('static', filename='logo-dark.png') }}" alt="berthcast">
   </a>
   <div>
     <a href="{{ url_for('pricing') }}">Pricing</a>

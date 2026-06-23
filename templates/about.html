@@ -12,10 +12,10 @@
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
-      --navy-900: #0B1424; --navy-800: #0F1B2D; --navy-700: #1B2B4A;
-      --brass: #C89B5C; --brass-2: #E2B97A; --brass-3: #8B6B3D;
-      --paper: #FAF8F3; --paper-2: #F3EFE3; --border: #E5DFCF;
-      --muted: #6B7280; --text: #0F1B2D;
+      --navy-900: #F3EFDF; --navy-800: #F3EFDF; --navy-700: rgba(243,239,223,0.72);
+      --brass: #C9A227; --brass-2: #DCBE63; --brass-3: #DCBE63;
+      --paper: #05140A; --paper-2: #0D2818; --border: rgba(201,162,39,0.22);
+      --muted: rgba(243,239,223,0.62); --text: #F3EFDF;
       --font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
       --font-display: 'Inter Tight', 'Inter', sans-serif;
       --font-serif: 'Instrument Serif', Georgia, serif;
@@ -33,7 +33,7 @@
       position: sticky; top: 0; z-index: 100;
       display: flex; align-items: center; justify-content: space-between;
       padding: 0 40px; height: 64px;
-      background: rgba(250,248,243,0.92);
+      background: rgba(8,28,15,0.86);
       backdrop-filter: blur(12px);
       border-bottom: 1px solid var(--border);
     }
@@ -75,16 +75,18 @@
     }
     .legal-wrap h2:first-of-type { margin-top: 0; }
     .legal-wrap p { margin-bottom: 14px; color: var(--text); }
+    .legal-wrap a { color: var(--brass-3); text-decoration: underline; }
+    .legal-wrap a:hover { color: var(--navy-700); }
 
     .about-cta {
       margin-top: 44px; padding: 28px 30px;
-      background: var(--navy-900); border-radius: 14px;
-      color: var(--paper);
+      background: #12351F; border-radius: 14px;
+      color: var(--text);
     }
     .about-cta p { color: rgba(250,248,243,0.82); margin-bottom: 18px; }
     .about-cta a.btn {
       display: inline-flex; align-items: center; gap: 8px;
-      background: var(--brass); color: var(--navy-900);
+      background: var(--brass); color: #05140A;
       font-weight: 600; font-size: 15px; text-decoration: none;
       padding: 12px 22px; border-radius: 10px;
       transition: background 160ms;
@@ -115,7 +117,7 @@
 
 <nav class="legal-nav">
   <a class="legal-nav-logo" href="{{ url_for('landing') }}">
-    <img src="{{ url_for('static', filename='logo.png') }}" alt="berthcast">
+    <img src="{{ url_for('static', filename='logo-dark.png') }}" alt="berthcast">
   </a>
   <div>
     <a href="{{ url_for('pricing') }}">Pricing</a>
