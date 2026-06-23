@@ -6,36 +6,6 @@
 
   {% if not past_sessions %}
   <div class="empty-state-wrap">
-    {% if user_usage %}
-    <div class="free-usage-card" style="max-width:480px; margin: 0 auto 20px;">
-      <div class="free-usage-header">
-        <span class="free-usage-badge">Free plan</span>
-        <a href="{{ url_for('pricing') }}" class="free-usage-upgrade">Upgrade →</a>
-      </div>
-      <div class="free-usage-row">
-        <div class="free-usage-label">Analyses</div>
-        <div class="free-usage-bar-wrap">
-          <div class="free-usage-bar" style="width: {{ [(user_usage.analyses_used / user_usage.analyses_limit * 100), 100] | min }}%;
-            {% if user_usage.analyses_used >= user_usage.analyses_limit %}background: var(--danger);{% endif %}">
-          </div>
-        </div>
-        <div class="free-usage-count {% if user_usage.analyses_used >= user_usage.analyses_limit %}is-maxed{% endif %}">
-          {{ user_usage.analyses_used }} / {{ user_usage.analyses_limit }}
-        </div>
-      </div>
-      <div class="free-usage-row">
-        <div class="free-usage-label">Chat messages</div>
-        <div class="free-usage-bar-wrap">
-          <div class="free-usage-bar" style="width: {{ [(user_usage.chat_used / user_usage.chat_limit * 100), 100] | min }}%;
-            {% if user_usage.chat_used >= user_usage.chat_limit %}background: var(--danger);{% endif %}">
-          </div>
-        </div>
-        <div class="free-usage-count {% if user_usage.chat_used >= user_usage.chat_limit %}is-maxed{% endif %}">
-          {{ user_usage.chat_used }} / {{ user_usage.chat_limit }}
-        </div>
-      </div>
-    </div>
-    {% endif %}
     <div class="card empty-state-card">
       <div class="empty-state-icon" aria-hidden="true">
         <svg width="36" height="36" viewBox="0 0 24 24" fill="none"
@@ -47,7 +17,7 @@
         </svg>
       </div>
       <h2 class="empty-state-title">Run your first analysis</h2>
-      <p class="empty-state-body">Upload your ERP exports and berthcast will tell you exactly what to reorder, how much, and what's going critical.</p>
+      <p class="empty-state-body">Upload your inventory, sales and purchase-order exports and berthcast will tell you exactly what to reorder, how much, and what's going critical.</p>
       <a href="{{ url_for('upload_start') }}" class="btn btn-primary empty-state-btn">Start new analysis →</a>
     </div>
   </div>
@@ -68,44 +38,6 @@
         </div>
         {% endif %}
       </div>
-
-      {% if user_usage %}
-      <div class="free-usage-card">
-        <div class="free-usage-header">
-          <span class="free-usage-badge">Free plan</span>
-          <a href="{{ url_for('pricing') }}" class="free-usage-upgrade">Upgrade →</a>
-        </div>
-        <div class="free-usage-row">
-          <div class="free-usage-label">Analyses</div>
-          <div class="free-usage-bar-wrap">
-            <div class="free-usage-bar" style="width: {{ [(user_usage.analyses_used / user_usage.analyses_limit * 100), 100] | min }}%;
-              {% if user_usage.analyses_used >= user_usage.analyses_limit %}background: var(--danger);{% endif %}">
-            </div>
-          </div>
-          <div class="free-usage-count
-            {% if user_usage.analyses_used >= user_usage.analyses_limit %} is-maxed{% endif %}">
-            {{ user_usage.analyses_used }} / {{ user_usage.analyses_limit }}
-          </div>
-        </div>
-        <div class="free-usage-row">
-          <div class="free-usage-label">Chat messages</div>
-          <div class="free-usage-bar-wrap">
-            <div class="free-usage-bar" style="width: {{ [(user_usage.chat_used / user_usage.chat_limit * 100), 100] | min }}%;
-              {% if user_usage.chat_used >= user_usage.chat_limit %}background: var(--danger);{% endif %}">
-            </div>
-          </div>
-          <div class="free-usage-count
-            {% if user_usage.chat_used >= user_usage.chat_limit %} is-maxed{% endif %}">
-            {{ user_usage.chat_used }} / {{ user_usage.chat_limit }}
-          </div>
-        </div>
-        {% if user_usage.analyses_used >= user_usage.analyses_limit or user_usage.chat_used >= user_usage.chat_limit %}
-        <p class="free-usage-limit-msg">You've reached your free limit.
-          <a href="{{ url_for('contact') }}">Contact us to upgrade.</a>
-        </p>
-        {% endif %}
-      </div>
-      {% endif %}
 
       {% if stats %}
       <div class="dash-stat-col">

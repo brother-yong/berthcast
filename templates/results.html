@@ -167,14 +167,8 @@
           </button>
           {% endif %}
           <div class="mc-export-group no-print">
-          {% if user_tier != 'free' %}
           <a href="{{ url_for('export_csv', upload_session_id=upload_session_id) }}"
              class="btn btn-outline btn-sm" title="Download as CSV for Excel">CSV</a>
-          {% else %}
-          <span class="btn btn-outline btn-sm"
-                style="opacity:0.45;cursor:default;pointer-events:none;"
-                title="Upgrade to Professional or Enterprise to export">CSV</span>
-          {% endif %}
           <a href="{{ url_for('print_results', upload_session_id=upload_session_id) }}"
              target="_blank" class="btn btn-outline btn-sm"
              title="Print, or choose 'Save as PDF' to download your approved orders">Print / PDF</a>
@@ -1161,19 +1155,25 @@ document.addEventListener('click', e => {
 async function takeAction(idx, item, action) {
   const note = document.getElementById('note-' + idx)?.value || '';
   const edits = _getEditValues(idx);
-  const res  = await fetch('/recommend/action', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      session_id: sessionId,
-      item,
-      action,
-      note,
-      edited_quantity: edits.edited_quantity,
-      edited_supplier: edits.edited_supplier,
-    })
-  });
-  const data = await res.json();
+  let data;
+  try {
+    const res  = await fetch('/recommend/action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        session_id: sessionId,
+        item,
+        action,
+        note,
+        edited_quantity: edits.edited_quantity,
+        edited_supplier: edits.edited_supplier,
+      })
+    });
+    data = await res.json();
+  } catch (e) {
+    showToast('Network error — that change was not saved. Please try again.');
+    return;
+  }
   if (data.ok) {
     const card = document.getElementById('rec-' + idx);
     card.classList.remove('approved', 'dismissed');
@@ -1223,18 +1223,29 @@ async function takeAction(idx, item, action) {
         card.appendChild(strip);
       }
     }
+  } else {
+    showToast('Could not save that change: ' + (data.error || 'please try again.'));
   }
 }
 
 // ── Outcome tracking ──
 async function recordOutcome(idx, item, field, value) {
-  const res = await fetch('/recommend/outcome', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ session_id: sessionId, item, field, value })
-  });
-  const data = await res.json();
-  if (!data.ok) return;
+  let data;
+  try {
+    const res = await fetch('/recommend/outcome', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: sessionId, item, field, value })
+    });
+    data = await res.json();
+  } catch (e) {
+    showToast('Network error — that update was not saved. Please try again.');
+    return;
+  }
+  if (!data.ok) {
+    showToast('Could not save that update: ' + (data.error || 'please try again.'));
+    return;
+  }
 
   const strip = document.getElementById('outcome-' + idx);
   if (!strip) return;
