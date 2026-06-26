@@ -76,7 +76,7 @@ email, err = validators.validate_email_change("john@example.com.sg", TARGET, _fr
 _check("a valid, free email is accepted", email == "john@example.com.sg" and err is None,
        detail=f"{email!r}, {err!r}")
 
-email, err = validators.validate_email_change("  John.Doe@RegionalDistributor.Com.SG  ", TARGET, _free)
+email, err = validators.validate_email_change("  John.Doe@Example.Com.SG  ", TARGET, _free)
 _check("email is trimmed and lowercased", email == "john.doe@example.com.sg" and err is None,
        detail=f"{email!r}, {err!r}")
 

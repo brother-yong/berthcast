@@ -82,7 +82,7 @@ with client.session_transaction() as s:
 
 # 1. Happy path — fix the wrong email; it should also be trimmed + lowercased.
 r = client.post("/admin", data={"action": "change_email", "user_id": str(userA),
-                                "new_email": "  Staff.Real@RegionalDistributor.Com.SG "})
+                                "new_email": "  Staff.Real@Example.Com.SG "})
 _check("change_email returns 200", r.status_code == 200, detail=str(r.status_code))
 _check("userA email updated and normalised",
        _email_of(userA) == "staff.real@example.com.sg", detail=_email_of(userA))
