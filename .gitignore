@@ -20,8 +20,14 @@ cookies*.txt
 # Local tooling — Claude worktrees, plans, local settings (not for the repo)
 .claude/
 
-# Local memory / working notes — contains client financials, never upload
+# Local memory / working notes & AI instructions — contain client financials and
+# personal info, never upload
 MEMORY.md
+CLAUDE.md
+
+# Stray client exports / design scratch that sometimes land here — never upload
+fixtures/berthcast_orders_*.csv
+design-preview/
 
 # Database
 *.db
