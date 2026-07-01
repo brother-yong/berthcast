@@ -22,7 +22,20 @@
       <span class="overall-dot" id="overall-dot"></span>
       <span id="overall-label">Analysis running</span>
     </div>
-    <div class="overall-timer" id="overall-timer">00:00</div>
+    <div class="overall-timer"><span id="overall-timer">00:00</span><span class="overall-eta" id="overall-eta"></span></div>
+  </div>
+
+  <!-- Findings ticker — live counts as the agents work -->
+  <div class="findings" id="findings">
+    <div class="findings-head"><span class="findings-live"></span>Findings so far</div>
+    <div class="findings-grid">
+      <div class="fstat" data-k="scanned"><div class="fnum" id="f-scanned">0</div><div class="flbl">SKUs scanned</div></div>
+      <div class="fstat" data-k="below_safe"><div class="fnum" id="f-below_safe">0</div><div class="flbl">Below safe stock</div></div>
+      <div class="fstat danger" data-k="critical"><div class="fnum" id="f-critical">0</div><div class="flbl">Critical — act now</div></div>
+      <div class="fstat warn" data-k="spoilage"><div class="fnum" id="f-spoilage">0</div><div class="flbl">Spoilage / expiry risk</div></div>
+      <div class="fstat" data-k="recs"><div class="fnum" id="f-recs">0</div><div class="flbl">Reorder recommendations</div></div>
+      <div class="fstat warn" data-k="supplier_risk"><div class="fnum" id="f-supplier_risk">0</div><div class="flbl">Supplier risks flagged</div></div>
+    </div>
   </div>
 
   <!-- Three agent cards -->
@@ -106,7 +119,7 @@
   box-shadow: 0 0 0 0 rgba(200,146,76,0.6);
   /* One calm "alive" pulse for the whole page. Slowed from 1.4s so it
      breathes rather than throbs; the running agent's dot stays steady. */
-  animation: pulseDot 2.4s ease-out infinite;
+  animation: pulseDot 3.4s ease-out infinite;
 }
 .overall-dot.done  { background: var(--success); animation: none; }
 .overall-dot.error { background: var(--danger);  animation: none; }
@@ -117,7 +130,7 @@
   font-variant-numeric: tabular-nums;
 }
 @keyframes pulseDot {
-  0%   { box-shadow: 0 0 0 0 rgba(200,146,76,0.45); }
+  0%   { box-shadow: 0 0 0 0 rgba(200,146,76,0.30); }
   70%  { box-shadow: 0 0 0 8px rgba(200,146,76,0); }
   100% { box-shadow: 0 0 0 0 rgba(200,146,76,0); }
 }
@@ -235,6 +248,58 @@
 .agent-log-time   { color: var(--muted); flex-shrink: 0; min-width: 44px; }
 .agent-log-arrow  { color: var(--brass); flex-shrink: 0; }
 .agent-log-msg    { flex: 1; word-break: break-word; }
+
+/* Finish-line estimate next to the timer */
+.overall-eta { margin-left: 10px; color: var(--brass-2, var(--brass)); }
+.overall-eta:empty { margin-left: 0; }
+
+/* ── Findings ticker ─────────────────────────────────────────────────────── */
+.findings {
+  border: 1px solid var(--border); border-radius: 14px; background: var(--surface);
+  padding: 18px 22px 20px; margin: 0 0 14px;
+}
+.findings-head {
+  font-family: var(--font-display); font-size: 12px; font-weight: 600;
+  letter-spacing: 0.06em; text-transform: uppercase; color: var(--brass);
+  display: flex; align-items: center; gap: 8px; margin-bottom: 15px;
+}
+.findings-live {
+  width: 7px; height: 7px; border-radius: 50%; background: var(--brass);
+  animation: pulseDot 3.4s ease-out infinite;
+}
+.findings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+.fstat {
+  border: 1px solid var(--border); border-radius: 12px; background: var(--paper-2);
+  padding: 14px 16px; opacity: 0.45;
+  transition: opacity .4s var(--ease-out), transform .4s var(--ease-out), box-shadow .4s;
+}
+.fstat.active { opacity: 1; }
+.fstat.landed { transform: translateY(-2px); }
+.fnum {
+  font-family: var(--font-display); font-size: 28px; font-weight: 700; line-height: 1;
+  font-variant-numeric: tabular-nums; color: var(--text);
+}
+.flbl { font-size: 12px; color: var(--muted); margin-top: 7px; }
+.fstat.danger .fnum { color: var(--danger); }
+.fstat.danger.landed { box-shadow: 0 0 0 1px rgba(232,154,146,.4), 0 6px 24px rgba(232,154,146,.14); }
+.fstat.warn .fnum { color: var(--warning); }
+.fstat.warn.landed { box-shadow: 0 0 0 1px rgba(230,180,80,.34), 0 6px 22px rgba(230,180,80,.12); }
+
+/* ── Heartbeat: the running agent card + its dot gently beat (calm) ───────── */
+.agent-card.status-running { animation: cardbeat 2.7s var(--ease-out) infinite; }
+@keyframes cardbeat {
+  0%,62%,100% { box-shadow: 0 0 0 3px rgba(200,146,76,.07); }
+  16% { box-shadow: 0 0 0 4px rgba(200,146,76,.16); }
+  40% { box-shadow: 0 0 0 4px rgba(200,146,76,.11); }
+}
+.status-running .agent-status-dot { animation: beatDot 2.7s var(--ease-out) infinite; }
+@keyframes beatDot {
+  0%,62%,100% { transform: scale(1); }
+  16% { transform: scale(1.24); }
+  32% { transform: scale(1); }
+  44% { transform: scale(1.13); }
+  56% { transform: scale(1); }
+}
 </style>
 
 <script>
@@ -307,6 +372,49 @@ function appendLogLine(name, t, msg) {
   log.appendChild(line);
 
   log.scrollTop = log.scrollHeight;
+}
+
+// ── Findings ticker ──────────────────────────────────────────────────────────
+const statKeys  = ['scanned','below_safe','critical','spoilage','recs','supplier_risk'];
+const statShown = {};                       // last value we've displayed per tile
+statKeys.forEach(k => statShown[k] = 0);
+
+function animateCount(el, from, to, dur) {
+  const tile = el.closest('.fstat');
+  if (tile) tile.classList.add('active');
+  const start = performance.now();
+  function tick(now) {
+    const p = Math.min(1, (now - start) / dur);
+    const e = p < 0.5 ? 4*p*p*p : 1 - Math.pow(-2*p + 2, 3) / 2;   // ease-in-out, calm
+    el.textContent = Math.round(from + (to - from) * e).toLocaleString();
+    if (p < 1) requestAnimationFrame(tick);
+    else { el.textContent = to.toLocaleString(); if (tile) tile.classList.add('landed'); }
+  }
+  requestAnimationFrame(tick);
+}
+
+function updateStats(stats) {
+  if (!stats) return;
+  for (const k of statKeys) {
+    const v = stats[k];
+    if (typeof v !== 'number' || v <= statShown[k]) continue;   // counts only move up
+    const el = document.getElementById('f-' + k);
+    if (el) animateCount(el, statShown[k], v, 900);
+    statShown[k] = v;
+  }
+}
+
+function updateEta(data) {
+  const el = document.getElementById('overall-eta');
+  if (!el) return;
+  if (data.status === 'done' || data.status === 'error') { el.textContent = ''; return; }
+  if (data.current_agent === 'recommendation') {
+    el.textContent = statShown.recs > 0 ? '· almost done…' : '· under a minute left';
+  } else if (data.current_agent === 'inventory') {
+    el.textContent = '· a minute or two left';
+  } else {
+    el.textContent = '';
+  }
 }
 
 // ── Local timer ─────────────────────────────────────────────────────────────
@@ -388,6 +496,9 @@ async function poll() {
         }
       }
     }
+
+    updateStats(data.stats);
+    updateEta(data);
 
     if (data.status === 'done') {
       polling = false;

@@ -2293,6 +2293,7 @@ def run_analysis(upload_session_id):
             "status":        "running",
             "error":         None,
             "current_agent": None,
+            "stats": {},
             "agents": {
                 # Normalisation runs earlier in the dedup step. Mark it done
                 # so the progress page can show all three stages truthfully.
@@ -2316,6 +2317,19 @@ def run_analysis(upload_session_id):
                 },
             },
         }
+
+    # Seed the findings ticker with the catalogue size right away, so the page
+    # shows a real number the instant analysis starts (not zeros until the
+    # inventory agent finishes). Int session id -> table name is injection-safe.
+    try:
+        _scan = db.query(f"SELECT COUNT(*) AS n FROM inventory_{upload_session_id}")
+        if _scan:
+            with analysis_progress_lock:
+                _e = analysis_progress.get(upload_session_id)
+                if _e:
+                    _e["stats"]["scanned"] = int(_scan[0]["n"] or 0)
+    except Exception:
+        pass
 
     def _emit(msg: str, agent: str = None):
         with analysis_progress_lock:
@@ -2350,6 +2364,23 @@ def run_analysis(upload_session_id):
                     entry["current_agent"] = None
             if summary is not None:
                 ag["summary"] = summary
+
+    def _stats(counts: dict):
+        """Merge findings counts into the ticker on the progress page. Values
+        only move forward, so a stale/smaller wave never overwrites a bigger one."""
+        if not counts:
+            return
+        with analysis_progress_lock:
+            entry = analysis_progress.get(upload_session_id)
+            if not entry:
+                return
+            for k, v in counts.items():
+                try:
+                    v = int(v)
+                except (TypeError, ValueError):
+                    continue
+                if v >= entry["stats"].get(k, 0):
+                    entry["stats"][k] = v
 
     def _run():
         def _alert_failure(category, detail=""):
@@ -2387,7 +2418,7 @@ def run_analysis(upload_session_id):
             # markers; this route keeps the DB/email/notification glue below.
             result = run_pipeline(
                 upload_session_id, model, confirmed_groups, context,
-                emit=_emit, mark=_mark_agent,
+                emit=_emit, mark=_mark_agent, stats=_stats,
             )
             if "error" in result:
                 # A BLOCK is the safety net refusing a file it can't read, not a
@@ -2543,6 +2574,7 @@ def analysis_status(upload_session_id):
                 "error":         entry.get("error"),
                 "current_agent": entry.get("current_agent"),
                 "agents":        {k: dict(v) for k, v in entry.get("agents", {}).items()},
+                "stats":         dict(entry.get("stats") or {}),
             }
         else:
             payload = None

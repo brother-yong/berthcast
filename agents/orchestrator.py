@@ -48,17 +48,43 @@ def _summarise_recommendations(recs):
     return s
 
 
-def run_pipeline(session_id, model, confirmed_groups, context, *, emit=None, mark=None):
+def inventory_findings(report):
+    """Live counts for the "Findings so far" ticker, from the inventory report."""
+    if not isinstance(report, list):
+        return {}
+    items = [r for r in report if isinstance(r, dict)]
+    return {
+        "below_safe": sum(1 for r in items if r.get("status") in ("LOW", "CRITICAL")),
+        "critical":   sum(1 for r in items if r.get("status") == "CRITICAL"),
+        "spoilage":   sum(1 for r in items if r.get("spoilage_risk") in ("HIGH", "MEDIUM")),
+    }
+
+
+def recommendation_findings(recs):
+    """Live counts for the "Findings so far" ticker, from the recommendations."""
+    if not isinstance(recs, list):
+        return {}
+    valid = [r for r in recs if isinstance(r, dict) and not r.get("error")]
+    return {
+        "recs":          len(valid),
+        "supplier_risk": sum(1 for r in valid if r.get("supplier_risk") == "HIGH"),
+    }
+
+
+def run_pipeline(session_id, model, confirmed_groups, context, *, emit=None, mark=None, stats=None):
     """Run the inventory health agent, then the recommendation agent.
 
-    emit/mark are optional callbacks (see module docstring). Behaviour mirrors the
-    original inline sequence exactly: same order, same progress markers, same
-    confidence normalisation, same shape of saved output.
+    emit/mark/stats are optional callbacks (see module docstring). Behaviour
+    mirrors the original inline sequence exactly: same order, same progress
+    markers, same confidence normalisation, same shape of saved output. stats is
+    additive — it feeds the findings ticker and never affects the report.
     """
     if emit is None:
         emit = lambda *a, **k: None
     if mark is None:
         mark = lambda *a, **k: None
+    if stats is None:
+        stats = lambda *a, **k: None
 
     # ── Agent 2: Inventory health ────────────────────────────────────────────
     mark("inventory", "running")
@@ -85,6 +111,7 @@ def run_pipeline(session_id, model, confirmed_groups, context, *, emit=None, mar
             "may be missing from this report. Re-running the analysis usually "
             "completes it.")
     mark("inventory", "done", summary=inv_summary)
+    stats(inventory_findings(inventory_report))
 
     # ── Agent 3: Purchase recommendations ────────────────────────────────────
     mark("recommendation", "running")
@@ -97,6 +124,7 @@ def run_pipeline(session_id, model, confirmed_groups, context, *, emit=None, mar
         _normalise_confidence(_rec)
 
     mark("recommendation", "done", summary=_summarise_recommendations(recommendations))
+    stats(recommendation_findings(recommendations))
 
     return {"inventory_report": inventory_report, "recommendations": recommendations,
             "data_notes": data_notes}
