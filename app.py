@@ -27,7 +27,7 @@ from logging_setup import logger
 from agents import (
     run_pipeline,
 )
-from agents.shared import sampling_kwargs
+from agents.shared import sampling_kwargs, thinking_kwargs
 
 from config import UPLOAD_FOLDER, FILE_SLOTS, AVAILABLE_MODELS
 from emails import (
@@ -232,7 +232,7 @@ def _ensure_admin():
     if not existing:
         db.execute(
             "INSERT INTO users (email, password_hash, org_name, model, is_admin) VALUES (?,?,?,?,?)",
-            (admin_email, generate_password_hash(admin_pass), "berthcast Admin", "claude-sonnet-4-6", 1)
+            (admin_email, generate_password_hash(admin_pass), "berthcast Admin", "claude-sonnet-5", 1)
         )
 
 _ensure_admin()
@@ -898,6 +898,7 @@ def chat_api():
                 max_tokens=4096,
                 system=system_prompt,
                 messages=messages,
+                **thinking_kwargs(model),
             ) as stream:
                 for text in stream.text_stream:
                     full_response.append(text)
@@ -1075,7 +1076,7 @@ def admin_panel():
             email    = request.form.get("email", "").strip().lower()
             password = request.form.get("password", "")
             org      = request.form.get("org_name", "").strip()
-            model    = request.form.get("model", "claude-sonnet-4-6")
+            model    = request.form.get("model", "claude-sonnet-5")
             trial    = request.form.get("trial_ends_at", "").strip() or None
             if not email or not password or not org:
                 flash("All fields are required.", "error")
@@ -2171,6 +2172,7 @@ def dedup_stream(upload_session_id):
                 system=system_prompt,
                 messages=[{"role": "user", "content": user_prompt}],
                 **sampling_kwargs(model),
+                **thinking_kwargs(model),
             ) as stream:
                 for text in stream.text_stream:
                     full_text += text

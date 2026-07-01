@@ -608,16 +608,29 @@ def _resolve_item_suppliers(session_id: int, org_name: str, config: dict,
 # Consequence engine — pure Python, no LLM involvement
 # ---------------------------------------------------------------------------
 
-# Opus 4.7+ and Fable removed the temperature parameter — sending it is a hard
-# 400 error on those models. Older models keep temperature=0 so the same file
-# produces the same report run after run.
-_NO_TEMPERATURE_PREFIXES = ("claude-opus-4-7", "claude-opus-4-8", "claude-fable")
+# Opus 4.7+, Sonnet 5 and Fable removed the temperature parameter — sending it is
+# a hard 400 error on those models. Older models keep temperature=0 so the same
+# file produces the same report run after run.
+_NO_TEMPERATURE_PREFIXES = ("claude-opus-4-7", "claude-opus-4-8", "claude-sonnet-5", "claude-fable")
+
+# Sonnet 5 turns "adaptive" thinking on whenever the thinking parameter is omitted;
+# every other model this app uses defaults to no thinking. Left on, it spends part
+# of max_tokens on reasoning tokens — which truncates the small JSON calls (the
+# 400-token column proposal especially) and adds a latency pause. Pin it off so
+# Sonnet 5 behaves like the rest of the line-up.
+_THINKING_OFF_PREFIXES = ("claude-sonnet-5",)
 
 
 def sampling_kwargs(model: str) -> dict:
     if model.startswith(_NO_TEMPERATURE_PREFIXES):
         return {}
     return {"temperature": 0}
+
+
+def thinking_kwargs(model: str) -> dict:
+    if model.startswith(_THINKING_OFF_PREFIXES):
+        return {"thinking": {"type": "disabled"}}
+    return {}
 
 
 def _call_claude(model: str, system: str, user: str, max_tokens: int = 4096) -> str:
@@ -629,6 +642,7 @@ def _call_claude(model: str, system: str, user: str, max_tokens: int = 4096) -> 
         system=system,
         messages=[{"role": "user", "content": user}],
         **sampling_kwargs(model),
+        **thinking_kwargs(model),
     ) as stream:
         return stream.get_final_text()
 
