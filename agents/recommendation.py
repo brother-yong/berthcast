@@ -22,6 +22,7 @@ from .shared import (
     _num_sql,
     count_sales_months,
     detect_avg_month_column,
+    infer_months_from_item_stats,
     LEAD_TIME_BY_TYPE,
     SalesNameIndex,
     normalise_match_key,
@@ -113,13 +114,11 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
                 s_qty = next((c for c in s_cols if any(k in c.lower() for k in ("qty", "quantity")) and "allocated" not in c.lower()), None)
             s_avg = detect_avg_month_column(s_cols)
             vel_rows = []
-            if s_desc and s_avg:
-                vel_rows = query(
-                    f'SELECT "{s_desc}" as item, '
-                    f'AVG({_num_sql(s_avg)}) as avg_monthly '
-                    f'FROM {sal_table_r} GROUP BY "{s_desc}" LIMIT 5000'
-                )
-            elif s_desc and s_qty:
+            if s_desc and (s_avg or s_qty):
+                # Period for the totals fallback, same trust order as the
+                # inventory agent: dated months > the sheet's own Qty ÷ Avg
+                # ratios > 12 assumed (the inventory agent already flags it).
+                months_r = None
                 try:
                     _DATE_EXACT_R = ("date", "invoice_date", "order_date", "transaction_date",
                                      "sales_date", "po_date", "doc_date", "posting_date")
@@ -129,23 +128,45 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
                     if _date_col_r:
                         # Python-side parse handles DD/MM/YYYY, 15-Jun-26 and
                         # Excel serials; strftime (ISO-only) stays as fallback.
+                        # substr(1,10) trims time-of-day so datetime stamps
+                        # can't blow the DISTINCT limit and undercount months.
                         _d_rows = query(
-                            f'SELECT DISTINCT "{_date_col_r}" AS d FROM {sal_table_r} LIMIT 5000')
+                            f'SELECT DISTINCT substr("{_date_col_r}", 1, 10) AS d '
+                            f'FROM {sal_table_r} LIMIT 5000')
                         _counted_r = count_sales_months([r["d"] for r in _d_rows])
                         if _counted_r:
                             months_r = _counted_r[0]
                         else:
                             mo_r = query(f'SELECT COUNT(DISTINCT strftime("%Y-%m", "{_date_col_r}")) as m FROM {sal_table_r} LIMIT 1')
-                            months_r = ((mo_r[0]["m"] or 0) if mo_r else 0) or 12
-                    else:
-                        months_r = 12
+                            months_r = ((mo_r[0]["m"] or 0) if mo_r else 0) or None
                 except Exception:
-                    months_r = 12
-                vel_rows = query(
-                    f'SELECT "{s_desc}" as item, '
-                    f'SUM({_num_sql(s_qty)}) / {months_r} as avg_monthly '
-                    f'FROM {sal_table_r} GROUP BY "{s_desc}" LIMIT 5000'
-                )
+                    months_r = None
+
+                # One query carries BOTH velocity sources so each item can use
+                # the best one it has. The old either/or read: when the sheet
+                # had an Avg/Month column, an item with a blank avg cell but
+                # real qty history got no velocity at all ("Verify with team")
+                # — while the inventory agent sized the same item from totals.
+                _sel = [f'"{s_desc}" as item']
+                _sel.append(f'AVG({_num_sql(s_avg)}) as avg_direct' if s_avg
+                            else '0 as avg_direct')
+                _sel.append(f'SUM({_num_sql(s_qty)}) as total_qty' if s_qty
+                            else '0 as total_qty')
+                stat_rows = query('SELECT ' + ', '.join(_sel) +
+                                  f' FROM {sal_table_r} GROUP BY "{s_desc}" LIMIT 5000')
+                if months_r is None:
+                    _inferred_r = infer_months_from_item_stats(
+                        [{"total_qty": r["total_qty"], "avg_monthly_direct": r["avg_direct"]}
+                         for r in stat_rows])
+                    months_r = _inferred_r[0] if _inferred_r else 12
+                for r in stat_rows:
+                    _avg_d = r["avg_direct"] or 0
+                    _tot   = r["total_qty"] or 0
+                    vel_rows.append({
+                        "item": r["item"],
+                        "avg_monthly": _avg_d if _avg_d > 0
+                                       else (_tot / months_r if _tot > 0 else 0),
+                    })
             if vel_rows:
                 # Drift-tolerant index, same as the inventory agent: a sales
                 # name carrying a staff annotation must still feed this item's

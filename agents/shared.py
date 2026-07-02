@@ -280,8 +280,11 @@ def detect_avg_month_column(cols) -> str:
     no period guessing at all. Returns the column name or None."""
     for c in cols or []:
         lc = str(c).lower()
+        # "per" must be its own word ("qty_per_month"), not a fragment —
+        # a substring test made "month_period" read as a stated average.
+        words = re.split(r"[^a-z]+", lc)
         if ("month" in lc or "mth" in lc) and (
-                "avg" in lc or "average" in lc or "mean" in lc or "per" in lc):
+                "avg" in lc or "average" in lc or "mean" in lc or "per" in words):
             if not any(x in lc for x in ("amount", "value", "revenue", "price", "$")):
                 return c
     return None
@@ -322,6 +325,33 @@ def normalise_match_key(name) -> str:
     """Key for matching item names across files: casefold and keep only
     letters/digits, so spacing, punctuation and case can never break a match."""
     return _MATCH_KEY_RE.sub("", str(name).casefold())
+
+
+class NameKeyedDict(dict):
+    """A dict keyed by item/supplier names whose .get() falls back to a
+    normalise_match_key match when the exact key misses.
+
+    The PO, supplier-listing and inventory files spell the same name with
+    different case/spacing/punctuation — the same drift class SalesNameIndex
+    absorbs for sales rows. Without this fallback an exact-name miss silently
+    loses an item's supplier and lead time, so its thresholds and order sizing
+    degrade to defaults. Iteration, len() and [] stay plain-dict; only .get()
+    gains the fallback. First name in wins on a normalised collision."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._norm = {}
+        for k in self:
+            nk = normalise_match_key(k)
+            if nk:
+                self._norm.setdefault(nk, k)
+
+    def get(self, key, default=None):
+        if key in self:
+            return dict.__getitem__(self, key)
+        nk = normalise_match_key(key)
+        exact = self._norm.get(nk) if nk else None
+        return dict.__getitem__(self, exact) if exact is not None else default
 
 
 class SalesNameIndex:
@@ -601,7 +631,11 @@ def _resolve_item_suppliers(session_id: int, org_name: str, config: dict,
             "high_risk":      high_risk,
         }
 
-    return item_supplier_map, item_lead_time_map, supplier_type_map
+    # Wrapped so consumers' .get() tolerates name drift between files —
+    # an exact-name miss must not silently lose a supplier or lead time.
+    return (NameKeyedDict(item_supplier_map),
+            NameKeyedDict(item_lead_time_map),
+            NameKeyedDict(supplier_type_map))
 
 
 # ---------------------------------------------------------------------------
@@ -656,11 +690,14 @@ def _num_sql(col: str) -> str:
     corrupting every sales/velocity/revenue figure downstream. Stripping commas,
     currency prefixes (US$/S$/$) and spaces first makes "S$1,200" -> 1200.0.
     US$ and S$ must be stripped before the bare $, or "S$1200" degrades to
-    "S1200" which CASTs to 0.
+    "S1200" which CASTs to 0. Accounting negatives read as negative — "(50)"
+    becomes "-50" — matching Python's _to_num, so credit-note rows subtract
+    from totals instead of silently counting as 0.
     """
     expr = f'"{col}"'
-    for token in (",", "US$", "S$", "$", " "):
-        expr = f"REPLACE({expr}, '{token}', '')"
+    for token, repl in ((",", ""), ("US$", ""), ("S$", ""), ("$", ""),
+                        (" ", ""), ("(", "-"), (")", "")):
+        expr = f"REPLACE({expr}, '{token}', '{repl}')"
     return f"CAST({expr} AS REAL)"
 
 

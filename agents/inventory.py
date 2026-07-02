@@ -362,10 +362,13 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
                         f'ORDER BY metric DESC '
                         f'LIMIT {n}'
                     )
-                    # Normalise names through alias_map so variants map to canonical
+                    # Alias to canonical, then normalise — case/spacing/punctuation
+                    # drift between the sales and inventory files must not silently
+                    # drop a top seller from a scoped run.
                     raw_names = {r["item"].strip().lower() for r in top_rows if r["item"]}
                     top_item_names = {
-                        alias_map.get(name, name) for name in raw_names
+                        k for k in (normalise_match_key(alias_map.get(name, name))
+                                    for name in raw_names) if k
                     }
                     _emit(progress_emit,
                         f"Top {n} items by {metric} identified ({len(top_item_names)} unique) — filtering inventory")
@@ -387,24 +390,21 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
 
     inventory_sorted = sorted(inventory, key=_qty_key)
 
-    # Apply scope filter if active
+    # Apply scope filter if active — same alias-then-normalise treatment as the
+    # top-N names above, so both sides of the comparison speak the same key.
     if top_item_names is not None:
-        inv_names_normalised = {
-            alias_map.get(str(row.get(_desc_col) or "").strip().lower(),
-                          str(row.get(_desc_col) or "").strip().lower()): row
-            for row in inventory_sorted
-        }
-        inventory_sorted = [
-            row for row in inventory_sorted
-            if alias_map.get(str(row.get(_desc_col) or "").strip().lower(),
-                             str(row.get(_desc_col) or "").strip().lower()) in top_item_names
-        ]
-        # Second-chance: match top items by their raw (un-normalised) name, for
+        def _scope_key(row):
+            nm = str(row.get(_desc_col) or "").strip().lower()
+            return normalise_match_key(alias_map.get(nm, nm))
+
+        inventory_sorted = [row for row in inventory_sorted
+                            if _scope_key(row) in top_item_names]
+        # Second-chance: match top items by their raw (un-aliased) name, for
         # items alias_map didn't fold to a canonical key.
         if not inventory_sorted and top_item_names:
             inventory_sorted = [
                 row for row in sorted(inventory, key=_qty_key)
-                if str(row.get(_desc_col) or "").strip().lower() in top_item_names
+                if normalise_match_key(str(row.get(_desc_col) or "").strip()) in top_item_names
             ]
         # Final safety: if still empty after both passes, use all items
         if not inventory_sorted:
@@ -440,9 +440,12 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
             _date_col = next((c for c in _sal_col_names if "date" in c.lower()), None)
         if _date_col:
             # Parse dates in Python — handles DD/MM/YYYY, 15-Jun-26 and Excel
-            # serials, none of which SQLite's strftime understands.
+            # serials, none of which SQLite's strftime understands. substr(1,10)
+            # trims any time-of-day part so a datetime-stamped export can't blow
+            # the DISTINCT limit and undercount months (which inflates velocity).
             _date_rows = query(
-                f'SELECT DISTINCT "{_date_col}" AS d FROM {sal_table} LIMIT 5000')
+                f'SELECT DISTINCT substr("{_date_col}", 1, 10) AS d '
+                f'FROM {sal_table} LIMIT 5000')
             _counted = count_sales_months([r["d"] for r in _date_rows])
             if _counted:
                 months_of_data, _fmt = _counted
