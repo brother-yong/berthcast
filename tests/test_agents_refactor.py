@@ -80,6 +80,9 @@ def _patch_call_claude(fake):
 # Fake Claude — returns canned JSON based on which agent's system prompt it sees
 # ---------------------------------------------------------------------------
 _INVENTORY_REPLY = [
+    # Note: bread is canned as LOW but 5 units at 40/month is ~4 days of stock —
+    # the status verifier corrects it to CRITICAL after the reply is parsed.
+    # (No assertion pins bread's status; salmon and the dead item are pinned.)
     {"item": "White Bread 400g", "category": "BREAD", "stock": "5",
      "status": "LOW", "spoilage_risk": "LOW", "days_of_supply": 7,
      "observation": "Running low."},
@@ -141,13 +144,17 @@ def _build_fixture():
     ]:
         db.execute("INSERT INTO inventory_1 VALUES (?,?,?,?,?)", row)
 
-    # Sales: two months of bread + one salmon sale (drives velocity + month count)
+    # Sales: two months of bread + one salmon sale (drives velocity + month count).
+    # Old Stock Item gets a zero-qty line so the sales data COVERS it and shows
+    # 0 sold — legitimate DEAD evidence. (With no row at all, "DEAD" would be
+    # the marked-dead-on-missing-data error the status verifier now corrects.)
     db.execute('CREATE TABLE sales_1 ("description" TEXT, "qty" TEXT, '
                '"net_amount" TEXT, "date" TEXT, "_session_id" TEXT)')
     for row in [
         ("White Bread 400g", "40", "200", "2026-01-15", "1"),
         ("White Bread 400g", "40", "200", "2026-02-15", "1"),
         ("Frozen Salmon",    "10", "500", "2026-01-20", "1"),
+        ("Old Stock Item",   "0",  "0",   "2026-01-10", "1"),
     ]:
         db.execute("INSERT INTO sales_1 VALUES (?,?,?,?,?)", row)
 

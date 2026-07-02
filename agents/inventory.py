@@ -8,6 +8,7 @@ import json
 import re
 
 from database import query, execute, get_company_config
+from .verifier import verify_inventory_report
 from .shared import (
     _emit,
     _resolve_item_suppliers,
@@ -484,6 +485,9 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
                 "numbers.")
 
     inv_summary_lines = []
+    # The exact per-item numbers printed into the prompt, kept so the verifier
+    # can recompute the status rules against what Claude actually saw.
+    verify_inputs = {}
     for row in inventory_sorted:
         desc      = row.get(_desc_col) or "Unknown"
         qty_raw   = row.get(_qty_col)  or "0"
@@ -505,6 +509,7 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
             avg_monthly = _avg_direct
         else:
             avg_monthly = total_sold / months_of_data if total_sold > 0 else 0
+        months_supply = None
         if avg_monthly > 0:
             months_supply = round(stock_units / avg_monthly, 1)
             supply_tag = f" | Months of supply: {months_supply}"
@@ -515,6 +520,7 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
 
         # Lead time context — lets Claude judge urgency relative to reorder horizon
         lt_info = item_lt_map.get(canonical) or item_lt_map.get(desc)
+        lt_months = None
         if lt_info and lt_info.get("lead_time_days"):
             lt_days = lt_info["lead_time_days"]
             lt_months = round(lt_days / 30, 1)
@@ -524,6 +530,13 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
 
         sold_txt = ("no sales data in upload" if no_sales_data
                     else str(round(total_sold)))
+        verify_inputs[normalise_match_key(canonical)] = {
+            "months_supply": months_supply,
+            "lt_months":     lt_months,
+            "stock":         stock_units,
+            # round() to match the displayed figure — Claude judges what it sees
+            "total_sold":    None if no_sales_data else round(total_sold),
+        }
         inv_summary_lines.append(
             f"Item: {canonical} | Category: {cat} | Stock: {qty_raw} | "
             f"Total sold ({months_of_data}mo): {sold_txt}{revenue_tag}{supply_tag}{lt_tag}"
@@ -632,6 +645,20 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
             return {"error": "Inventory agent returned no usable JSON for any batch."}
 
         report = all_items
+
+        # Deterministic safety net: recompute the prompt's own status rules
+        # from the numbers Claude was given and correct provable slips before
+        # they reach the results page or the recommendation agent.
+        _n_st, _n_dos, _n_sp = verify_inventory_report(report, verify_inputs)
+        if _n_st or _n_dos or _n_sp:
+            _parts = []
+            if _n_st:  _parts.append(f"{_n_st} status label(s)")
+            if _n_dos: _parts.append(f"{_n_dos} days-of-supply figure(s)")
+            if _n_sp:  _parts.append(f"{_n_sp} spoilage flag(s)")
+            _emit(progress_emit,
+                  "Safety check: corrected " + ", ".join(_parts) +
+                  " that didn't match the item's own numbers")
+
         crit = sum(1 for r in report if r.get("status") == "CRITICAL")
         low  = sum(1 for r in report if r.get("status") == "LOW")
         _emit(progress_emit,
