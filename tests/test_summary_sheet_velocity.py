@@ -265,8 +265,10 @@ with client.session_transaction() as s:
 r = client.get(f"/results/{SID2}")
 body = r.data.decode("utf-8")
 _check("results page renders 200", r.status_code == 200, detail=str(r.status_code))
-_check("assumed-period banner shown on results page",
-       "carry assumptions" in body and "assumed 12 months" in body)
+# The old "carry assumptions" banner became the clarity box; the assumption
+# note must still be visible inside it.
+_check("assumed-period note shown in the clarity box on results page",
+       'class="clarity"' in body and "assumed 12 months" in body)
 
 
 # ── 5. End-to-end dummy session: messy CSVs -> real ingestion -> pipeline ────

@@ -43,7 +43,7 @@ from auth_utils import (
 from rec_logic import (
     _normalise_confidence, _effective_qty, _effective_supplier,
     _compute_order_by, _group_recs_by_supplier, _confidence_reasons,
-    _quantity_basis, _has_stakes,
+    _quantity_basis, _has_stakes, clarity_gaps,
 )
 from chat_logic import _build_chat_context
 
@@ -2732,6 +2732,7 @@ def results(upload_session_id):
         user_role=session.get("role", "admin"),
         supplier_score_map=supplier_score_map,
         data_notes=data_notes,
+        gaps=clarity_gaps(recommendations),
     )
 
 

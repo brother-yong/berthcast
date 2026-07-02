@@ -198,6 +198,48 @@ def _has_stakes(rec):
     return bool(neg or pos)
 
 
+def clarity_gaps(recommendations):
+    """Counted data gaps for the clarity box at the top of the results page.
+
+    Each gap = {"count": int, "label": str, "why": str} — what's missing, and
+    what it costs in accuracy. Counts only what the user can actually fix by
+    adding information. Empty list = no counted gaps (data complete).
+    """
+    valid = [r for r in recommendations
+             if isinstance(r, dict) and not r.get("error")]
+    if not valid:
+        return []
+
+    no_lead = sum(1 for r in valid if r.get("lead_time_days") in (None, "", "null"))
+    unknown_sup = sum(1 for r in valid
+                      if str(_effective_supplier(r)).strip().lower() in ("", "unknown"))
+    # "Verify with team" is the sanitiser's marker for "no usable sales data
+    # to size this order". An edited quantity resolves the gap for that item.
+    no_qty = sum(1 for r in valid
+                 if str(_effective_qty(r)).strip().lower() == "verify with team")
+
+    gaps = []
+    if no_lead:
+        gaps.append({
+            "count": no_lead,
+            "label": "no supplier lead time",
+            "why": "reorder dates are estimated",
+        })
+    if unknown_sup:
+        gaps.append({
+            "count": unknown_sup,
+            "label": "unrecognised supplier",
+            "why": "risk flags are cautious",
+        })
+    if no_qty:
+        gaps.append({
+            "count": no_qty,
+            "label": "not enough sales data to size the order",
+            "why": "quantities need a manual check",
+        })
+    return gaps
+
+
 def _fmt_num(n):
     """Format a number for display without a trailing '.0' on whole values.
     Returns None if the value can't be read as a number."""
