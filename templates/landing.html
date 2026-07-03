@@ -75,18 +75,17 @@
   .btn-secondary{ background:transparent; color:var(--ivory); font-size:15px; padding:14px 22px; border-color:var(--gold-line); }
   .btn-secondary:hover{ border-color:var(--gold); }
 
-  /* hero — full-width display headline (the type moment), then copy left /
-     product right. The report card is the dominant object: bigger, denser,
-     lit by a gold dawn-glow. Inspired by the product-first heroes (Linear /
-     Stripe / Notion) — but kept editorial, which is what separates berthcast
-     from the light-mode blue SaaS the inventory category ships. */
-  .hero{ position:relative; z-index:2; max-width:1180px; margin:0 auto; padding:46px 40px 84px; }
-  .hero .eyebrow{ margin-bottom:26px; }
-  h1.hero-title{ font-family:var(--serif); font-weight:600; font-size:clamp(46px,6.4vw,92px); line-height:.98;
-                 letter-spacing:-.01em; color:var(--ivory); max-width:12em; }
+  /* hero — one cohesive block left (eyebrow, display headline, copy, CTAs)
+     against the morning-report card right, lit by a gold dawn-glow. The
+     card is the dominant object (denser + bigger than the page's other
+     surfaces); the two columns centre on each other so neither floats. */
+  .hero{ position:relative; z-index:2; max-width:1180px; margin:0 auto; padding:46px 40px 72px;
+         display:grid; grid-template-columns:.98fr 1.02fr; gap:56px; align-items:center; }
+  .hero .eyebrow{ margin-bottom:24px; }
+  h1.hero-title{ font-family:var(--serif); font-weight:600; font-size:clamp(42px,4.8vw,66px); line-height:1.02;
+                 letter-spacing:-.008em; color:var(--ivory); }
   h1.hero-title em{ font-style:normal; font-weight:600; color:var(--gold); }
-  .hero-grid{ display:grid; grid-template-columns:.9fr 1.1fr; gap:56px; align-items:center; margin-top:46px; }
-  .hero-sub{ font-size:17px; color:var(--ivory-dim); line-height:1.62; max-width:30em; }
+  .hero-sub{ font-size:17px; color:var(--ivory-dim); line-height:1.62; margin-top:22px; max-width:30em; }
   .hero-ctas{ display:flex; gap:14px; flex-wrap:wrap; margin-top:30px; }
   .hero-note{ display:flex; align-items:center; gap:9px; margin-top:20px; font-size:13px; color:var(--ivory-dim); }
   .hero-note .tick{ color:var(--moss); }
@@ -244,9 +243,8 @@
   .colophon{ font-family:var(--serif); font-style:italic; color:var(--ivory-faint); font-size:14px; }
 
   @media (max-width:900px){
-    .hero-grid,.problem-grid,.how-steps,.feat-grid,.demo-grid,.proof-stage{ grid-template-columns:1fr; gap:36px; }
+    .hero,.problem-grid,.how-steps,.feat-grid,.demo-grid,.proof-stage{ grid-template-columns:1fr; gap:36px; }
     .hero{ padding:34px 22px 44px; }
-    .hero-grid{ margin-top:34px; }
     nav,.running-head,.strip-inner,.wrap,.foot{ padding-left:22px; padding-right:22px; }
     .nav-link{ display:none; }
     .shot--order{ margin-top:0; }
@@ -276,22 +274,21 @@
 
 <!-- HERO -->
 <section class="hero">
-  <div class="eyebrow">AI inventory operations for food distributors</div>
-  <h1 class="hero-title">Stop losing revenue to <em>stockouts</em> you could have seen coming.</h1>
-  <div class="hero-grid">
-    <div>
-      <p class="hero-sub">berthcast reads your inventory, purchase, and sales exports, ranks what's going critical, and writes the order you should place — before the gap shows up as a sale you can't fill.</p>
-      <div class="hero-ctas"><a class="btn btn-primary" href="{{ url_for('contact') }}">Get in touch →</a><a class="btn btn-secondary" href="#demo">See a real decision</a></div>
-      <div class="hero-note"><span class="tick">✓</span> Want to see it on your own data? Get in touch and we'll set you up with a trial.</div>
-    </div>
-    <div class="hero-stage">
+  <div>
+    <div class="eyebrow">AI inventory operations for food distributors</div>
+    <h1 class="hero-title">Stop losing revenue to <em>stockouts</em> you could have seen coming.</h1>
+    <p class="hero-sub">berthcast reads your inventory, purchase, and sales exports, ranks what's going critical, and writes the order you should place — before the gap shows up as a sale you can't fill.</p>
+    <div class="hero-ctas"><a class="btn btn-primary" href="{{ url_for('contact') }}">Get in touch →</a><a class="btn btn-secondary" href="#demo">See a real decision</a></div>
+    <div class="hero-note"><span class="tick">✓</span> Want to see it on your own data? Get in touch and we'll set you up with a trial.</div>
+  </div>
+  <div class="hero-stage">
       <div class="snap">
         <div class="snap-head"><span>berthcast · <span class="g">priorities</span></span><span>Wk 28 · Mon 06:00</span></div>
         <div class="snap-body">
           <div class="snap-title">What to order this week</div>
           <div class="snap-rule"></div>
           <div class="snap-cols"><span class="sp"></span><span class="c1">Item</span><span class="c2">Status</span><span class="c3">Order</span></div>
-          <div class="row"><span class="dot c"></span><div class="nm"><b>Brookvale UHT Milk Full Cream 1L</b><span>0 in stock · sells ~300/mo · import · order by 8 Jul</span></div><span class="st c">Critical</span><div class="qty"><span id="snapQty">1,570</span> <span>CTN</span></div></div>
+          <div class="row"><span class="dot c"></span><div class="nm"><b>Brookvale UHT Milk Full Cream 1L</b><span>0 in stock · sells ~300/mo · order by 8 Jul</span></div><span class="st c">Critical</span><div class="qty"><span id="snapQty">1,570</span> <span>CTN</span></div></div>
           <div class="row"><span class="dot l"></span><div class="nm"><b>Greenfjord Mature Cheddar Block 200g</b><span>1.2 months cover · import</span></div><span class="st l">Low</span><div class="qty">628 <span>CTN</span></div></div>
           <div class="row"><span class="dot l"></span><div class="nm"><b>Marikita Coconut Milk 400ml</b><span>1.8 months cover · import</span></div><span class="st l">Low</span><div class="qty">240 <span>CTN</span></div></div>
           <div class="row"><span class="dot h"></span><div class="nm"><b>Padimas Premium Jasmine Rice 5kg</b><span>8 months cover · local</span></div><span class="st h">Healthy</span><div class="qty">—</div></div>
@@ -299,7 +296,6 @@
           <div class="snap-foot"><span>12 items to order · <span class="g">1 critical</span></span><span>Generated by berthcast</span></div>
         </div>
       </div>
-    </div>
   </div>
 </section>
 
