@@ -5,7 +5,7 @@ the pipeline treats one product as one item. Moved verbatim from agents.py.
 """
 
 from database import query, get_company_config
-from .shared import _call_claude, _emit, _extract_json_array
+from .shared import _call_claude, _emit, _extract_json_array, wrap_untrusted, UNTRUSTED_GUARD
 
 
 def run_normalization_agent(session_id: int, model: str, progress_emit=None) -> dict:
@@ -49,6 +49,7 @@ def run_normalization_agent(session_id: int, model: str, progress_emit=None) -> 
 
     system_prompt = (
         f"You are a data normalisation specialist for {_company_desc}.\n"
+        + UNTRUSTED_GUARD + "\n\n"
         "Identify item names that clearly refer to the same product but are written differently.\n\n"
         "Rules:\n"
         "- Only group items you are confident are the same product (same product, same size/weight)\n"
@@ -61,7 +62,7 @@ def run_normalization_agent(session_id: int, model: str, progress_emit=None) -> 
     )
     user_prompt = (
         f"Here are {len(items_list)} unique item names. Group the duplicates.\n\nItem names:\n"
-        + "\n".join(items_list)
+        + wrap_untrusted("\n".join(items_list))
     )
 
     try:

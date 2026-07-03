@@ -26,6 +26,8 @@ from .shared import (
     LEAD_TIME_BY_TYPE,
     SalesNameIndex,
     normalise_match_key,
+    wrap_untrusted,
+    UNTRUSTED_GUARD,
 )
 from quantity import sanitize_suggested_quantity
 
@@ -318,6 +320,7 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
 
     system_prompt = (
         f"You are a purchasing advisor for: {company_desc_rec}\n\n"
+        + UNTRUSTED_GUARD + "\n\n"
         "Your job is to recommend purchasing actions and explain the real-world consequences "
         "of each decision in plain business language — no formulas, no jargon.\n\n"
         "For every item you must reason through TWO scenarios before writing your output:\n"
@@ -378,9 +381,10 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
                 f"Items requiring attention ({len(batch)} items"
                 + (f", batch {i}/{n_batches}" if n_batches > 1 else "")
                 + "):\n\n"
-                + "\n".join(batch)
-                + f"\n\nContext from purchasing team:\n{context_text}\n\n"
-                "Generate consequence-aware purchase recommendations."
+                + wrap_untrusted("\n".join(batch))
+                + "\n\nContext from purchasing team:\n"
+                + wrap_untrusted(context_text)
+                + "\n\nGenerate consequence-aware purchase recommendations."
             )
             # 64000 so the full reply always fits: rec objects run ~150-200
             # output tokens each, so 150 items needs ~30K — 24000 used to

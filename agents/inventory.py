@@ -24,6 +24,8 @@ from .shared import (
     infer_months_from_item_stats,
     SalesNameIndex,
     normalise_match_key,
+    wrap_untrusted,
+    UNTRUSTED_GUARD,
 )
 
 # Batch size for the health-check prompt. Sized so the FULL reply fits in
@@ -565,6 +567,7 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
 
     system_prompt = (
         f"You are an inventory health analyst for: {company_desc}\n\n"
+        + UNTRUSTED_GUARD + "\n\n"
         "Each item line includes: item name, category, current stock, total units sold over N months, "
         "optional revenue, 'Months of supply' (stock ÷ avg monthly sales), and optionally "
         "'Lead time' (days and months the supplier takes to deliver).\n\n"
@@ -618,8 +621,10 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
                 f"Inventory snapshot"
                 + (f" — batch {i}/{n_batches}" if n_batches > 1 else "")
                 + f" ({len(batch)} items, data covers {months_of_data} months):\n\n"
-                + "\n".join(batch)
-                + f"\n\nContext from purchasing team:\n{context_text}\n\nReturn the health report JSON."
+                + wrap_untrusted("\n".join(batch))
+                + "\n\nContext from purchasing team:\n"
+                + wrap_untrusted(context_text)
+                + "\n\nReturn the health report JSON."
             )
             raw = _call_claude(model, system_prompt, user_prompt, max_tokens=_INV_MAX_TOKENS)
             parsed, repaired = _extract_json_array(raw)
