@@ -75,26 +75,45 @@
   .btn-secondary{ background:transparent; color:var(--ivory); font-size:15px; padding:14px 22px; border-color:var(--gold-line); }
   .btn-secondary:hover{ border-color:var(--gold); }
 
-  /* hero */
-  .hero{ position:relative; z-index:2; max-width:1180px; margin:0 auto; padding:46px 40px 60px;
-         display:grid; grid-template-columns:1.05fr .95fr; gap:60px; align-items:center; }
-  .hero .eyebrow{ margin-bottom:24px; }
-  h1.hero-title{ font-family:var(--serif); font-weight:600; font-size:clamp(44px,5.4vw,72px); line-height:1.0; color:var(--ivory); }
+  /* hero — full-width display headline (the type moment), then copy left /
+     product right. The report card is the dominant object: bigger, denser,
+     lit by a gold dawn-glow. Inspired by the product-first heroes (Linear /
+     Stripe / Notion) — but kept editorial, which is what separates berthcast
+     from the light-mode blue SaaS the inventory category ships. */
+  .hero{ position:relative; z-index:2; max-width:1180px; margin:0 auto; padding:46px 40px 84px; }
+  .hero .eyebrow{ margin-bottom:26px; }
+  h1.hero-title{ font-family:var(--serif); font-weight:600; font-size:clamp(46px,6.4vw,92px); line-height:.98;
+                 letter-spacing:-.01em; color:var(--ivory); max-width:12em; }
   h1.hero-title em{ font-style:normal; font-weight:600; color:var(--gold); }
-  .hero-sub{ font-size:17px; color:var(--ivory-dim); line-height:1.62; margin-top:24px; max-width:30em; }
+  .hero-grid{ display:grid; grid-template-columns:.9fr 1.1fr; gap:56px; align-items:center; margin-top:46px; }
+  .hero-sub{ font-size:17px; color:var(--ivory-dim); line-height:1.62; max-width:30em; }
   .hero-ctas{ display:flex; gap:14px; flex-wrap:wrap; margin-top:30px; }
   .hero-note{ display:flex; align-items:center; gap:9px; margin-top:20px; font-size:13px; color:var(--ivory-dim); }
   .hero-note .tick{ color:var(--moss); }
+  /* dawn-glow: one warm light source rising behind the morning report */
+  .hero-stage{ position:relative; }
+  .hero-stage::before{ content:''; position:absolute; inset:-180px -200px -120px -200px; z-index:0; pointer-events:none;
+    background:radial-gradient(ellipse 55% 42% at 58% 26%, rgba(201,162,39,.15), rgba(201,162,39,.04) 55%, transparent 78%); }
+  .hero-stage .snap{ position:relative; z-index:1; }
 
   .snap{ background:linear-gradient(180deg, var(--green-800), var(--green-900)); border:1px solid var(--gold-line);
          border-radius:8px; overflow:hidden; box-shadow:0 40px 90px -30px rgba(0,0,0,.7); }
   .snap-head{ display:flex; justify-content:space-between; align-items:baseline; padding:14px 22px; border-bottom:1px solid var(--hair);
               font-family:var(--sans); font-size:10px; font-weight:500; letter-spacing:.14em; text-transform:uppercase; color:var(--ivory-faint); }
   .snap-head .g{ color:var(--gold); }
-  .snap-body{ padding:22px 24px 24px; }
-  .snap-title{ font-family:var(--serif); font-weight:600; font-size:25px; color:var(--ivory); line-height:1.05; }
-  .snap-rule{ height:1px; background:var(--gold-line); margin:14px 0 8px; position:relative; }
+  .snap-body{ padding:22px 26px 24px; }
+  .snap-title{ font-family:var(--serif); font-weight:600; font-size:26px; color:var(--ivory); line-height:1.05; }
+  .snap-rule{ height:1px; background:var(--gold-line); margin:14px 0 0; position:relative; }
   .snap-rule::before{ content:''; position:absolute; left:0; top:0; width:46px; height:1px; background:var(--gold); }
+  /* ledger column heads — same flex geometry as .row so labels sit dead
+     above their columns (spacer mirrors the dot) */
+  .snap-cols{ display:flex; gap:14px; padding:12px 0 7px; border-bottom:1px solid var(--hair);
+              font-family:var(--sans); font-size:9.5px; font-weight:600; letter-spacing:.14em;
+              text-transform:uppercase; color:var(--ivory-faint); }
+  .snap-cols .sp{ width:7px; flex-shrink:0; }
+  .snap-cols .c1{ flex:1; }
+  .snap-cols .c2{ min-width:72px; text-align:right; }
+  .snap-cols .c3{ min-width:80px; text-align:right; }
   .row{ display:flex; align-items:center; gap:14px; padding:14px 0; border-bottom:1px solid var(--hair); }
   /* nth-last-child(2): the LAST .row — .snap-foot is the true last child, so
      :last-child never matched and the foot's border-top doubled the hairline */
@@ -122,15 +141,18 @@
   @keyframes stampIn{ from{ opacity:0; transform:scale(1.16); } to{ opacity:1; transform:scale(1); } }
   @keyframes ruleDraw{ from{ width:0; } to{ width:46px; } }
   @keyframes dotBreathe{ 0%,100%{ opacity:1; } 50%{ opacity:.5; } }
-  .snap-body .row:nth-child(3){ --d:.25s; }
-  .snap-body .row:nth-child(4){ --d:.45s; }
-  .snap-body .row:nth-child(5){ --d:.65s; }
+  .snap-cols{ animation:fadeIn .35s ease both; animation-delay:.12s; }
+  .snap-body .row:nth-child(4){ --d:.2s; }
+  .snap-body .row:nth-child(5){ --d:.34s; }
+  .snap-body .row:nth-child(6){ --d:.48s; }
+  .snap-body .row:nth-child(7){ --d:.62s; }
+  .snap-body .row:nth-child(8){ --d:.76s; }
   .row .dot, .row .nm{ animation:fadeIn .35s ease both; animation-delay:var(--d); }
-  .row .st{ animation:stampIn .22s cubic-bezier(.2,.9,.3,1.3) both; animation-delay:calc(var(--d) + .6s); transform-origin:right center; }
-  .row .qty{ animation:fadeIn .3s ease both; animation-delay:calc(var(--d) + .75s); }
-  .snap-foot{ animation:fadeIn .4s ease both; animation-delay:1.7s; }
+  .row .st{ animation:stampIn .22s cubic-bezier(.2,.9,.3,1.3) both; animation-delay:calc(var(--d) + .55s); transform-origin:right center; }
+  .row .qty{ animation:fadeIn .3s ease both; animation-delay:calc(var(--d) + .7s); }
+  .snap-foot{ animation:fadeIn .4s ease both; animation-delay:1.85s; }
   .snap-rule::before{ animation:ruleDraw .6s ease .1s both; }
-  .dot.c{ animation:fadeIn .35s ease both, dotBreathe 3.4s ease-in-out infinite; animation-delay:var(--d), 2.3s; }
+  .dot.c{ animation:fadeIn .35s ease both, dotBreathe 3.4s ease-in-out infinite; animation-delay:var(--d), 2.4s; }
 
   /* figures strip */
   .strip{ position:relative; z-index:2; border-top:1px solid var(--hair); border-bottom:1px solid var(--hair); background:rgba(13,40,24,.4); }
@@ -222,8 +244,9 @@
   .colophon{ font-family:var(--serif); font-style:italic; color:var(--ivory-faint); font-size:14px; }
 
   @media (max-width:900px){
-    .hero,.problem-grid,.how-steps,.feat-grid,.demo-grid,.proof-stage{ grid-template-columns:1fr; gap:36px; }
+    .hero-grid,.problem-grid,.how-steps,.feat-grid,.demo-grid,.proof-stage{ grid-template-columns:1fr; gap:36px; }
     .hero{ padding:34px 22px 44px; }
+    .hero-grid{ margin-top:34px; }
     nav,.running-head,.strip-inner,.wrap,.foot{ padding-left:22px; padding-right:22px; }
     .nav-link{ display:none; }
     .shot--order{ margin-top:0; }
@@ -253,23 +276,28 @@
 
 <!-- HERO -->
 <section class="hero">
-  <div>
-    <div class="eyebrow">AI inventory operations for food distributors</div>
-    <h1 class="hero-title">Stop losing revenue to <em>stockouts</em> you could have seen coming.</h1>
-    <p class="hero-sub">berthcast reads your inventory, purchase, and sales exports, ranks what's going critical, and writes the order you should place — before the gap shows up as a sale you can't fill.</p>
-    <div class="hero-ctas"><a class="btn btn-primary" href="{{ url_for('contact') }}">Get in touch →</a><a class="btn btn-secondary" href="#demo">See a real decision</a></div>
-    <div class="hero-note"><span class="tick">✓</span> Want to see it on your own data? Get in touch and we'll set you up with a trial.</div>
-  </div>
-  <div>
-    <div class="snap">
-      <div class="snap-head"><span>berthcast · <span class="g">priorities</span></span><span>This week</span></div>
-      <div class="snap-body">
-        <div class="snap-title">What to order this week</div>
-        <div class="snap-rule"></div>
-        <div class="row"><span class="dot c"></span><div class="nm"><b>Brookvale UHT Milk Full Cream 1L</b><span>0 in stock · sells ~300/mo · import</span></div><span class="st c">Critical</span><div class="qty"><span id="snapQty">1,570</span> <span>CTN</span></div></div>
-        <div class="row"><span class="dot l"></span><div class="nm"><b>Greenfjord Mature Cheddar Block 200g</b><span>1.2 months cover · import</span></div><span class="st l">Low</span><div class="qty">628 <span>CTN</span></div></div>
-        <div class="row"><span class="dot h"></span><div class="nm"><b>Padimas Premium Jasmine Rice 5kg</b><span>8 months cover · local</span></div><span class="st h">Healthy</span><div class="qty">—</div></div>
-        <div class="snap-foot"><span>12 items to order · <span class="g">1 critical</span></span><span>Generated by berthcast</span></div>
+  <div class="eyebrow">AI inventory operations for food distributors</div>
+  <h1 class="hero-title">Stop losing revenue to <em>stockouts</em> you could have seen coming.</h1>
+  <div class="hero-grid">
+    <div>
+      <p class="hero-sub">berthcast reads your inventory, purchase, and sales exports, ranks what's going critical, and writes the order you should place — before the gap shows up as a sale you can't fill.</p>
+      <div class="hero-ctas"><a class="btn btn-primary" href="{{ url_for('contact') }}">Get in touch →</a><a class="btn btn-secondary" href="#demo">See a real decision</a></div>
+      <div class="hero-note"><span class="tick">✓</span> Want to see it on your own data? Get in touch and we'll set you up with a trial.</div>
+    </div>
+    <div class="hero-stage">
+      <div class="snap">
+        <div class="snap-head"><span>berthcast · <span class="g">priorities</span></span><span>Wk 28 · Mon 06:00</span></div>
+        <div class="snap-body">
+          <div class="snap-title">What to order this week</div>
+          <div class="snap-rule"></div>
+          <div class="snap-cols"><span class="sp"></span><span class="c1">Item</span><span class="c2">Status</span><span class="c3">Order</span></div>
+          <div class="row"><span class="dot c"></span><div class="nm"><b>Brookvale UHT Milk Full Cream 1L</b><span>0 in stock · sells ~300/mo · import · order by 8 Jul</span></div><span class="st c">Critical</span><div class="qty"><span id="snapQty">1,570</span> <span>CTN</span></div></div>
+          <div class="row"><span class="dot l"></span><div class="nm"><b>Greenfjord Mature Cheddar Block 200g</b><span>1.2 months cover · import</span></div><span class="st l">Low</span><div class="qty">628 <span>CTN</span></div></div>
+          <div class="row"><span class="dot l"></span><div class="nm"><b>Marikita Coconut Milk 400ml</b><span>1.8 months cover · import</span></div><span class="st l">Low</span><div class="qty">240 <span>CTN</span></div></div>
+          <div class="row"><span class="dot h"></span><div class="nm"><b>Padimas Premium Jasmine Rice 5kg</b><span>8 months cover · local</span></div><span class="st h">Healthy</span><div class="qty">—</div></div>
+          <div class="row"><span class="dot h"></span><div class="nm"><b>Oakfield Free-Range Eggs 30s</b><span>6 months cover · local</span></div><span class="st h">Healthy</span><div class="qty">—</div></div>
+          <div class="snap-foot"><span>12 items to order · <span class="g">1 critical</span></span><span>Generated by berthcast</span></div>
+        </div>
       </div>
     </div>
   </div>
@@ -378,9 +406,9 @@
   if(!el) return;
   var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   if(reduce) return;
-  // Timed to the card sequence: the critical row's verdict stamps at ~.85s,
-  // its quantity cell fades in at 1.0s, and this write-in finishes just
-  // before the summary line arrives at 1.7s. Only THIS number counts up —
+  // Timed to the card sequence: the critical row's verdict stamps at ~.75s,
+  // its quantity cell fades in at .9s, and this write-in finishes just
+  // before the summary line arrives at 1.85s. Only THIS number counts up —
   // it's the order being sized, not a decoration.
   var target=1570, dur=650, startT=null;
   el.textContent='0';
@@ -391,7 +419,7 @@
     el.textContent=Math.round(target*eased).toLocaleString('en-US');
     if(p<1) requestAnimationFrame(step);
   }
-  setTimeout(function(){ requestAnimationFrame(step); }, 1000);
+  setTimeout(function(){ requestAnimationFrame(step); }, 950);
 })();
 </script>
 </body>
