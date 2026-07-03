@@ -55,6 +55,12 @@
   --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
 }
 
+/* Single dark theme — tell the browser so every native widget it draws itself
+   (select popups, scrollbars, the date-picker panel) renders dark instead of
+   the OS default white. The explicit field styling below still wins on our own
+   inputs; this only fixes the OS-drawn chrome we can't paint directly. */
+html { color-scheme: dark; }
+
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
@@ -1538,6 +1544,13 @@ input:focus, select:focus, textarea:focus {
 /* date inputs: the native calendar icon ships dark — invert it so it shows on the dark field */
 input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.85); opacity: 0.7; cursor: pointer; }
 input[type="date"]:hover::-webkit-calendar-picker-indicator { opacity: 1; }
+/* native <select> popup: the OS draws the dropdown option list white unless the
+   options themselves are painted, and `select`'s ivory `color` bleeds onto them
+   — so the open menu was near-invisible ivory text on white. Pin each option to
+   the dark surface. (Applies to every <select> in the app: admin + settings.) */
+select option { background-color: var(--surface); color: var(--text); }
+select option:checked { background-color: var(--paper-2); color: var(--text); }
+select option:disabled { color: var(--muted); }
 /* Browser autofill repaints fields white/yellow and ignores `background`. The inset
    box-shadow is the only way to pin an autofilled field to the dark theme. */
 input:-webkit-autofill,
