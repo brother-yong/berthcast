@@ -96,14 +96,18 @@
   .snap-rule{ height:1px; background:var(--gold-line); margin:14px 0 8px; position:relative; }
   .snap-rule::before{ content:''; position:absolute; left:0; top:0; width:46px; height:1px; background:var(--gold); }
   .row{ display:flex; align-items:center; gap:14px; padding:14px 0; border-bottom:1px solid var(--hair); }
-  .row:last-child{ border-bottom:none; }
+  /* nth-last-child(2): the LAST .row — .snap-foot is the true last child, so
+     :last-child never matched and the foot's border-top doubled the hairline */
+  .snap-body .row:nth-last-child(2){ border-bottom:none; }
   .dot{ width:7px; height:7px; border-radius:50%; flex-shrink:0; }
   .dot.c{ background:var(--crit); } .dot.l{ background:var(--gold); } .dot.h{ background:var(--moss); }
   .nm{ flex:1; } .nm b{ font-family:var(--sans); font-weight:500; font-size:14px; color:var(--ivory); display:block; }
   .nm span{ font-family:var(--sans); font-size:12px; color:var(--ivory-faint); }
-  .st{ font-family:var(--sans); font-size:10px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; }
+  /* fixed min-widths + right alignment so status and quantity read as two
+     clean columns — without them CRITICAL/LOW/HEALTHY left edges wander */
+  .st{ font-family:var(--sans); font-size:10px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; min-width:72px; text-align:right; }
   .st.c{ color:var(--crit); } .st.l{ color:var(--gold); } .st.h{ color:var(--moss); }
-  .qty{ font-family:var(--sans); font-weight:600; font-size:15px; color:var(--ivory); text-align:right; min-width:70px; font-variant-numeric:tabular-nums; }
+  .qty{ font-family:var(--sans); font-weight:600; font-size:15px; color:var(--ivory); text-align:right; min-width:80px; font-variant-numeric:tabular-nums; }
   .qty span{ font-size:11px; color:var(--ivory-faint); }
   .snap-foot{ display:flex; justify-content:space-between; margin-top:16px; padding-top:14px; border-top:1px solid var(--hair);
               font-family:var(--sans); font-size:11px; font-weight:500; letter-spacing:.04em; color:var(--ivory-faint); }
@@ -120,10 +124,12 @@
 
   /* figures strip */
   .strip{ position:relative; z-index:2; border-top:1px solid var(--hair); border-bottom:1px solid var(--hair); background:rgba(13,40,24,.4); }
-  .strip-inner{ max-width:1180px; margin:0 auto; padding:22px 40px; display:flex; gap:48px; align-items:baseline; flex-wrap:wrap; }
+  /* gap + measure sized so the folio fits INLINE right of the figures at
+     desktop widths instead of wrapping onto a lonely second row */
+  .strip-inner{ max-width:1180px; margin:0 auto; padding:22px 40px; display:flex; gap:40px; align-items:baseline; flex-wrap:wrap; }
   .si{ display:flex; align-items:baseline; gap:12px; }
   .si .n{ font-family:var(--serif); font-weight:600; font-size:30px; color:var(--gold); line-height:1; font-variant-numeric:tabular-nums; }
-  .si .t{ font-size:13px; color:var(--ivory-dim); max-width:17em; }
+  .si .t{ font-size:13px; color:var(--ivory-dim); max-width:16em; }
   .strip .folio{ font-family:var(--sans); font-size:10px; font-weight:500; letter-spacing:.16em; text-transform:uppercase; color:var(--ivory-faint); margin-left:auto; }
 
   /* problem */
@@ -192,10 +198,14 @@
   .cta p{ font-size:17px; color:var(--ivory-dim); margin:18px auto 32px; max-width:34em; }
   .cta-btns{ display:flex; gap:14px; justify-content:center; flex-wrap:wrap; }
 
-  /* footer */
+  /* footer — logo + links share the top row; the colophon sits centred on its
+     own line beneath (print-colophon style). space-between with all three on
+     one row dragged the colophon left of centre, and a 3-col grid couldn't
+     centre it without wrapping the link row. */
   footer.site{ border-top:1px solid var(--hair); padding:40px 0; }
   .foot{ max-width:1180px; margin:0 auto; padding:0 40px; display:flex; align-items:center; justify-content:space-between; gap:20px; flex-wrap:wrap; }
   .foot img{ height:34px; }
+  .foot .colophon{ order:3; flex-basis:100%; text-align:center; margin-top:8px; }
   .foot-links{ display:flex; gap:22px; flex-wrap:wrap; }
   .foot-links a{ font-size:13px; color:var(--ivory-dim); text-decoration:none; }
   .foot-links a:hover{ color:var(--gold); }
@@ -207,6 +217,13 @@
     nav,.running-head,.strip-inner,.wrap,.foot{ padding-left:22px; padding-right:22px; }
     .nav-link{ display:none; }
     .shot--order{ margin-top:0; }
+    /* figures stack one per row: fixed number column keeps the text edges
+       aligned; the folio takes its own full row instead of hugging an item */
+    .si .n{ min-width:78px; }
+    .strip .folio{ flex-basis:100%; text-align:right; margin-left:0; }
+    /* footer stacks left-aligned: logo, links, colophon last */
+    .foot{ flex-direction:column; align-items:flex-start; gap:14px; }
+    .foot .colophon{ text-align:left; margin-top:0; }
   }
   @media (prefers-reduced-motion: reduce){ *{ transition-duration:.01ms !important; animation-duration:.01ms !important; animation-iteration-count:1 !important; } html{ scroll-behavior:auto; } }
   </style>
