@@ -1532,6 +1532,8 @@ tbody tr:hover td { background: var(--paper); }
 /* nav glass */
 nav { background: rgba(8,28,15,0.82); border-bottom-color: rgba(201,162,39,0.18); box-shadow: 0 1px 0 rgba(0,0,0,0.25); }
 .nav-links a:hover { background: rgba(255,255,255,0.05); color: var(--brass); }
+/* current section: persistent gold tint so users always know where they are */
+.nav-links a[aria-current="page"] { background: rgba(201,162,39,0.12); color: var(--brass); font-weight: 600; }
 
 /* form fields: dark field, gold focus */
 input[type="text"], input[type="email"], input[type="password"], input[type="number"], input[type="date"], select, textarea {

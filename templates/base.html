@@ -20,16 +20,18 @@
   <a class="nav-brand" href="{{ url_for('chat') }}">
     <img class="nav-logo" src="{{ url_for('static', filename='logo-dark.png') }}" alt="berthcast">
   </a>
+  {% set ep = request.endpoint %}
   <div class="nav-links">
-    <a href="{{ url_for('dashboard') }}">Dashboard</a>
+    <a href="{{ url_for('dashboard') }}" {% if ep in ['dashboard', 'results', 'diff_view'] %}aria-current="page"{% endif %}>Dashboard</a>
     {% if session.role != 'viewer' %}
-    <a href="{{ url_for('upload_start') }}">New Analysis</a>
+    <a href="{{ url_for('upload_start') }}" {% if ep in ['upload_start', 'upload', 'context_form', 'dedup_review', 'run_analysis'] %}aria-current="page"{% endif %}>New Analysis</a>
     {% endif %}
-    <a href="{{ url_for('suppliers_page') }}">Suppliers</a>
-    <a href="{{ url_for('guide') }}">Guide</a>
-    <a href="{{ url_for('user_settings') }}">Settings</a>
+    <a href="{{ url_for('chat') }}" {% if ep == 'chat' %}aria-current="page"{% endif %}>Chat</a>
+    <a href="{{ url_for('suppliers_page') }}" {% if ep == 'suppliers_page' %}aria-current="page"{% endif %}>Suppliers</a>
+    <a href="{{ url_for('guide') }}" {% if ep == 'guide' %}aria-current="page"{% endif %}>Guide</a>
+    <a href="{{ url_for('user_settings') }}" {% if ep == 'user_settings' %}aria-current="page"{% endif %}>Settings</a>
     {% if session.is_admin %}
-    <a href="{{ url_for('admin_panel') }}">Admin</a>
+    <a href="{{ url_for('admin_panel') }}" {% if ep in ['admin_panel', 'admin_usage'] %}aria-current="page"{% endif %}>Admin</a>
     {% endif %}
     <a href="{{ url_for('logout') }}">Sign out</a>
   </div>

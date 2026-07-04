@@ -3,6 +3,9 @@
 
 {% block content %}
 <div class="page-wrap">
+  <div style="padding-top:18px;">
+    <a href="{{ url_for('dashboard') }}" class="btn btn-outline btn-sm">← Back to dashboard</a>
+  </div>
   <section class="hero" style="padding: 20px 0 8px;">
     <div class="hero-eyebrow">Analysis results · {{ org_name }}</div>
     <h1 style="font-size: 30px; font-weight: 700; letter-spacing: -0.02em;">Recommendations &amp; <em>inventory health</em></h1>

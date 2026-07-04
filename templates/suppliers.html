@@ -19,6 +19,10 @@
   <p style="color:var(--muted); font-size:13px; margin-top:14px;">
     Reliability is a 0–100 score built from each supplier's order follow-through and stockouts avoided as you record outcomes — higher is better.
   </p>
+  <div style="margin-top:14px;">
+    <input type="text" id="supplierSearch" placeholder="Search suppliers by name…"
+           aria-label="Search suppliers by name" autocomplete="off" style="max-width:300px;">
+  </div>
   <div class="card" style="overflow-x:auto; margin-top:12px;">
     <table class="data-table">
       <thead>
@@ -70,6 +74,9 @@
           <td style="font-size:13px; color:var(--muted); max-width:200px;">{{ s.notes or '—' }}</td>
         </tr>
         {% endfor %}
+        <tr id="supplierNoMatch" style="display:none;">
+          <td colspan="9" style="text-align:center; color:var(--muted); padding:24px;">No suppliers match your search.</td>
+        </tr>
       </tbody>
     </table>
   </div>
@@ -112,4 +119,24 @@
 .fill-ok { background: var(--brass); }
 .fill-bad { background: var(--danger, #8B2C2C); }
 </style>
+
+<script>
+(function () {
+  const box = document.getElementById('supplierSearch');
+  if (!box) return;  // empty state: no table rendered
+  const noMatch = document.getElementById('supplierNoMatch');
+  const rows = Array.from(document.querySelectorAll('.data-table tbody tr'))
+                    .filter(r => r !== noMatch);
+  box.addEventListener('input', function () {
+    const term = box.value.trim().toLowerCase();
+    let shown = 0;
+    rows.forEach(function (r) {
+      const hit = !term || r.cells[0].textContent.toLowerCase().includes(term);
+      r.style.display = hit ? '' : 'none';
+      if (hit) shown++;
+    });
+    noMatch.style.display = shown ? 'none' : '';
+  });
+})();
+</script>
 {% endblock %}
