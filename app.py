@@ -592,6 +592,31 @@ def health():
     return jsonify({"status": "error"}), 503
 
 
+# ── Diagnostic: live thread stacks (token-gated, read-only) ──────────────────
+# Added 5 Jul 2026 to catch a worker that freezes with every login stuck on an
+# internal lock (futex) while the DB itself is provably healthy. Reads only
+# sys._current_frames() — no DB, no lock — so it still answers while the worker
+# is wedged. Invisible (404) unless the DEBUG_TOKEN env var is set AND matches,
+# so it adds no attack surface in normal operation. ponytail: temporary probe —
+# delete once the freeze is root-caused.
+@app.route("/debug/threads")
+def debug_threads():
+    want = os.environ.get("DEBUG_TOKEN")
+    got  = request.args.get("token", "")
+    # Compare as bytes: secrets.compare_digest raises TypeError on non-ASCII str
+    # (a scanner could send that and turn the "invisible 404" into noisy 500s).
+    if not want or not secrets.compare_digest(got.encode(), want.encode()):
+        return Response("Not found", status=404)
+    import traceback as _tb
+    names = {t.ident: t.name for t in threading.enumerate()}
+    frames = sys._current_frames()
+    out = [f"pid={os.getpid()}  threads={len(frames)}  t={time.time():.0f}"]
+    for tid, frame in frames.items():
+        out.append(f"\n--- thread {tid} ({names.get(tid, '?')}) ---")
+        out.append("".join(_tb.format_stack(frame)).rstrip())
+    return Response("\n".join(out) + "\n", mimetype="text/plain")
+
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if "user_id" in session:
