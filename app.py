@@ -592,6 +592,58 @@ def health():
     return jsonify({"status": "error"}), 503
 
 
+# ── DB wedge watchdog ─────────────────────────────────────────────────────────
+# Root cause of the recurring login freeze (live thread dump, 6 Jul 2026): when
+# the Render disk stalls, sqlite3.connect() blocks inside an uninterruptible OS
+# wait that database.py's timeout=30 does NOT cover (that timeout is for
+# lock-busy retries, not the open() syscall). Every DB-touching request — login,
+# chat, even the health probe — piles up on it, and with --workers 1 the whole
+# site freezes. gunicorn never times the worker out: its accept loop keeps the
+# heartbeat alive while the request threads are stuck, so the worker sits frozen
+# until a human hits restart. Fix: the worker watches its OWN DB open on a
+# dedicated thread and, if it wedges, exits so gunicorn's master respawns a fresh
+# worker (which opens the DB fine — proven) in seconds instead of by hand.
+WATCHDOG_INTERVAL_S = 10       # seconds between probes while healthy
+WATCHDOG_KILL_AFTER_S = 35     # a probe stuck longer than this = wedged worker.
+                               # Kept above database.py's timeout=30 so ordinary
+                               # lock contention resolves and raises instead of
+                               # tripping a needless restart.
+
+
+def _probe_wedged(kill_after_s):
+    """Open + read the users table in a side thread; return True only if it does
+    not finish within kill_after_s (an uninterruptible disk/open stall). A normal
+    error still 'finishes' (sets the event), so lock waits never trip a restart."""
+    done = threading.Event()
+
+    def _probe():
+        try:
+            db.query("SELECT id FROM users LIMIT 1")
+        except Exception:
+            logger.exception("watchdog: users probe errored")
+        finally:
+            done.set()
+
+    threading.Thread(target=_probe, daemon=True).start()
+    return not done.wait(kill_after_s)
+
+
+def _db_watchdog():
+    while True:
+        if _probe_wedged(WATCHDOG_KILL_AFTER_S):
+            logger.critical(
+                "watchdog: DB open wedged >%ss — exiting so gunicorn respawns a "
+                "fresh worker", WATCHDOG_KILL_AFTER_S)
+            os._exit(1)
+        time.sleep(WATCHDOG_INTERVAL_S)
+
+
+# Production only (one worker per Render process). Never in local dev or tests —
+# a self-killing thread has no place there.
+if os.environ.get("RENDER"):
+    threading.Thread(target=_db_watchdog, daemon=True, name="db-watchdog").start()
+
+
 # ── Diagnostic: live thread stacks (token-gated, read-only) ──────────────────
 # Added 5 Jul 2026 to catch a worker that freezes with every login stuck on an
 # internal lock (futex) while the DB itself is provably healthy. Reads only
