@@ -215,6 +215,7 @@
           <span class="kb-key">k</span> prev &nbsp;
           <span class="kb-key">a</span> approve &nbsp;
           <span class="kb-key">d</span> dismiss &nbsp;
+          <span class="kb-key">↵</span> expand &nbsp;
           <span class="kb-key">/</span> search &nbsp;
           <span class="kb-key">Esc</span> clear
         </div>
@@ -271,9 +272,8 @@
           <div class="rec-supplier-cards">
         {% for rec in group.recs %}
         {% if not rec.error %}
-          {% set conf_class = 'high' if rec.confidence == 'HIGH' else ('medium' if rec.confidence == 'MEDIUM' else ('low' if rec.confidence == 'LOW' else 'insufficient')) %}
-          {% set offset = 0 if rec.confidence == 'HIGH' else (48.7 if rec.confidence == 'MEDIUM' else (73.05 if rec.confidence == 'LOW' else 97.4)) %}
           {% set item_status = status_by_item.get(rec.item, '') %}
+          {% set low_conf = rec.confidence in ('LOW', 'INSUFFICIENT_DATA') %}
           <div class="rec-card {% if rec.approved %}approved{% elif rec.dismissed %}dismissed{% endif %}"
                id="rec-{{ rec._card_idx }}"
                data-status="{{ item_status }}"
@@ -282,63 +282,104 @@
                data-supplier="{{ rec.supplier or '' }}"
                data-item="{{ rec.item }}">
 
-            <div class="rec-card-header">
-              <button type="button"
-                      class="confidence-ring confidence-{{ conf_class }} conf-ring-btn"
-                      onclick="toggleConfidencePopover({{ rec._card_idx }})"
-                      aria-label="Why this confidence level"
-                      title="Click to see why">
-                <svg viewBox="0 0 36 36">
-                  <circle cx="18" cy="18" r="15.5" class="ring-bg"/>
-                  <circle cx="18" cy="18" r="15.5" class="ring-fill"
-                          style="stroke-dashoffset: {{ offset }};"/>
-                </svg>
-                <div class="confidence-label">
-                  <span class="lbl">{{ '?' if rec.confidence == 'INSUFFICIENT_DATA' else rec.confidence | lower }}</span>
-                </div>
-              </button>
-              <div class="rec-card-title">
-                <span class="rec-card-num" aria-hidden="true">#{{ rec._display_num }}</span>
-                {{ rec.item }}
-              </div>
+            <!-- Line 1: name · qty · date · actions · chevron -->
+            <div class="rec-card-header rec-row-main" onclick="rowMainClick(event, {{ rec._card_idx }})">
+              <span class="rec-row-num" aria-hidden="true">#{{ rec._display_num }}</span>
+              <span class="rec-row-item">{{ rec.item }}</span>
+              {% if low_conf %}<span class="rec-row-lowconf">low confidence</span>{% endif %}
               {% if rec.approved %}
                 <span class="badge badge-healthy">✓ Approved</span>
               {% elif rec.dismissed %}
                 <span class="badge badge-dead">Dismissed</span>
               {% endif %}
-
-              <div class="conf-popover" id="conf-pop-{{ rec._card_idx }}">
-                <div class="conf-pop-title">
-                  {% if rec.confidence == 'INSUFFICIENT_DATA' %}Need more data to be sure{% else %}Why this confidence?{% endif %}
-                </div>
-                <ul class="conf-pop-list">
-                  {% for reason in rec._conf_reasons or [] %}
-                  <li>{{ reason }}</li>
-                  {% endfor %}
-                  {% if not rec._conf_reasons %}
-                  <li>No additional context available.</li>
-                  {% endif %}
-                </ul>
-              </div>
+              <span class="rec-row-qty">{{ rec.edited_quantity or rec.suggested_quantity or '—' }}</span>
+              {% if rec._order_by and rec._order_by.order_by_date %}
+              <span class="rec-row-date rec-row-date-{{ rec._order_by.status }}">
+                {% if rec._order_by.status == 'overdue' %}overdue {{ rec._order_by.buffer_days | abs }}d
+                {% else %}by {{ rec._order_by.order_by_date }}{% endif %}
+              </span>
+              {% else %}
+              <span class="rec-row-date">no date</span>
+              {% endif %}
+              {% if user_role != 'viewer' %}
+              {# Buttons carry data attrs only — the delegated listener reads the
+                 item from the card's data-item, so no user text is ever spliced
+                 into inline JS (XSS-safe by construction). #}
+              <span class="rec-row-act no-print">
+                <button type="button" class="rec-row-btn rec-row-btn-ok" title="Approve"
+                        data-rec-action="approve">✓</button>
+                <button type="button" class="rec-row-btn" title="Dismiss"
+                        data-rec-action="dismiss">✕</button>
+              </span>
+              {% endif %}
+              <span class="rec-row-chev" id="chev-{{ rec._card_idx }}">▾</span>
             </div>
 
-            <div class="rec-card-body">
-              {% if rec._order_by and rec._order_by.order_by_date %}
-              <p class="rec-order-by rec-order-by-{{ rec._order_by.status }}">
-                <strong>Order by:</strong>
-                <button type="button" class="help-dot no-print"
-                        onclick="showToast('Place the order by this date so it arrives before you run out of stock.', 'info')">?</button>
-                {{ rec._order_by.order_by_date }}
-                <span class="rec-order-by-meta">
-                  {% if rec._order_by.status == 'overdue' %}
-                    — already overdue by {{ rec._order_by.buffer_days | abs }} day{{ 's' if rec._order_by.buffer_days|abs != 1 }}
-                  {% elif rec._order_by.status == 'urgent' %}
-                    — only {{ rec._order_by.buffer_days }} day{{ 's' if rec._order_by.buffer_days != 1 }} of buffer
+            <!-- Line 2: reason snippet OR outcome prompt · note -->
+            <div class="rec-row-sub">
+              <span class="rec-row-snippet" id="snippet-{{ rec._card_idx }}"
+                    {% if rec.approved and user_role != 'viewer' %}style="display:none;"{% endif %}>
+                {{ ((rec.reason or '').split('.') | first ~ '.') if rec.reason else '' }}
+              </span>
+              {% if user_role != 'viewer' %}
+              <span class="rec-row-outcome" id="outcome-{{ rec._card_idx }}"
+                    {% if rec.order_placed or rec.outcome_status %}data-progressed="1"{% endif %}
+                    {% if not rec.approved %}style="display:none;"{% endif %}>
+                {% if rec.approved %}
+                  {% if not rec.order_placed %}
+                  <span class="outcome-q">Did you place this order?</span>
+                  <button class="btn btn-outline btn-sm outcome-btn"
+                          data-rec-action="outcome" data-field="order_placed" data-value="true">Yes, ordered</button>
+                  <button class="btn btn-ghost btn-sm outcome-btn"
+                          data-rec-action="outcome" data-field="order_placed" data-value="false">Not yet</button>
+                  <span class="outcome-why no-print">One tap — it's how berthcast proves it's saving you money.</span>
+                  {% elif not rec.outcome_status %}
+                  <span class="outcome-check">Order placed</span>
+                  <span class="outcome-q outcome-q-secondary">Was the stockout avoided?</span>
+                  <button class="btn btn-success btn-sm outcome-btn"
+                          data-rec-action="outcome" data-field="outcome_status" data-value="stockout_avoided">Yes, avoided</button>
+                  <button class="btn btn-muted btn-sm outcome-btn"
+                          data-rec-action="outcome" data-field="outcome_status" data-value="stockout_happened">No, stockout</button>
+                  {% elif rec.outcome_status == 'stockout_avoided' %}
+                  <span class="outcome-check">Order placed</span>
+                  <span class="outcome-result outcome-good">Stockout avoided</span>
                   {% else %}
-                    — {{ rec._order_by.buffer_days }} day{{ 's' if rec._order_by.buffer_days != 1 }} of buffer
+                  <span class="outcome-check">Order placed</span>
+                  <span class="outcome-result outcome-bad">Stockout occurred</span>
                   {% endif %}
+                {% endif %}
+              </span>
+              <input type="text" class="rec-note"
+                     id="note-{{ rec._card_idx }}"
+                     data-item="{{ rec.item }}"
+                     placeholder="add note…"
+                     value="{{ rec.note or '' }}">
+              {% endif %}
+            </div>
+
+            <!-- Expanded panel: full detail (hidden until expand) -->
+            <div class="rec-row-panel" id="panel-{{ rec._card_idx }}" hidden>
+              <div class="rec-panel-meta">
+                {% if rec._order_by and rec._order_by.order_by_date %}
+                <strong>Order by {{ rec._order_by.order_by_date }}</strong><button type="button" class="help-dot no-print"
+                        onclick="showToast('Place the order by this date so it arrives before you run out of stock.', 'info')">?</button>
+                <span class="rec-order-by-meta">
+                  {% if rec._order_by.status == 'overdue' %}— already overdue by {{ rec._order_by.buffer_days | abs }} day{{ 's' if rec._order_by.buffer_days|abs != 1 }}
+                  {% elif rec._order_by.status == 'urgent' %}— only {{ rec._order_by.buffer_days }} day{{ 's' if rec._order_by.buffer_days != 1 }} of buffer
+                  {% else %}— {{ rec._order_by.buffer_days }} day{{ 's' if rec._order_by.buffer_days != 1 }} of buffer{% endif %}
                 </span>
-              </p>
+                <span class="rec-panel-sep">·</span>
+                {% endif %}
+                {% if rec.days_of_supply %}
+                Current stock lasts about {{ (rec.days_of_supply / 30) | round(1) }} more month{{ 's' if (rec.days_of_supply / 30) | round(1) != 1 }}
+                <span class="rec-panel-sep">·</span>
+                {% endif %}
+                <span class="rec-conf-chip rec-conf-{{ rec.confidence | lower }}">
+                  {{ 'needs more data' if rec.confidence == 'INSUFFICIENT_DATA' else (rec.confidence | lower ~ ' confidence') }}
+                </span>
+              </div>
+              {% if rec._conf_reasons %}
+              <div class="rec-panel-why">{{ 'Need more data to be sure:' if rec.confidence == 'INSUFFICIENT_DATA' else 'Why:' }} {{ rec._conf_reasons | join(' · ') }}</div>
               {% endif %}
 
               <div class="rec-edit-grid">
@@ -390,16 +431,7 @@
               {% if rec._quantity_basis %}
               <p class="rec-qty-basis">{{ rec._quantity_basis }}</p>
               {% endif %}
-
-              {% if rec.days_of_supply %}
-              <p style="margin-top:10px; color:var(--muted);">
-                <strong>Current stock lasts:</strong>
-                <button type="button" class="help-dot no-print"
-                        onclick="showToast('How long your current stock will last before it runs out, at the recent rate of sales.', 'info')">?</button>
-                about {{ (rec.days_of_supply / 30) | round(1) }} more month{{ 's' if (rec.days_of_supply / 30) | round(1) != 1 }}
-              </p>
-              {% endif %}
-              <p style="margin-top:8px;">{{ rec.reason }}</p>
+              <p class="rec-panel-reason">{{ rec.reason }}</p>
 
               {% if rec._has_stakes %}
               <div class="rec-stakes">
@@ -423,68 +455,10 @@
                 {{ rec.mitigation }}
               </div>
               {% endif %}
-            </div>
-
-            <div class="rec-card-actions">
-              {% if user_role != 'viewer' %}
-              <input type="text" class="rec-note"
-                     id="note-{{ rec._card_idx }}"
-                     placeholder="Add a note (e.g. called supplier, confirmed delivery)"
-                     value="{{ rec.note or '' }}">
-              <button class="btn btn-success btn-sm"
-                      onclick="takeAction({{ rec._card_idx }}, '{{ rec.item | replace("'", "\\'") }}', 'approve')">
-                ✓ Approve
-              </button>
-              <button class="btn btn-muted btn-sm"
-                      onclick="takeAction({{ rec._card_idx }}, '{{ rec.item | replace("'", "\\'") }}', 'dismiss')">
-                Dismiss
-              </button>
-              {% else %}
-              <span style="font-size:13px; color:var(--muted);">View-only access</span>
+              {% if user_role == 'viewer' %}
+              <p style="font-size:13px; color:var(--muted); margin-top:10px;">View-only access</p>
               {% endif %}
             </div>
-
-            {# ── Outcome tracking strip ── #}
-            {% if rec.approved and user_role != 'viewer' %}
-            <div class="outcome-strip" id="outcome-{{ rec._card_idx }}">
-              {% if not rec.order_placed %}
-              <div class="outcome-prompt">
-                <span class="outcome-q">Did you place this order?</span>
-                <button class="btn btn-outline btn-sm outcome-btn"
-                        onclick="recordOutcome({{ rec._card_idx }}, '{{ rec.item | replace("'", "\\'") }}', 'order_placed', true)">
-                  Yes, ordered
-                </button>
-                <button class="btn btn-ghost btn-sm outcome-btn"
-                        onclick="recordOutcome({{ rec._card_idx }}, '{{ rec.item | replace("'", "\\'") }}', 'order_placed', false)">
-                  Not yet
-                </button>
-              </div>
-              <div class="outcome-why no-print">Takes one tap — it's how berthcast proves it's saving you money.</div>
-              {% elif not rec.outcome_status %}
-              <div class="outcome-prompt">
-                <span class="outcome-check">Order placed</span>
-                <span class="outcome-q outcome-q-secondary">Was the stockout avoided?</span>
-                <button class="btn btn-success btn-sm outcome-btn"
-                        onclick="recordOutcome({{ rec._card_idx }}, '{{ rec.item | replace("'", "\\'") }}', 'outcome_status', 'stockout_avoided')">
-                  Yes, avoided
-                </button>
-                <button class="btn btn-muted btn-sm outcome-btn"
-                        onclick="recordOutcome({{ rec._card_idx }}, '{{ rec.item | replace("'", "\\'") }}', 'outcome_status', 'stockout_happened')">
-                  No, stockout
-                </button>
-              </div>
-              {% else %}
-              <div class="outcome-done">
-                <span class="outcome-check">Order placed</span>
-                {% if rec.outcome_status == 'stockout_avoided' %}
-                <span class="outcome-result outcome-good">Stockout avoided</span>
-                {% else %}
-                <span class="outcome-result outcome-bad">Stockout occurred</span>
-                {% endif %}
-              </div>
-              {% endif %}
-            </div>
-            {% endif %}
           </div>
         {% endif %}
         {% endfor %}
@@ -592,11 +566,7 @@
 </div>
 
 <style>
-.outcome-strip {
-  border-top: 1px solid var(--border); padding: 10px 16px;
-  background: var(--paper, #FAF8F3);
-}
-.outcome-prompt { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+/* Outcome pieces (rendered inline on a row's second line) */
 .outcome-q { font-size: 13px; font-weight: 500; color: var(--text); }
 .outcome-q-secondary { font-size: 12px; color: var(--muted); }
 .outcome-btn { font-size: 12px; padding: 4px 12px; }
@@ -606,7 +576,6 @@
   background: rgba(45,106,79,0.08); padding: 2px 8px; border-radius: 4px;
 }
 .outcome-check::before { content: "\2713  "; }
-.outcome-done { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .outcome-result { font-size: 12px; font-weight: 500; padding: 2px 8px; border-radius: 4px; }
 .outcome-good { color: var(--success, #2D6A4F); background: rgba(45,106,79,0.08); }
 .outcome-bad { color: var(--danger, #8B2C2C); background: rgba(139,44,44,0.08); }
@@ -653,6 +622,21 @@ function showTab(tabId, btn) {
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   document.getElementById(tabId).style.display = 'block';
   btn.classList.add('active');
+}
+
+// ── Row expand / collapse ──
+function toggleRow(idx) {
+  const panel = document.getElementById('panel-' + idx);
+  const chev  = document.getElementById('chev-' + idx);
+  if (!panel) return;
+  panel.hidden = !panel.hidden;
+  if (chev) chev.textContent = panel.hidden ? '▾' : '▴';
+}
+
+// Line-1 click expands, unless the click was on a button/input/link.
+function rowMainClick(e, idx) {
+  if (e.target.closest('button, input, a')) return;
+  toggleRow(idx);
 }
 
 // ── Filter + search state ──
@@ -798,15 +782,8 @@ async function approveSupplier(btn) {
       group.querySelectorAll('.rec-card').forEach(card => {
         if (approvedSet.has(card.dataset.item) && !card.classList.contains('approved')) {
           card.classList.add('approved');
-          const badges = card.querySelectorAll('.badge-healthy, .badge-dead');
-          badges.forEach(b => {
-            if (b.textContent.includes('Approved') || b.textContent.includes('Dismissed')) b.remove();
-          });
-          const header = card.querySelector('.rec-card-header');
-          const nb = document.createElement('span');
-          nb.className = 'badge badge-healthy';
-          nb.textContent = '✓ Approved';
-          header.appendChild(nb);
+          _setBadge(card, 'approve');
+          _showOutcomePrompt(parseInt(card.id.replace('rec-', ''), 10));
         }
       });
       // Bump the overall approved counter in the sidebar
@@ -885,15 +862,8 @@ function approveAll() {
       document.querySelectorAll('.rec-card:not(.dismissed)').forEach(card => {
         if (!card.classList.contains('approved') && approvedSet.has(card.dataset.item)) {
           card.classList.add('approved');
-          const badges = card.querySelectorAll('.badge-healthy, .badge-dead');
-          badges.forEach(b => {
-            if (b.textContent.includes('Approved') || b.textContent.includes('Dismissed')) b.remove();
-          });
-          const header = card.querySelector('.rec-card-header');
-          const nb = document.createElement('span');
-          nb.className = 'badge badge-healthy';
-          nb.textContent = '✓ Approved';
-          header.appendChild(nb);
+          _setBadge(card, 'approve');
+          _showOutcomePrompt(parseInt(card.id.replace('rec-', ''), 10));
         }
       });
 
@@ -950,8 +920,13 @@ async function undoApproveAll() {
       document.querySelectorAll('.rec-card').forEach(card => {
         if (itemSet.has(card.dataset.item)) {
           card.classList.remove('approved');
-          const badges = card.querySelectorAll('.badge-healthy');
-          badges.forEach(b => { if (b.textContent.includes('Approved')) b.remove(); });
+          _setBadge(card, null);
+          // Line 2 back to the reason snippet
+          const cardIdx = parseInt(card.id.replace('rec-', ''), 10);
+          const outcome = document.getElementById('outcome-' + cardIdx);
+          const snippet = document.getElementById('snippet-' + cardIdx);
+          if (outcome) outcome.style.display = 'none';
+          if (snippet) snippet.style.display = '';
           const counter = document.getElementById('approved-counter');
           if (counter) {
             counter.textContent = document.querySelectorAll('.rec-card.approved').length;
@@ -1063,6 +1038,15 @@ document.addEventListener('keydown', function(e) {
     }
     return;
   }
+
+  // Enter or → toggles the expanded panel on the active row
+  if (e.key === 'Enter' || e.key === 'ArrowRight') {
+    const d = _activeCardData();
+    if (!d) return;
+    e.preventDefault();
+    toggleRow(d.domIdx);
+    return;
+  }
 });
 
 // Clear active card when filters change (visible set changes)
@@ -1165,24 +1149,70 @@ document.querySelectorAll('.rec-edit-input').forEach(input => {
   });
 });
 
-// ── Confidence popover ──
-let _activeConfPopover = null;
-function toggleConfidencePopover(idx) {
-  const pop = document.getElementById('conf-pop-' + idx);
-  if (!pop) return;
-  if (_activeConfPopover && _activeConfPopover !== pop) {
-    _activeConfPopover.classList.remove('open');
-  }
-  pop.classList.toggle('open');
-  _activeConfPopover = pop.classList.contains('open') ? pop : null;
-}
-document.addEventListener('click', e => {
-  if (!_activeConfPopover) return;
-  if (e.target.closest('.conf-popover')) return;
-  if (e.target.closest('.conf-ring-btn')) return;
-  _activeConfPopover.classList.remove('open');
-  _activeConfPopover = null;
+// Notes save on blur — no approve needed.
+document.querySelectorAll('.rec-note').forEach(input => {
+  input.addEventListener('blur', () => {
+    _saveEdit(input.dataset.item, { note: input.value });
+  });
 });
+
+// Show the outcome question on a row's line 2, hiding the reason snippet.
+// Skips rows whose outcome already progressed (server-rendered data-progressed).
+// The injected markup is STATIC — buttons carry only data attrs and the
+// delegated listener supplies idx/item from the card, so untrusted item names
+// never reach innerHTML or an inline handler (XSS-safe by construction).
+function _showOutcomePrompt(idx) {
+  const snippet = document.getElementById('snippet-' + idx);
+  const outcome = document.getElementById('outcome-' + idx);
+  if (!outcome) return;
+  if (snippet) snippet.style.display = 'none';
+  outcome.style.display = '';
+  if (!outcome.dataset.progressed) {
+    outcome.innerHTML = `
+      <span class="outcome-q">Did you place this order?</span>
+      <button class="btn btn-outline btn-sm outcome-btn"
+              data-rec-action="outcome" data-field="order_placed" data-value="true">Yes, ordered</button>
+      <button class="btn btn-ghost btn-sm outcome-btn"
+              data-rec-action="outcome" data-field="order_placed" data-value="false">Not yet</button>
+      <span class="outcome-why no-print">One tap — it's how berthcast proves it's saving you money.</span>`;
+  }
+}
+
+// One delegated listener for every approve/dismiss/outcome button — covers both
+// server-rendered rows and buttons injected later by _showOutcomePrompt or
+// recordOutcome. Reads idx/item from the row's own attributes.
+document.getElementById('recs-container')?.addEventListener('click', e => {
+  const btn = e.target.closest('[data-rec-action]');
+  if (!btn) return;
+  const card = btn.closest('.rec-card');
+  if (!card) return;
+  const idx  = parseInt(card.id.replace('rec-', ''), 10);
+  const item = card.dataset.item;
+  const act  = btn.dataset.recAction;
+  if (act === 'approve' || act === 'dismiss') {
+    takeAction(idx, item, act);
+  } else if (act === 'outcome') {
+    const field = btn.dataset.field;
+    const value = field === 'order_placed' ? (btn.dataset.value === 'true') : btn.dataset.value;
+    recordOutcome(idx, item, field, value);
+  }
+});
+
+// Swap the state badge on a row's line 1 (kind: 'approve' | 'dismiss' | null to clear).
+// Badge sits before the qty so line 1 reads name → badge → qty → date.
+function _setBadge(card, kind) {
+  card.querySelectorAll('.rec-card-header .badge').forEach(b => {
+    if (b.textContent.includes('Approved') || b.textContent.includes('Dismissed')) b.remove();
+  });
+  if (!kind) return;
+  const header = card.querySelector('.rec-card-header');
+  if (!header) return;
+  const nb = document.createElement('span');
+  nb.className = kind === 'approve' ? 'badge badge-healthy' : 'badge badge-dead';
+  nb.textContent = kind === 'approve' ? '✓ Approved' : 'Dismissed';
+  const qty = header.querySelector('.rec-row-qty');
+  if (qty) header.insertBefore(nb, qty); else header.appendChild(nb);
+}
 
 // ── Approve / dismiss single ──
 async function takeAction(idx, item, action) {
@@ -1211,15 +1241,7 @@ async function takeAction(idx, item, action) {
     const card = document.getElementById('rec-' + idx);
     card.classList.remove('approved', 'dismissed');
     card.classList.add(action === 'approve' ? 'approved' : 'dismissed');
-    const badges = card.querySelectorAll('.badge-healthy, .badge-dead');
-    badges.forEach(b => {
-      if (b.textContent.includes('Approved') || b.textContent.includes('Dismissed')) b.remove();
-    });
-    const header = card.querySelector('.rec-card-header');
-    const nb = document.createElement('span');
-    nb.className = action === 'approve' ? 'badge badge-healthy' : 'badge badge-dead';
-    nb.textContent = action === 'approve' ? '✓ Approved' : 'Dismissed';
-    header.appendChild(nb);
+    _setBadge(card, action);
     const counter = document.getElementById('approved-counter');
     if (counter) {
       const approvedNow = document.querySelectorAll('.rec-card.approved').length;
@@ -1233,28 +1255,15 @@ async function takeAction(idx, item, action) {
     }
     applyFilters();
 
-    // After approving, show the outcome strip if not already visible
+    // Approve → show the outcome prompt on line 2 (replacing the snippet).
+    // Dismiss → restore the snippet.
     if (action === 'approve') {
-      const outcomeStrip = document.getElementById('outcome-' + idx);
-      if (!outcomeStrip) {
-        const card = document.getElementById('rec-' + idx);
-        const strip = document.createElement('div');
-        strip.className = 'outcome-strip';
-        strip.id = 'outcome-' + idx;
-        strip.innerHTML = `
-          <div class="outcome-prompt">
-            <span class="outcome-q">Did you place this order?</span>
-            <button class="btn btn-outline btn-sm outcome-btn"
-                    onclick="recordOutcome(${idx}, '${item.replace(/'/g,"\\'")}', 'order_placed', true)">
-              Yes, ordered
-            </button>
-            <button class="btn btn-ghost btn-sm outcome-btn"
-                    onclick="recordOutcome(${idx}, '${item.replace(/'/g,"\\'")}', 'order_placed', false)">
-              No
-            </button>
-          </div>`;
-        card.appendChild(strip);
-      }
+      _showOutcomePrompt(idx);
+    } else {
+      const snippet = document.getElementById('snippet-' + idx);
+      const outcome = document.getElementById('outcome-' + idx);
+      if (outcome) outcome.style.display = 'none';
+      if (snippet) snippet.style.display = '';
     }
   } else {
     showToast('Could not save that change: ' + (data.error || 'please try again.'));
@@ -1284,33 +1293,26 @@ async function recordOutcome(idx, item, field, value) {
   if (!strip) return;
 
   if (field === 'order_placed' && value) {
+    strip.dataset.progressed = "1";
+    // Static markup only — data attrs, no user text (see delegated listener).
     strip.innerHTML = `
-      <div class="outcome-prompt">
         <span class="outcome-check">Order placed</span>
         <span class="outcome-q outcome-q-secondary">Was the stockout avoided?</span>
         <button class="btn btn-success btn-sm outcome-btn"
-                onclick="recordOutcome(${idx}, '${item.replace(/'/g,"\\'")}', 'outcome_status', 'stockout_avoided')">
-          Yes, avoided
-        </button>
+                data-rec-action="outcome" data-field="outcome_status" data-value="stockout_avoided">Yes, avoided</button>
         <button class="btn btn-muted btn-sm outcome-btn"
-                onclick="recordOutcome(${idx}, '${item.replace(/'/g,"\\'")}', 'outcome_status', 'stockout_happened')">
-          No, stockout
-        </button>
-      </div>`;
+                data-rec-action="outcome" data-field="outcome_status" data-value="stockout_happened">No, stockout</button>`;
   } else if (field === 'order_placed' && !value) {
-    strip.innerHTML = `
-      <div class="outcome-done">
-        <span style="font-size:12px;color:var(--muted);">Not ordered</span>
-      </div>`;
+    strip.dataset.progressed = "1";
+    strip.innerHTML = `<span style="font-size:12px;color:var(--muted);">Not ordered</span>`;
   } else if (field === 'outcome_status') {
+    strip.dataset.progressed = "1";
     const isGood = value === 'stockout_avoided';
     strip.innerHTML = `
-      <div class="outcome-done">
         <span class="outcome-check">Order placed</span>
         <span class="outcome-result ${isGood ? 'outcome-good' : 'outcome-bad'}">
           ${isGood ? 'Stockout avoided' : 'Stockout occurred'}
-        </span>
-      </div>`;
+        </span>`;
   }
 }
 </script>

@@ -89,6 +89,22 @@ def _compute_order_by(rec):
     }
 
 
+_STATUS_RANK = {"overdue": 0, "urgent": 1, "ok": 2, "unknown": 3}
+_CRIT_RANK   = {"CRITICAL": 0, "LOW": 1}
+
+
+def _urgency_sort_key(rec, status_by_item):
+    """Sort key for rows inside a supplier group: most urgent first.
+    Overdue (most negative buffer first), then urgent, then ok by ascending
+    buffer; date-less recs last, CRITICAL before LOW before the rest."""
+    ob = rec.get("_order_by") or _compute_order_by(rec)
+    rank = _STATUS_RANK.get(ob.get("status"), 3)
+    buffer_days = ob.get("buffer_days")
+    buffer_key = buffer_days if buffer_days is not None else float("inf")
+    item_status = status_by_item.get(str(rec.get("item", "")), "")
+    return (rank, buffer_key, _CRIT_RANK.get(item_status, 2))
+
+
 def _group_recs_by_supplier(recommendations, status_by_item):
     """Group recommendations by their effective supplier (user-edited if present,
     otherwise the AI's suggestion). Returns a list of dicts, ordered with the
@@ -133,6 +149,10 @@ def _group_recs_by_supplier(recommendations, status_by_item):
             g["critical"] += 1
         elif item_status == "LOW":
             g["low"] += 1
+
+    # Urgency order inside each group: overdue → urgent → ok → no-date.
+    for g in groups.values():
+        g["recs"].sort(key=lambda r: _urgency_sort_key(r, status_by_item))
 
     ordered = sorted(
         groups.values(),

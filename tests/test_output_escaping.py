@@ -157,6 +157,44 @@ _check("Reply-To has no embedded newline",
        _msg2 is not None and "\n" not in str(_msg2["Reply-To"]) and "\r" not in str(_msg2["Reply-To"]))
 
 
+# ── 5. results page: malicious item name can't inject markup or break out of JS ──
+# Item names come from uploaded spreadsheets (semi-untrusted). The compact-row
+# redesign must render them safely: no live HTML, and no user text spliced into
+# an inline handler (buttons carry data attrs; one delegated listener acts).
+xss_item = "Widget<img src=x onerror=alert(1)>"
+quote_item = "Backslash\\'};alert(1);//"
+rec_xss = [
+    {"item": xss_item, "supplier": "Ocean Fresh", "supplier_type": "import",
+     "reason": "safe reason", "suggested_quantity": "10", "confidence": "HIGH",
+     "approved": True, "order_placed": False, "days_of_supply": 5},
+    {"item": quote_item, "supplier": "Local Co", "supplier_type": "local",
+     "reason": "safe reason", "suggested_quantity": "5", "confidence": "MEDIUM"},
+]
+inv_xss = [
+    {"item": xss_item, "status": "CRITICAL", "spoilage_risk": "LOW",
+     "days_of_supply": 5, "category": "DRY", "stock": "1", "observation": "x"},
+    {"item": quote_item, "status": "LOW", "spoilage_risk": "LOW",
+     "days_of_supply": 9, "category": "DRY", "stock": "2", "observation": "y"},
+]
+sid2 = db.execute("INSERT INTO upload_sessions (user_id, org_name, status) VALUES (?,?,?)",
+                  (uid, "a regional food distributor", "complete"))
+db.execute("INSERT INTO analysis_results (session_id, inventory_report, recommendations_json) VALUES (?,?,?)",
+           (sid2, json.dumps(inv_xss), json.dumps(rec_xss)))
+
+r2 = client.get(f"/results/{sid2}")
+page = r2.get_data(as_text=True)
+_check("results page with XSS item returns 200", r2.status_code == 200, detail=str(r2.status_code))
+_check("no live <img onerror> survives on results page", "<img src=x onerror" not in page)
+_check("item is HTML-escaped on results page", "&lt;img src=x onerror" in page)
+# The dangerous old pattern is gone: no user item text spliced into inline JS.
+_check("no inline onclick calls takeAction with an item literal",
+       "onclick=\"takeAction(" not in page)
+_check("no inline onclick calls recordOutcome with an item literal",
+       "onclick=\"recordOutcome(" not in page)
+_check("approve/dismiss buttons use the data-attr delegation pattern",
+       'data-rec-action="approve"' in page)
+
+
 if _FAILED:
     print("\nSOME TESTS FAILED")
     sys.exit(1)

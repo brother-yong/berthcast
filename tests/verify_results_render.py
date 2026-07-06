@@ -73,12 +73,21 @@ recs = [
         "supplier_risk": "None", "flags": [],
         "reason": "Some stock left; keep an eye on it.",
     },
+    {   # approved with order placed: line 2 must show the outcome question
+        "item": "Padimas Jasmine Rice 5kg", "supplier": "Local Co", "supplier_type": "local",
+        "lead_time_days": 21, "days_of_supply": 9, "recommended_action": "REORDER",
+        "suggested_quantity": "80 BAG", "confidence": "MEDIUM",
+        "supplier_risk": "None", "flags": [], "reason": "Stock low against steady sales.",
+        "approved": True, "order_placed": True, "note": "told team already",
+    },
 ]
 inv = [
     {"item": "Frozen Salmon 1kg", "status": "CRITICAL", "spoilage_risk": "HIGH",
      "days_of_supply": 36, "category": "FROZEN", "stock": "12 CTN", "observation": "low"},
     {"item": "Plain Crackers", "status": "LOW", "spoilage_risk": "NONE",
      "days_of_supply": 20, "category": "DRY", "stock": "50", "observation": "ok"},
+    {"item": "Padimas Jasmine Rice 5kg", "status": "LOW", "spoilage_risk": "NONE",
+     "days_of_supply": 9, "category": "DRY", "stock": "6 BAG", "observation": "low"},
 ]
 db.execute(
     "INSERT INTO analysis_results (session_id, inventory_report, recommendations_json) VALUES (?,?,?)",
@@ -115,6 +124,19 @@ checks = {
     "exactly one stakes block": html.count('class="rec-stakes"') == 1,
     "exactly one quantity-basis line": html.count('class="rec-qty-basis"') == 1,
     "exactly one mitigation strip": html.count('class="rec-mitigation"') == 1,
+
+    # ── compact-row markup (2026-07 redesign) ──
+    "three row containers": html.count('rec-row-main') == 3,
+    "three hidden panels": html.count('class="rec-row-panel"') == 3,
+    "note inputs on rows": html.count('class="rec-note"') == 3,
+    "saved note rendered": 'told team already' in html,
+    "critical row colour hook present": 'data-status="CRITICAL"' in html,
+    "low-confidence tag shown": 'rec-row-lowconf' in html,
+    "reason snippet on line 2": 'Tight stock with a slow import supplier.' in html,
+    "approved row shows outcome question": 'Was the stockout avoided?' in html,
+    "qty on line 1": '160 CTN' in html,
+    "confidence ring is gone": 'confidence-ring' not in html,
+    "popover is gone": 'conf-popover' not in html,
 }
 
 failed = [name for name, ok in checks.items() if not ok]

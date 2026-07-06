@@ -3020,7 +3020,7 @@ def recommend_action():
     session_id      = data.get("session_id")
     item            = (data.get("item") or "").strip()
     action          = data.get("action", "")   # "approve" | "dismiss"
-    note            = data.get("note", "").strip()
+    note            = data.get("note", "").strip()[:500]
     edited_qty      = data.get("edited_quantity", None)
     edited_supplier = data.get("edited_supplier", None)
 
@@ -3072,14 +3072,15 @@ def recommend_action():
 @login_required
 @analyst_required
 def recommend_edit():
-    """Save the user's edited quantity and/or supplier without changing the
-    approve/dismiss state. Called on blur from the inline edit inputs so the
-    latest values are persisted before any approve_all is fired."""
+    """Save the user's edited quantity, supplier and/or note without changing
+    the approve/dismiss state. Called on blur from the inline edit inputs so
+    the latest values are persisted before any approve_all is fired."""
     data            = request.get_json(force=True, silent=True) or {}
     session_id      = data.get("session_id")
     item            = (data.get("item") or "").strip()
     edited_qty      = data.get("edited_quantity", None)
     edited_supplier = data.get("edited_supplier", None)
+    note            = data.get("note", None)
 
     if not session_id or not item:
         return jsonify({"ok": False, "error": "Invalid parameters"}), 400
@@ -3107,6 +3108,12 @@ def recommend_edit():
                         rec["edited_supplier"] = es
                     else:
                         rec.pop("edited_supplier", None)
+                if note is not None:
+                    ns = str(note).strip()
+                    if ns:
+                        rec["note"] = ns[:500]
+                    else:
+                        rec.pop("note", None)
                 return {"updated": True}
         return {"updated": False}
 

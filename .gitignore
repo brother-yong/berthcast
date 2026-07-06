@@ -28,6 +28,7 @@ CLAUDE.md
 # Stray client exports / design scratch that sometimes land here — never upload
 fixtures/berthcast_orders_*.csv
 design-preview/
+.superpowers/
 
 # Database
 *.db
