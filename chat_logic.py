@@ -3,6 +3,7 @@ Extracted verbatim from app.py."""
 import json
 
 import database as db
+from agents.shared import wrap_untrusted, UNTRUSTED_GUARD
 
 
 def _build_chat_context(user_id: int, org_name: str, detailed: bool = False) -> dict:
@@ -138,3 +139,78 @@ def _build_chat_context(user_id: int, org_name: str, detailed: bool = False) -> 
     result["starters"] = starters[:4]
 
     return result
+
+
+# ── Static product guide (staff daily-use scope only — NO admin/operator
+# content, per spec 2026-07-09). Trusted text: stays OUTSIDE the fence.
+# When a staff-facing flow or button label changes, update this in the same
+# commit — stale instructions are worse than none.
+PRODUCT_GUIDE = """PRODUCT GUIDE (how the berthcast app is used — answer how-to questions from these facts, never guess):
+
+What berthcast is: AI inventory forecasting for distributors. Staff upload stock and sales exports; berthcast says what to reorder, how much, and what's at risk. It recommends — it never places orders.
+
+Files to upload: inventory (stock on hand) and sales history are required. A supplier list and purchase-order history are optional but improve supplier detection and lead-time awareness. Excel (.xlsx) or CSV, exported straight from the company's system — no reformatting needed; berthcast detects the right columns itself.
+
+Running an analysis: click "New Analysis" in the top navigation → upload files → fill the short context form (anything unusual this period) → review possible duplicate items → run. Takes a minute or two; a live progress screen shows findings as they appear.
+
+Results page: recommendations grouped by supplier, most urgent first. Red left edge = critical, amber = low. Each row shows item, quantity, order-by date (red if overdue). Click a row to expand full detail — the reasoning, confidence, and what happens if you don't act. The ✓ button approves, ✕ dismisses. In the expanded panel you can edit quantity or supplier before approving. The dashed note field on each row saves automatically.
+
+Logging outcomes (important): after approving, the row asks "Did you place this order?" — later, mark whether the stockout was avoided or happened. This is what builds supplier reliability scores and the ROI numbers; if nobody logs outcomes, those stay empty.
+
+Getting the order sheet out: the "Print / PDF" button prints approved items (choose "Save as PDF" in the print dialog for a PDF file). The "CSV" button downloads a spreadsheet for Excel.
+
+Dashboard: past analyses, most recent first. Open any old run, or compare two runs to see what changed between them.
+
+Suppliers page: every detected supplier with a 0–100 reliability score. Everyone starts at 50; scores move as outcomes are logged. The search box filters the table.
+
+Chat (you): you see the latest completed analysis only — not older runs. The "Analysis context" toggle gives you more detail (low-stock lists, dead SKUs, supplier profiles). You cannot place orders or change data.
+
+Settings: edit supplier profiles — lead time in days and delay likelihood. Filling these in sharpens reorder timing, especially for slow import suppliers."""
+
+
+def build_chat_system_prompt(org_name: str, chat_ctx: dict, features=None) -> str:
+    """Assemble the chat system prompt: persona + rules + untrusted-data guard,
+    then the trusted PRODUCT_GUIDE, then the spreadsheet-derived context blocks
+    fenced with wrap_untrusted (July 2026 review: chat was the last unfenced
+    prompt site), then feature add-ons. Pure function — testable offline."""
+    features = features or []
+
+    parts = [(
+        "You are berthcast, an AI inventory advisor for {org}. "
+        "You have access to this company's real inventory data, analysis results, "
+        "and supplier information. Use it to give specific, actionable answers. "
+        "Cite actual item names, quantities, and supplier names from the data. "
+        "Be direct and practical. If the data doesn't cover what they're asking, "
+        "say so and suggest what data they'd need.\n\n"
+        "RULES:\n"
+        "- Always reference the real data below — never make up item names or numbers.\n"
+        "- When asked what to order, prioritise by: days of supply (lowest first), "
+        "then confidence level, then supplier risk.\n"
+        "- When discussing suppliers, mention their delay rate and lead time if known.\n"
+        "- Keep answers concise. Use bullet points only when listing multiple items.\n\n"
+    ).format(org=org_name) + UNTRUSTED_GUARD]
+
+    parts.append(PRODUCT_GUIDE)
+
+    if chat_ctx.get("summary_text"):
+        parts.append(wrap_untrusted(chat_ctx["summary_text"]))
+    if chat_ctx.get("detailed_text"):
+        parts.append(wrap_untrusted(chat_ctx["detailed_text"]))
+    if not chat_ctx.get("has_data"):
+        parts.append(
+            "This user has not run an analysis yet. Help them understand "
+            "how berthcast works and guide them through uploading their data."
+        )
+
+    addons = []
+    if "show_reasoning" in features:
+        addons.append(
+            "Before your answer, wrap your step-by-step reasoning in <thinking>...</thinking> tags. "
+            "Write it in first-person exploratory prose — think out loud, consider the problem, then give your answer."
+        )
+    if "detailed" in features:
+        addons.append("Provide a thorough, detailed response with examples where relevant.")
+    if addons:
+        parts.append(" ".join(addons))
+
+    return "\n\n".join(parts)

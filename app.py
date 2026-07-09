@@ -45,7 +45,7 @@ from rec_logic import (
     _compute_order_by, _group_recs_by_supplier, _confidence_reasons,
     _quantity_basis, _has_stakes, clarity_gaps,
 )
-from chat_logic import _build_chat_context
+from chat_logic import _build_chat_context, build_chat_system_prompt
 
 app = Flask(__name__)
 
@@ -921,37 +921,14 @@ def chat_api():
         user_msg_snapshot = user_message
         features_snapshot = req_features
 
-        # Build system prompt with live data
+        # Build system prompt with live data + product guide (chat_logic).
+        # Untrusted context blocks are fenced inside the builder.
         use_detailed = "use_analysis_context" in features_snapshot
         chat_ctx = _build_chat_context(session["user_id"], session["org_name"], detailed=use_detailed)
+        system_prompt = build_chat_system_prompt(session["org_name"], chat_ctx, features_snapshot)
     except Exception:
         _stream_lanes.release()
         raise
-
-    base_system = (
-        "You are berthcast, an AI inventory advisor for {org}. "
-        "You have access to this company's real inventory data, analysis results, "
-        "and supplier information. Use it to give specific, actionable answers. "
-        "Cite actual item names, quantities, and supplier names from the data. "
-        "Be direct and practical. If the data doesn't cover what they're asking, "
-        "say so and suggest what data they'd need.\n\n"
-        "RULES:\n"
-        "- Always reference the real data below — never make up item names or numbers.\n"
-        "- When asked what to order, prioritise by: days of supply (lowest first), "
-        "then confidence level, then supplier risk.\n"
-        "- When discussing suppliers, mention their delay rate and lead time if known.\n"
-        "- Keep answers concise. Use bullet points only when listing multiple items."
-    ).format(org=session["org_name"])
-
-    if chat_ctx["summary_text"]:
-        base_system += "\n\n" + chat_ctx["summary_text"]
-    if chat_ctx["detailed_text"]:
-        base_system += "\n\n" + chat_ctx["detailed_text"]
-    if not chat_ctx["has_data"]:
-        base_system += (
-            "\n\nThis user has not run an analysis yet. Help them understand "
-            "how berthcast works and guide them through uploading their data."
-        )
 
     def generate():
         # Explicit timeout: the SDK default (10 min) would pin this gunicorn
@@ -959,15 +936,6 @@ def chat_api():
         _client = _anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"),
                                        timeout=CHAT_STREAM_TIMEOUT_S)
         full_response = []
-        feature_addons = []
-        if "show_reasoning" in features_snapshot:
-            feature_addons.append(
-                "Before your answer, wrap your step-by-step reasoning in <thinking>...</thinking> tags. "
-                "Write it in first-person exploratory prose — think out loud, consider the problem, then give your answer."
-            )
-        if "detailed" in features_snapshot:
-            feature_addons.append("Provide a thorough, detailed response with examples where relevant.")
-        system_prompt = base_system + ("\n\n" + " ".join(feature_addons) if feature_addons else "")
         try:
             yield f"data: {json.dumps({'conversation_id': conv_id_snapshot})}\n\n"
             with _client.messages.stream(
