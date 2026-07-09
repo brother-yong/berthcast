@@ -67,7 +67,7 @@ _orig_query = appmod.db.query
 # ── Healthy: DB answers ─────────────────────────────────────────────────────
 r = client.get("/health")
 _check("healthy check returns 200", r.status_code == 200, detail=str(r.status_code))
-_check("healthy check reports ok", r.get_json() == {"status": "ok"}, detail=str(r.get_json()))
+_check("healthy check reports ok", r.get_json().get("status") == "ok", detail=str(r.get_json()))
 _check("health endpoint needs no login (no redirect)", r.status_code != 302)
 
 # ── The probe must read a REAL table (SELECT 1 was the 12 June blind spot) ──
@@ -98,7 +98,7 @@ appmod.db.query = _broken_query
 try:
     r = client.get("/health")
     _check("unhealthy check returns 503", r.status_code == 503, detail=str(r.status_code))
-    _check("unhealthy check reports error", r.get_json() == {"status": "error"}, detail=str(r.get_json()))
+    _check("unhealthy check reports error", r.get_json().get("status") == "error", detail=str(r.get_json()))
 finally:
     appmod.db.query = _orig_query
 

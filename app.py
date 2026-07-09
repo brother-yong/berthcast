@@ -587,9 +587,16 @@ def health():
     remaining = HEALTH_DB_PROBE_TIMEOUT_S - (time.time() - started)
     if remaining > 0:
         done.wait(remaining)
-    if result.get("ok"):
-        return jsonify({"status": "ok"}), 200
-    return jsonify({"status": "error"}), 503
+    ok = bool(result.get("ok"))
+    payload = {
+        "status": "ok" if ok else "error",
+        # check_deploy.py reads these: confirm the pushed commit is live AND the
+        # DB watchdog thread is actually running in this worker (the 9 Jul 2026
+        # bug was code that shipped green but never ran in the forked worker).
+        "watchdog": "up" if any(t.name == "db-watchdog" for t in threading.enumerate()) else "down",
+        "version": (os.environ.get("RENDER_GIT_COMMIT") or "unknown")[:7],
+    }
+    return jsonify(payload), (200 if ok else 503)
 
 
 # ── DB wedge watchdog ─────────────────────────────────────────────────────────
