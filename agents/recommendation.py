@@ -26,6 +26,8 @@ from .shared import (
     LEAD_TIME_BY_TYPE,
     SalesNameIndex,
     normalise_match_key,
+    monthly_pattern_stats,
+    apply_sales_pattern_flags,
     wrap_untrusted,
     UNTRUSTED_GUARD,
 )
@@ -103,6 +105,9 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
     _claimed_rec = {normalise_match_key(r.get("item"))
                     for r in inventory_report
                     if isinstance(r, dict) and r.get("item")}
+    # Sales-pattern stats (spec 2026-07-10): spiky velocity correction,
+    # per-item prompt notes, and the deterministic post-pass all read this.
+    pattern_stats = monthly_pattern_stats(session_id)
     try:
         sal_table_r = f"sales_{session_id}"
         s_sample = query(f"SELECT * FROM {sal_table_r} LIMIT 1")
@@ -164,10 +169,17 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
                 for r in stat_rows:
                     _avg_d = r["avg_direct"] or 0
                     _tot   = r["total_qty"] or 0
+                    _avg_m = _avg_d if _avg_d > 0 \
+                             else (_tot / months_r if _tot > 0 else 0)
+                    if _avg_d <= 0:
+                        # Spiky: size on the typical month, not the spike-
+                        # inflated mean (sheet-stated averages left alone).
+                        _pat = pattern_stats.get(normalise_match_key(str(r["item"] or "")))
+                        if _pat and _pat["pattern"] == "spiky" and _pat["corrected_avg"]:
+                            _avg_m = _pat["corrected_avg"]
                     vel_rows.append({
                         "item": r["item"],
-                        "avg_monthly": _avg_d if _avg_d > 0
-                                       else (_tot / months_r if _tot > 0 else 0),
+                        "avg_monthly": _avg_m,
                     })
             if vel_rows:
                 # Drift-tolerant index, same as the inventory agent: a sales
@@ -280,12 +292,27 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
         # model echoes back (see sanitize_suggested_quantity below).
         qty_basis_by_item[iname] = (avg_monthly, uom_label, suggested_qty)
 
+        _pat = pattern_stats.get(normalise_match_key(iname))
+        if _pat and _pat["pattern"] == "spiky":
+            pattern_line = (f"Sales pattern: SPIKY — one month dominates; typical month "
+                            f"(median) = {_pat['corrected_avg']}, raw average = {_pat['mean']}. "
+                            f"Quantities are sized on the typical month.\n")
+        elif _pat and _pat["pattern"] == "volatile":
+            pattern_line = (f"Sales pattern: VOLATILE — monthly sales swing between "
+                            f"{_pat['min']} and {_pat['max']}. The average may mislead; "
+                            f"flag this for the buyer.\n")
+        elif _pat and _pat["pattern"] == "lumpy":
+            pattern_line = "Sales pattern: IRREGULAR — sells in bursts with many zero months.\n"
+        else:
+            pattern_line = ""
+
         enriched_lines.append(
             f"---\n"
             f"Item: {iname}\n"
             f"Status: {inv_item.get('status')} | Spoilage risk: {inv_item.get('spoilage_risk')}\n"
             f"Stock: {inv_item.get('stock')}{uom_label} | Days of supply: {inv_item.get('days_of_supply', 'unknown')}\n"
             f"Avg monthly sales: {avg_monthly}{uom_label}\n"
+            f"{pattern_line}"
             f"Pre-computed suggested order quantity: {suggested_qty_str if suggested_qty_str is not None else 'insufficient sales data'}\n"
             f"Supplier: {supplier} ({stype}, lead time: {lt_days if lt_days else 'unknown — do not guess'})\n"
             f"Supplier delay rate: {int(delay_prob*100)}% | "
@@ -444,6 +471,14 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
             _emit(progress_emit,
                   f"Safety check: adjusted {qty_corrections} suggested "
                   f"quantit{'ies' if qty_corrections != 1 else 'y'} that were missing or out of range")
+
+        pat_counts = apply_sales_pattern_flags(recs, pattern_stats)
+        _n_pat = sum(pat_counts.values())
+        if _n_pat:
+            _emit(progress_emit,
+                  f"Safety check: {_n_pat} item{'s' if _n_pat != 1 else ''} with unusual "
+                  f"sales patterns ({pat_counts['spiky']} spiky, "
+                  f"{pat_counts['volatile']} swingy, {pat_counts['lumpy']} irregular)")
 
         flagged = sum(1 for r in recs if r.get("flags"))
         high_risk_count = sum(1 for r in recs if r.get("supplier_risk") == "HIGH")

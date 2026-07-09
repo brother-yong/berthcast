@@ -237,6 +237,10 @@ def clarity_gaps(recommendations):
     # to size this order". An edited quantity resolves the gap for that item.
     no_qty = sum(1 for r in valid
                  if str(_effective_qty(r)).strip().lower() == "verify with team")
+    # Deterministic sales-pattern stamps from apply_sales_pattern_flags
+    # (spec 2026-07-10): spiky / volatile / lumpy items carry a warning flag.
+    pattern_items = sum(1 for r in valid
+                        if r.get("sales_pattern") in ("spiky", "volatile", "lumpy"))
 
     gaps = []
     if no_lead:
@@ -256,6 +260,12 @@ def clarity_gaps(recommendations):
             "count": no_qty,
             "label": "not enough sales data to size the order",
             "why": "quantities need a manual check",
+        })
+    if pattern_items:
+        gaps.append({
+            "count": pattern_items,
+            "label": "unusual sales pattern",
+            "why": "check their flags before approving",
         })
     return gaps
 

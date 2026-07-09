@@ -273,6 +273,232 @@ def count_sales_months(raw_values):
     return max(1, len(months)), label
 
 
+# ── Sales-pattern classification (spec 2026-07-10) ──────────────────────────
+# A flat average lies three ways: a one-off bulk month inflates it (spiky),
+# recurring swings smear it (volatile), and rare-burst items make it
+# meaningless (lumpy). Detection is pure Python over per-month totals —
+# thresholds live here so they can be tuned from real client data later.
+PATTERN_MIN_MONTHS = 4        # fewer covered months -> too little signal, stay silent
+PATTERN_SPIKY_MEAN_X = 2.0    # spiky when mean >= 2x median
+PATTERN_VOLATILE_MAXMIN_X = 3.0  # volatile when max >= 3x min (positive months)
+
+
+def classify_monthly_pattern(monthly):
+    """Classify one item's per-month sales totals.
+
+    Returns (pattern, corrected_avg):
+      pattern       'stable' | 'spiky' | 'volatile' | 'lumpy'
+      corrected_avg the median, ONLY for 'spiky' (the safer sizing number);
+                    None otherwise.
+
+    Rules in precedence order (first match wins), per the 2026-07-10 spec:
+      lumpy    >= half the covered months are zero, but some sales exist
+      spiky    median > 0 and mean >= PATTERN_SPIKY_MEAN_X * median
+      volatile median > 0 and (max >= PATTERN_VOLATILE_MAXMIN_X * min over
+               positive months, or 1..half-1 covered months are zero — an
+               item that vanishes some months is swinging even if its
+               selling months are steady)
+      stable   everything else, or < PATTERN_MIN_MONTHS covered months
+    """
+    import statistics as _stats
+
+    vals = [float(v or 0) for v in (monthly or [])]
+    if len(vals) < PATTERN_MIN_MONTHS:
+        return "stable", None
+    total = sum(vals)
+    if total <= 0:
+        return "stable", None
+
+    zeros = sum(1 for v in vals if v <= 0)
+    med = _stats.median(vals)
+    mean = total / len(vals)
+
+    if zeros * 2 >= len(vals):
+        return "lumpy", None
+    if med > 0 and mean >= PATTERN_SPIKY_MEAN_X * med:
+        return "spiky", round(med, 1)
+    positive = [v for v in vals if v > 0]
+    if med > 0 and positive and (
+            max(positive) >= PATTERN_VOLATILE_MAXMIN_X * min(positive)
+            or zeros >= 1):
+        return "volatile", None
+    return "stable", None
+
+
+def _column_day_first(vals):
+    """Column-level D/M vs M/D decision — same convention as count_sales_months
+    (any first token > 12 means day-first; any second token > 12 means
+    month-first; otherwise day-first, the SEA convention)."""
+    day_first = True
+    saw_month_first = False
+    for s in vals:
+        m = _NUM_DATE_RE.match(s)
+        if not m:
+            continue
+        a, b = int(m.group(1)), int(m.group(2))
+        if a >= 1000:
+            continue
+        if a > 12:
+            return True
+        if b > 12:
+            saw_month_first = True
+    return not saw_month_first if saw_month_first else day_first
+
+
+def _month_key(s, day_first):
+    """One date string -> (year, month) or None. Mirrors count_sales_months'
+    accepted formats (ISO, numeric D/M/Y-or-M/D/Y, textual 15-Jun-26, Excel
+    serials). Deliberately duplicates ~15 lines of that heavily-tested
+    function instead of refactoring it — stability > DRY here."""
+    import datetime as _dt
+    s = str(s or "").strip()
+    if not s:
+        return None
+    m = _ISO_DATE_RE.match(s)
+    if m:
+        y, mo = int(m.group(1)), int(m.group(2))
+        return (y, mo) if 1 <= mo <= 12 and 1900 <= y <= 2200 else None
+    m = _NUM_DATE_RE.match(s)
+    if m:
+        a, b, c = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        if a >= 1000:                       # 2026/06/15
+            y, mo = a, b
+        elif day_first:
+            y, mo = _norm_year(c), b
+        else:
+            y, mo = _norm_year(c), a
+        return (y, mo) if 1 <= mo <= 12 and 1900 <= y <= 2200 else None
+    m = _TXT_DATE_RE.match(s)
+    if m:
+        mo = _MONTH_NAMES.get(m.group(2)[:3].lower())
+        y = _norm_year(int(m.group(3)))
+        return (y, mo) if mo and 1900 <= y <= 2200 else None
+    try:                                    # Excel serial (days since 1899-12-30)
+        n = float(s)
+        if 20000 <= n <= 80000:
+            d = _dt.date(1899, 12, 30) + _dt.timedelta(days=int(n))
+            return (d.year, d.month)
+    except (ValueError, OverflowError):
+        pass
+    return None
+
+
+def monthly_pattern_stats(session_id):
+    """Per-item monthly totals + pattern classification from sales_<sid>.
+
+    Returns {normalise_match_key(item): {"months": int, "mean": float,
+    "median": float, "min": float, "max": float, "pattern": str,
+    "corrected_avg": float|None}} — empty dict when the table, a date column,
+    a qty column, or parseable dates are missing (wide-matrix summary sheets
+    land here by design; spec: silently stable).
+    """
+    import statistics as _stats
+    out = {}
+    try:
+        tbl = f"sales_{session_id}"
+        sample = query(f"SELECT * FROM {tbl} LIMIT 1")
+        if not sample:
+            return out
+        cols = list(sample[0].keys())
+        desc = next((c for c in cols if c in ("inventory_desc", "item_description", "description", "product_name")), None)
+        if not desc:
+            desc = next((c for c in cols if any(k in c.lower() for k in ("desc", "item_name", "product_name", "item")) and "supplier" not in c.lower()), None)
+        qty = next((c for c in cols if c in ("billing_qty", "qty", "quantity", "billing_quantity")), None)
+        if not qty:
+            qty = next((c for c in cols if any(k in c.lower() for k in ("qty", "quantity")) and "allocated" not in c.lower()), None)
+        _DATE_EXACT = ("date", "invoice_date", "order_date", "transaction_date",
+                       "sales_date", "po_date", "doc_date", "posting_date")
+        dcol = next((c for c in cols if c.lower() in _DATE_EXACT), None)
+        if not dcol:
+            dcol = next((c for c in cols if "date" in c.lower()), None)
+        if not (desc and qty and dcol):
+            return out
+
+        # Day-level pre-aggregation keeps the row count bounded (items x days,
+        # not raw transactions); substr(1,10) trims time-of-day stamps.
+        rows = query(
+            f'SELECT "{desc}" AS item, substr("{dcol}", 1, 10) AS d, '
+            f'SUM({_num_sql(qty)}) AS q FROM {tbl} '
+            f'WHERE "{desc}" IS NOT NULL '
+            f'GROUP BY "{desc}", substr("{dcol}", 1, 10) LIMIT 200000')
+        if not rows:
+            return out
+
+        day_first = _column_day_first([str(r["d"] or "") for r in rows[:500]])
+        per_item = {}          # key -> {(y,m): qty}
+        covered = set()        # all months the file covers, across items
+        for r in rows:
+            mk = _month_key(r["d"], day_first)
+            if not mk:
+                continue
+            covered.add(mk)
+            key = normalise_match_key(str(r["item"]))
+            if not key:
+                continue
+            bucket = per_item.setdefault(key, {})
+            bucket[mk] = bucket.get(mk, 0.0) + float(r["q"] or 0)
+        if not covered or not per_item:
+            return out
+        months_sorted = sorted(covered)[-24:]   # cap the window: latest 24 months
+
+        for key, bucket in per_item.items():
+            vec = [bucket.get(mk, 0.0) for mk in months_sorted]
+            if not vec:
+                continue
+            pattern, corrected = classify_monthly_pattern(vec)
+            out[key] = {
+                "months": len(months_sorted),
+                "mean": round(sum(vec) / len(vec), 1),
+                "median": round(_stats.median(vec), 1),
+                "min": round(min(vec), 1),
+                "max": round(max(vec), 1),
+                "pattern": pattern,
+                "corrected_avg": corrected,
+            }
+    except Exception:
+        return {}
+    return out
+
+
+def apply_sales_pattern_flags(recs, pattern_stats):
+    """Deterministic post-pass over parsed recommendations (same philosophy
+    as the quantity sanitizer: never trust the model to self-report a
+    warning). Stamps rec["sales_pattern"], appends a plain-English flag, and
+    caps confidence at MEDIUM (HIGH -> MEDIUM; lower values untouched).
+    Returns {"spiky": n, "volatile": n, "lumpy": n} counts."""
+    counts = {"spiky": 0, "volatile": 0, "lumpy": 0}
+    if not pattern_stats:
+        return counts
+    for rec in recs:
+        if not isinstance(rec, dict) or rec.get("error"):
+            continue
+        st = pattern_stats.get(normalise_match_key(str(rec.get("item") or "")))
+        if not st or st["pattern"] == "stable":
+            continue
+        pattern = st["pattern"]
+        counts[pattern] += 1
+        rec["sales_pattern"] = pattern
+        if pattern == "spiky":
+            flag = (f"Spiky sales history — one month dominates the average; "
+                    f"quantity sized on the typical month ({st['corrected_avg']}/mo, "
+                    f"raw average {st['mean']}/mo).")
+        elif pattern == "volatile":
+            flag = (f"Sales swing a lot month to month ({st['min']}–{st['max']}). "
+                    f"If this is a known cycle (offshore periods, festive season), "
+                    f"mention it in the analysis context next run.")
+        else:
+            flag = ("Irregular seller — bursts with quiet months. "
+                    "Verify with your team before ordering.")
+        flags = rec.get("flags")
+        if not isinstance(flags, list):
+            flags = []
+        flags.append(flag)
+        rec["flags"] = flags
+        if str(rec.get("confidence", "")).upper() == "HIGH":
+            rec["confidence"] = "MEDIUM"
+    return counts
+
+
 def detect_avg_month_column(cols) -> str:
     """Find a column that explicitly states average quantity per month
     (e.g. "Avg Qty / Month" -> avg_qty___month). Summary exports often carry

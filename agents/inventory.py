@@ -24,6 +24,7 @@ from .shared import (
     infer_months_from_item_stats,
     SalesNameIndex,
     normalise_match_key,
+    monthly_pattern_stats,
     wrap_untrusted,
     UNTRUSTED_GUARD,
 )
@@ -486,6 +487,10 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
                 "scaled by that ratio — include a date or Avg/Month column for exact "
                 "numbers.")
 
+    # Sales-pattern stats (spec 2026-07-10): spiky items get their velocity
+    # replaced by the typical month so one bulk order can't fake a CRITICAL.
+    pattern_stats = monthly_pattern_stats(session_id)
+
     inv_summary_lines = []
     # The exact per-item numbers printed into the prompt, kept so the verifier
     # can recompute the status rules against what Claude actually saw.
@@ -511,6 +516,13 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
             avg_monthly = _avg_direct
         else:
             avg_monthly = total_sold / months_of_data if total_sold > 0 else 0
+            # Spiky items: size on the typical month (median), never the
+            # spike-inflated mean. Only on this derived path — a sheet-stated
+            # average is the customer's own number and is never overridden.
+            _pat = pattern_stats.get(normalise_match_key(canonical)) \
+                   or pattern_stats.get(normalise_match_key(str(desc)))
+            if _pat and _pat["pattern"] == "spiky" and _pat["corrected_avg"]:
+                avg_monthly = _pat["corrected_avg"]
         months_supply = None
         if avg_monthly > 0:
             months_supply = round(stock_units / avg_monthly, 1)

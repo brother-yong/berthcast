@@ -72,4 +72,19 @@ _check("supplier case-insensitive ('unknown')",
                                 "suggested_quantity": "5 units"}])
                  ).get("unrecognised supplier") == 1)
 
+# ── sales-pattern warnings surface as a counted gap (spec 2026-07-10) ────────
+recs_pat = [
+    {"item": "P1", "lead_time_days": 7, "supplier": "Good Co",
+     "suggested_quantity": "10 units", "sales_pattern": "spiky"},
+    {"item": "P2", "lead_time_days": 7, "supplier": "Good Co",
+     "suggested_quantity": "10 units", "sales_pattern": "volatile"},
+    {"item": "P3", "lead_time_days": 7, "supplier": "Good Co",
+     "suggested_quantity": "10 units"},  # stable / no pattern
+]
+_check("unusual sales patterns counted (2)",
+       _by_label(clarity_gaps(recs_pat)).get("unusual sales pattern") == 2,
+       clarity_gaps(recs_pat))
+_check("no pattern field -> no pattern gap",
+       "unusual sales pattern" not in _by_label(clarity_gaps(recs_pat[2:])))
+
 sys.exit(1 if _FAILED else 0)
