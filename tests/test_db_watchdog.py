@@ -104,6 +104,30 @@ finally:
     appmod.db.query = _orig_query
 
 
+# ── Start logic: once, inside the worker, never under TESTING ───────────────
+# The 9 Jul 2026 freeze did not self-heal because the watchdog was started at
+# import time and never ran in the forked worker. It now starts on first request
+# via _ensure_watchdog. Stub the loop so the test never spawns the real thing.
+_started = []
+appmod._db_watchdog = lambda: _started.append(1)
+appmod._watchdog_started = False
+
+appmod.app.config["TESTING"] = True
+appmod._ensure_watchdog()
+_check("TESTING blocks the watchdog (no self-killing thread in tests)",
+       appmod._watchdog_started is False and _started == [])
+
+appmod.app.config["TESTING"] = False
+try:
+    appmod._ensure_watchdog()
+    appmod._ensure_watchdog()          # second call must be a no-op
+    _check("watchdog marks itself started when not testing", appmod._watchdog_started is True)
+    time.sleep(0.1)                    # let the (stubbed) target run
+    _check("watchdog starts exactly once", len(_started) == 1, detail=f"starts={len(_started)}")
+finally:
+    appmod.app.config["TESTING"] = True
+
+
 if _FAILED:
     print("\nSOME TESTS FAILED")
     sys.exit(1)

@@ -638,10 +638,30 @@ def _db_watchdog():
         time.sleep(WATCHDOG_INTERVAL_S)
 
 
-# Production only (one worker per Render process). Never in local dev or tests —
-# a self-killing thread has no place there.
-if os.environ.get("RENDER"):
+# Start the watchdog inside the WORKER, on first request — NOT at import. gunicorn
+# forks its workers, and a thread started at import can end up in the master and
+# die at fork, so it never runs where it can restart a wedged worker. That is why
+# the 9 Jul 2026 freeze did not self-heal: the dump showed no db-watchdog thread.
+# before_request runs in the worker that serves traffic, so the watchdog is
+# guaranteed to live in the right process. Skipped under TESTING.
+_watchdog_lock = threading.Lock()
+_watchdog_started = False
+
+
+def _ensure_watchdog():
+    global _watchdog_started
+    if _watchdog_started or app.config.get("TESTING"):
+        return
+    with _watchdog_lock:
+        if _watchdog_started:
+            return
+        _watchdog_started = True
     threading.Thread(target=_db_watchdog, daemon=True, name="db-watchdog").start()
+
+
+@app.before_request
+def _watchdog_boot():
+    _ensure_watchdog()
 
 
 # ── Diagnostic: live thread stacks (token-gated, read-only) ──────────────────
@@ -662,7 +682,10 @@ def debug_threads():
     import traceback as _tb
     names = {t.ident: t.name for t in threading.enumerate()}
     frames = sys._current_frames()
-    out = [f"pid={os.getpid()}  threads={len(frames)}  t={time.time():.0f}"]
+    render_env = "set" if os.environ.get("RENDER") else "UNSET"
+    wd = "up" if _watchdog_started else "down"
+    out = [f"pid={os.getpid()}  threads={len(frames)}  t={time.time():.0f}  "
+           f"RENDER={render_env}  watchdog={wd}"]
     for tid, frame in frames.items():
         out.append(f"\n--- thread {tid} ({names.get(tid, '?')}) ---")
         out.append("".join(_tb.format_stack(frame)).rstrip())
