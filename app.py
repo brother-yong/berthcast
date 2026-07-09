@@ -672,12 +672,14 @@ def _watchdog_boot():
 
 
 # ── Diagnostic: live thread stacks (token-gated, read-only) ──────────────────
-# Added 5 Jul 2026 to catch a worker that freezes with every login stuck on an
-# internal lock (futex) while the DB itself is provably healthy. Reads only
-# sys._current_frames() — no DB, no lock — so it still answers while the worker
-# is wedged. Invisible (404) unless the DEBUG_TOKEN env var is set AND matches,
-# so it adds no attack surface in normal operation. ponytail: temporary probe —
-# delete once the freeze is root-caused.
+# Added 5 Jul 2026; KEPT as a permanent diagnostic (10 Jul 2026). It cracked the
+# recurring login freeze twice: dumps live thread stacks so you can see exactly
+# where a wedged worker is stuck (root cause was sqlite3.connect() hanging on a
+# stalled Render disk — see the DB watchdog above). Reads only
+# sys._current_frames() — no DB, no lock — so it answers even while the worker is
+# wedged, and shows code locations only, never data. Invisible (404) unless the
+# DEBUG_TOKEN env var is set AND matches (constant-time), so it adds no real
+# attack surface even on the public repo. Reach for it first on any future freeze.
 @app.route("/debug/threads")
 def debug_threads():
     want = os.environ.get("DEBUG_TOKEN")
