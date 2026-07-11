@@ -76,3 +76,52 @@ def detect_wide_matrix(filepath) -> bool:
         if len(months) >= MIN_MONTH_COLS:
             return True
     return False
+
+
+def validate_recipe(recipe, n_rows: int, n_cols: int) -> dict:
+    """Deterministic, field-by-field validation of the mapper's JSON.
+    The model's output is never trusted structurally. Returns a normalised
+    copy (int keys) or raises RecipeRefusal."""
+    def _bad(why):
+        raise RecipeRefusal(f"recipe rejected: {why}")
+
+    if not isinstance(recipe, dict):
+        _bad("not an object")
+    if recipe.get("layout") != "wide_matrix":
+        _bad(f"unsupported layout {recipe.get('layout')!r}")
+
+    def _int_in(name, lo, hi, allow_none=False):
+        v = recipe.get(name)
+        if v is None and allow_none:
+            return None
+        if not isinstance(v, int) or isinstance(v, bool) or not (lo <= v <= hi):
+            _bad(f"{name}={v!r} out of bounds 1..{hi}")
+        return v
+
+    header_row = _int_in("header_row", 1, n_rows)
+    item_col   = _int_in("item_col", 1, n_cols)
+    sup_col    = _int_in("supplier_col", 1, n_cols, allow_none=True)
+    lt_col     = _int_in("leadtime_col", 1, n_cols, allow_none=True)
+
+    raw_months = recipe.get("month_cols")
+    if not isinstance(raw_months, dict) or len(raw_months) < MIN_MONTH_COLS:
+        _bad("month_cols missing or too few")
+    month_cols = {}
+    for k, m in raw_months.items():
+        try:
+            col = int(k)
+        except (TypeError, ValueError):
+            _bad(f"month col key {k!r} not an int")
+        if not (1 <= col <= n_cols):
+            _bad(f"month col {col} out of bounds")
+        if not isinstance(m, int) or isinstance(m, bool) or not (1 <= m <= 12):
+            _bad(f"month number {m!r} invalid")
+        month_cols[col] = m
+    if len(set(month_cols.values())) != len(month_cols):
+        _bad("duplicate month numbers")
+    if item_col in month_cols:
+        _bad("item_col collides with a month column")
+
+    return {"header_row": header_row, "item_col": item_col,
+            "month_cols": month_cols, "supplier_col": sup_col,
+            "leadtime_col": lt_col}

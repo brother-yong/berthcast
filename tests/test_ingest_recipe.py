@@ -80,6 +80,36 @@ full = [["", "JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE"]]
 _check("full month names detected",
        detect_wide_matrix(make_wide_xlsx(full, "full.xlsx")) is True)
 
+from ingest_recipe import validate_recipe, RecipeRefusal   # noqa: E402
+
+GOOD = {"layout": "wide_matrix", "header_row": 3, "item_col": 1,
+        "month_cols": {"2": 1, "3": 2, "4": 3, "5": 4, "6": 5, "7": 6},
+        "supplier_col": 8, "leadtime_col": 10}
+
+
+def _refused(recipe):
+    try:
+        validate_recipe(recipe, n_rows=7, n_cols=10)
+        return False
+    except RecipeRefusal:
+        return True
+
+
+_check("valid recipe accepted", not _refused(GOOD))
+_check("unknown layout refused", _refused({**GOOD, "layout": "transactions"}))
+_check("out-of-bounds month col refused",
+       _refused({**GOOD, "month_cols": {**GOOD["month_cols"], "99": 7}}))
+_check("duplicate months refused",
+       _refused({**GOOD, "month_cols": {"2": 1, "3": 1, "4": 3, "5": 4, "6": 5, "7": 6}}))
+_check("too few month cols refused",
+       _refused({**GOOD, "month_cols": {"2": 1, "3": 2}}))
+_check("item col colliding with month col refused",
+       _refused({**GOOD, "item_col": 2}))
+_check("missing field refused", _refused({"layout": "wide_matrix"}))
+_check("null supplier col accepted",
+       not _refused({**GOOD, "supplier_col": None, "leadtime_col": None}))
+_check("non-dict refused", _refused("not a recipe"))
+
 if _FAILED:
     print("\nSOME TESTS FAILED")
     sys.exit(1)
