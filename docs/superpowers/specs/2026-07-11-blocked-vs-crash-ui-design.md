@@ -44,8 +44,9 @@ Two changes to the JSON payload built from the in-memory
    sent.
 2. **Scrub crash text.** When `status == "error"` and `blocked` is falsy,
    replace the `error` field with a fixed friendly string:
-   `"Something broke on our end. We've been alerted and we're looking at
-   it. Please try again in a moment."`
+   `"We've been alerted and we're looking at it. Please try again in a
+   moment."` (body only — the bold title "Something broke on our end"
+   lives in the frontend, so the sentence isn't duplicated).
    The raw error is untouched everywhere else — logs, ALERT_EMAIL, the DB.
    Blocked errors are sent through **unmodified** (they already contain the
    fix guidance).
