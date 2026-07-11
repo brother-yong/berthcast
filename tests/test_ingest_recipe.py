@@ -212,6 +212,24 @@ _y, yrb = execute_recipe(make_wide_xlsx(YTD_ROWS, "ytd.xlsx"), ytd_recipe,
 _check("blank future months dropped as empty", yrb["months_dropped"] == [7, 8, 9, 10, 11, 12], yrb)
 _check("real months survive empty tail", yrb["months_kept"] == [1, 2, 3, 4, 5, 6], yrb)
 
+# regression: an item with PARTIAL tail coverage must not make the tail look
+# flat (the singleton-sweep bug the coverage rule closes) — with the old
+# `if not tv` rule, ITEM SPARSE's lone JUN value reads as "flat", hits the
+# 50% share with only two items, and sweeps MAY-JUN out of the report
+SPARSE_ROWS = [
+    ["", "JAN", "FEB", "MAR", "APR", "MAY", "JUN"],
+    ["ITEM VARIED", 10, 12, 11, 13, 12, 14],
+    ["ITEM SPARSE", None, None, None, None, None, 9],
+]
+sparse_recipe = validate_recipe(
+    {"layout": "wide_matrix", "header_row": 1, "item_col": 1,
+     "month_cols": {"2": 1, "3": 2, "4": 3, "5": 4, "6": 5, "7": 6},
+     "supplier_col": None, "leadtime_col": None}, n_rows=3, n_cols=7)
+_s, srb = execute_recipe(make_wide_xlsx(SPARSE_ROWS, "sparse.xlsx"), sparse_recipe,
+                         today=date(2026, 7, 11))
+_check("sparse item cannot flatten the tail", srb["months_dropped"] == [], srb)
+_check("all real months kept with sparse item", srb["months_kept"] == [1, 2, 3, 4, 5, 6], srb)
+
 if _FAILED:
     print("\nSOME TESTS FAILED")
     sys.exit(1)
