@@ -84,21 +84,29 @@ RAW_CRASH = "No inventory rows. desc_col=None, qty_col=None, rows=0"
 
 # ── 1. Blocked run: flag passes through, guidance kept verbatim ──────────────
 s_blocked = _mk_session("failed")
-_mem_entry(s_blocked, status="error", error=GUIDANCE, blocked=True)
+_mem_entry(s_blocked, status="error", error=GUIDANCE, blocked=True,
+           log=[{"t": 1.0, "msg": "Columns detected — item: desc, stock: qty",
+                 "agent": "inventory"}])
 body = client.get(f"/analysis_status/{s_blocked}").get_json()
 _check("blocked run has blocked=true", body.get("blocked") is True, str(body))
 _check("blocked run keeps its guidance verbatim", body.get("error") == GUIDANCE,
        str(body.get("error")))
+_check("blocked run keeps its progress log", len(body.get("log") or []) == 1,
+       str(body.get("log")))
 
 # ── 2. Crash: raw text scrubbed, friendly generic shown ──────────────────────
+# Agents also _emit the exception into the progress log right before returning
+# it — the scrub must cover the WHOLE payload, not just the error field.
 s_crash = _mk_session("failed")
-_mem_entry(s_crash, status="error", error=RAW_CRASH, blocked=False)
+_mem_entry(s_crash, status="error", error=RAW_CRASH, blocked=False,
+           log=[{"t": 1.0, "msg": f"Inventory agent error: {RAW_CRASH}",
+                 "agent": "inventory"}])
 resp = client.get(f"/analysis_status/{s_crash}")
 body = resp.get_json()
 _check("crash has blocked=false", body.get("blocked") is False, str(body))
 _check("crash error replaced by friendly generic",
        body.get("error") == appmod.CRASH_FRIENDLY_ERROR, str(body.get("error")))
-_check("raw crash text absent from the whole payload",
+_check("raw crash text absent from the whole payload (incl. log)",
        RAW_CRASH not in resp.get_data(as_text=True))
 
 # ── 3. Missing blocked key (old-style entry) defaults to crash ───────────────

@@ -75,5 +75,7 @@ def run_normalization_agent(session_id: int, model: str, progress_emit=None) -> 
         msg = "Groupings repaired from truncated output." if repaired else ""
         return {"groups": groups, "total_items_scanned": len(items_list), "message": msg}
     except Exception as e:
-        _emit(progress_emit, f"Normalisation error: {str(e)}")
+        # Raw exception text stays in the returned message (operator paths) —
+        # the user-facing progress log gets a generic line.
+        _emit(progress_emit, "Item-name scan hit an error — names kept as-is")
         return {"groups": [], "message": f"Normalisation agent error: {str(e)}"}

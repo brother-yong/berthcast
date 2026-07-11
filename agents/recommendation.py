@@ -486,5 +486,7 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
               f"Generated {len(recs)} recommendations — {flagged} flagged, {high_risk_count} high-risk suppliers")
         return recs
     except Exception as e:
-        _emit(progress_emit, f"Recommendation agent error: {str(e)}")
+        # Raw exception text is for the operator (logs + ALERT_EMAIL via the
+        # returned error) — the user-facing progress log gets a generic line.
+        _emit(progress_emit, "Recommendation agent hit an unexpected error — stopping")
         return [{"error": str(e)}]

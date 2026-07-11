@@ -2666,9 +2666,12 @@ def analysis_status(upload_session_id):
 
     if payload is not None:
         # A real crash must never show raw technical text to staff. A blocked
-        # run keeps its message — the safety net wrote it for the user.
+        # run keeps its message — the safety net wrote it for the user. The
+        # progress log can carry the same raw text (agents emit the exception
+        # before returning it), so drop it too rather than police line-by-line.
         if payload["status"] == "error" and not payload["blocked"]:
             payload["error"] = CRASH_FRIENDLY_ERROR
+            payload["log"] = []
         return jsonify(payload)
 
     # No in-memory entry — check DB. Worker may have restarted, or analysis

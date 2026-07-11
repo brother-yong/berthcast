@@ -61,7 +61,9 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
         inventory = query(f"SELECT * FROM {inv_table} LIMIT 3000")
         _emit(progress_emit, f"Loaded {len(inventory)} inventory rows")
     except Exception as e:
-        _emit(progress_emit, f"Could not read inventory table: {e}")
+        # Raw exception text is for the operator (logs + ALERT_EMAIL via the
+        # returned error) — the user-facing progress log gets a generic line.
+        _emit(progress_emit, "Could not read the inventory table — stopping")
         return {"error": f"Could not read inventory table: {e}"}
 
     alias_map = {}
@@ -385,8 +387,8 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
                     _emit(progress_emit,
                         f"Scope filter skipped — could not detect required columns in sales table "
                         f"(cols: {sal_cols[:10]})")
-        except Exception as e:
-            _emit(progress_emit, f"Scope filter skipped (will use all items): {e}")
+        except Exception:
+            _emit(progress_emit, "Scope filter skipped (will use all items)")
 
     # ── Sort by quantity ascending (zero-stock first) ─────────────────────────
     def _qty_key(row):
@@ -683,5 +685,7 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
         return {"report": report, "items_analysed": len(report), "partial": any_repaired,
                 "data_notes": data_notes}
     except Exception as e:
-        _emit(progress_emit, f"Inventory agent error: {str(e)}")
+        # Raw exception text is for the operator (logs + ALERT_EMAIL via the
+        # returned error) — the user-facing progress log gets a generic line.
+        _emit(progress_emit, "Inventory agent hit an unexpected error — stopping")
         return {"error": f"Inventory agent error: {str(e)}"}
