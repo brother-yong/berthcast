@@ -29,6 +29,14 @@ GUIDANCE = (
     "a quantity — then upload that instead. Nothing has been run or charged."
 )
 
+_TOTAL_LABELS = {"TOTAL", "TOTALS", "SUBTOTAL", "SUB-TOTAL", "SUB TOTAL", "GRAND TOTAL"}
+
+
+def _is_total_row(name: str) -> bool:
+    """Summary rows are skipped by exact LABEL match only — a real product
+    can legitimately contain the word TOTAL ("TOTAL PROTEIN MIX 5KG")."""
+    return name.strip().upper() in _TOTAL_LABELS
+
 
 class RecipeRefusal(Exception):
     """Raised whenever the recipe path cannot proceed safely."""
@@ -53,14 +61,16 @@ def _raw_rows(filepath, limit=None):
         return out
     import openpyxl
     wb = openpyxl.load_workbook(filepath, read_only=True, data_only=True)
-    ws = wb.worksheets[0]
-    out = []
-    for i, row in enumerate(ws.iter_rows(values_only=True)):
-        if limit is not None and i >= limit:
-            break
-        out.append(list(row))
-    wb.close()
-    return out
+    try:
+        ws = wb.worksheets[0]
+        out = []
+        for i, row in enumerate(ws.iter_rows(values_only=True)):
+            if limit is not None and i >= limit:
+                break
+            out.append(list(row))
+        return out
+    finally:
+        wb.close()
 
 
 def detect_wide_matrix(filepath) -> bool:
@@ -152,6 +162,8 @@ def lead_time_days(raw) -> str:
 def _num(cell):
     """Cell -> float or None. Accepts real numbers and numeric strings
     ('0', ' 12 '); everything else (blank, text, formula string) is None."""
+    if isinstance(cell, bool):
+        return None
     if isinstance(cell, numbers.Number):
         return float(cell)
     s = str(cell or "").strip().replace(",", "")
@@ -177,14 +189,19 @@ def _split_projection_tail(data_rows, month_cols, item_col_1based):
     "one distinct value" and must never be dropped on that alone.
     Returns (kept_months, dropped_months). Known false positive: a catalogue
     dominated by fixed standing orders — accepted, the read-back names the
-    dropped months loudly (spec, residual hole #4)."""
+    dropped months loudly (spec, residual hole #4).
+
+    Deliberate bias: when item coverage churns across tail lengths the walk
+    stops early and KEEPS ambiguous months. Keeping a projection is loud
+    (readback totals, spiky flags downstream); dropping a real month is
+    silent data loss. We accept the first, never the second."""
     months = [m for _c, m in sorted(month_cols, key=lambda kv: kv[1])]
     cols = {m: c for c, m in month_cols}
     item_i = item_col_1based - 1
     series = []
     for r in data_rows:
         name = str((r[item_i] if item_i < len(r) else "") or "").strip()
-        if not name or "TOTAL" in name.upper():
+        if not name or _is_total_row(name):
             continue        # same row filter as conversion/verification
         vals = {m: _num(r[cols[m] - 1] if cols[m] - 1 < len(r) else None) for m in months}
         if any(v is not None for v in vals.values()):
@@ -232,7 +249,7 @@ def execute_recipe(filepath, recipe, today=None):
     text_n    = {m: 0 for _c, m in month_cols}
     for r in rows[hdr:]:
         name = str((r[item_c] if item_c < len(r) else "") or "").strip()
-        if not name or "TOTAL" in name.upper():
+        if not name or _is_total_row(name):
             continue
         for col, m in month_cols:
             cell = r[col - 1] if col - 1 < len(r) else None
@@ -260,7 +277,7 @@ def execute_recipe(filepath, recipe, today=None):
         name = str(_cell(item_c) or "").strip()
         if not name:
             continue
-        if "TOTAL" in name.upper():
+        if _is_total_row(name):
             continue
         if recipe["supplier_col"] and str(_cell(sup_c) or "").strip():
             cur_sup = str(_cell(sup_c)).strip()
@@ -283,7 +300,7 @@ def execute_recipe(filepath, recipe, today=None):
     src_sums = {m: 0.0 for m in kept_months}
     for r in rows[hdr:]:
         name = str((r[item_c] if item_c < len(r) else "") or "").strip()
-        if not name or "TOTAL" in name.upper():
+        if not name or _is_total_row(name):
             continue
         for col, m in month_cols:
             if m in kept_months:

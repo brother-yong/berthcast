@@ -230,6 +230,79 @@ _s, srb = execute_recipe(make_wide_xlsx(SPARSE_ROWS, "sparse.xlsx"), sparse_reci
 _check("sparse item cannot flatten the tail", srb["months_dropped"] == [], srb)
 _check("all real months kept with sparse item", srb["months_kept"] == [1, 2, 3, 4, 5, 6], srb)
 
+# review fixes: TOTAL is a label not a substring; text month col refused;
+# all-empty grid refused; boolean cells never become quantities
+import csv as _csv3
+
+TOTAL_MIX_ROWS = [
+    ["", "JAN", "FEB", "MAR", "APR", "MAY", "JUN"],
+    ["TOTAL PROTEIN MIX 5KG", 10, 12, 11, 13, 14, 15],
+    ["ITEM PLAIN", 5, 6, 5, 7, 6, 5],
+    ["GRAND TOTAL", 15, 18, 16, 20, 20, 20],
+]
+_g6 = {"2": 1, "3": 2, "4": 3, "5": 4, "6": 5, "7": 6}
+tm_recipe = validate_recipe(
+    {"layout": "wide_matrix", "header_row": 1, "item_col": 1,
+     "month_cols": _g6, "supplier_col": None, "leadtime_col": None},
+    n_rows=4, n_cols=7)
+_t, trb = execute_recipe(make_wide_xlsx(TOTAL_MIX_ROWS, "totmix.xlsx"), tm_recipe,
+                         today=date(2026, 7, 11))
+with open(_t, encoding="utf-8") as f:
+    _tm_rows = list(_csv3.DictReader(f))
+_check("item containing TOTAL kept", trb["items"] == 2, trb)
+_check("TOTAL-containing item rows exported",
+       sum(1 for r in _tm_rows if r["Item Description"] == "TOTAL PROTEIN MIX 5KG") == 6)
+_check("GRAND TOTAL label row skipped",
+       not any(r["Item Description"] == "GRAND TOTAL" for r in _tm_rows))
+
+TEXTCOL_ROWS = [
+    ["", "JAN", "FEB", "MAR", "APR", "MAY", "NOTES"],
+    ["ITEM A", 1, 2, 3, 4, 5, "fast mover"],
+    ["ITEM B", 2, 3, 4, 5, 6, "slow"],
+]
+txt_recipe = validate_recipe(
+    {"layout": "wide_matrix", "header_row": 1, "item_col": 1,
+     "month_cols": _g6, "supplier_col": None, "leadtime_col": None},
+    n_rows=3, n_cols=7)
+try:
+    execute_recipe(make_wide_xlsx(TEXTCOL_ROWS, "textcol.xlsx"), txt_recipe,
+                   today=date(2026, 7, 11))
+    _check("text month column refused", False)
+except RecipeRefusal as e:
+    _check("text month column refused", "text" in str(e), str(e))
+
+EMPTY_ROWS = [
+    ["", "JAN", "FEB", "MAR", "APR", "MAY", "JUN"],
+    ["ITEM A", None, None, None, None, None, None],
+]
+empty_recipe = validate_recipe(
+    {"layout": "wide_matrix", "header_row": 1, "item_col": 1,
+     "month_cols": _g6, "supplier_col": None, "leadtime_col": None},
+    n_rows=2, n_cols=7)
+try:
+    execute_recipe(make_wide_xlsx(EMPTY_ROWS, "empty.xlsx"), empty_recipe,
+                   today=date(2026, 7, 11))
+    _check("all-empty grid refused", False)
+except RecipeRefusal:
+    _check("all-empty grid refused", True)
+
+BOOL_ROWS = [
+    ["", "JAN", "FEB", "MAR", "APR", "MAY", "JUN"],
+    ["ITEM A", True, 2, 3, 4, 5, 6],
+    ["ITEM B", 7, 8, 9, 10, 11, 12],
+]
+bool_recipe = validate_recipe(
+    {"layout": "wide_matrix", "header_row": 1, "item_col": 1,
+     "month_cols": _g6, "supplier_col": None, "leadtime_col": None},
+    n_rows=3, n_cols=7)
+_b, brb = execute_recipe(make_wide_xlsx(BOOL_ROWS, "bool.xlsx"), bool_recipe,
+                         today=date(2026, 7, 11))
+with open(_b, encoding="utf-8") as f:
+    _b_rows = list(_csv3.DictReader(f))
+_check("bool cell skipped, not exported as 1.0",
+       not any(r["Item Description"] == "ITEM A" and r["Date"] == "2026-01-15"
+               for r in _b_rows), _b_rows[:3])
+
 if _FAILED:
     print("\nSOME TESTS FAILED")
     sys.exit(1)
