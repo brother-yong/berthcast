@@ -94,7 +94,9 @@ def validate_recipe(recipe, n_rows: int, n_cols: int) -> dict:
         v = recipe.get(name)
         if v is None and allow_none:
             return None
-        if not isinstance(v, int) or isinstance(v, bool) or not (lo <= v <= hi):
+        if not isinstance(v, int) or isinstance(v, bool):
+            _bad(f"{name}={v!r} must be an integer")
+        if not (lo <= v <= hi):
             _bad(f"{name}={v!r} out of bounds 1..{hi}")
         return v
 
@@ -117,10 +119,18 @@ def validate_recipe(recipe, n_rows: int, n_cols: int) -> dict:
         if not isinstance(m, int) or isinstance(m, bool) or not (1 <= m <= 12):
             _bad(f"month number {m!r} invalid")
         month_cols[col] = m
+    if len(month_cols) != len(raw_months):
+        _bad("duplicate month columns after normalisation")
     if len(set(month_cols.values())) != len(month_cols):
         _bad("duplicate month numbers")
     if item_col in month_cols:
         _bad("item_col collides with a month column")
+    for _name, _c in (("supplier_col", sup_col), ("leadtime_col", lt_col)):
+        if _c is not None and _c in month_cols:
+            _bad(f"{_name} collides with a month column")
+    non_null = [c for c in (item_col, sup_col, lt_col) if c is not None]
+    if len(set(non_null)) != len(non_null):
+        _bad("item/supplier/leadtime columns must be distinct")
 
     return {"header_row": header_row, "item_col": item_col,
             "month_cols": month_cols, "supplier_col": sup_col,

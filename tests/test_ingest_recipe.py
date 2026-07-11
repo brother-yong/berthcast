@@ -110,6 +110,19 @@ _check("null supplier col accepted",
        not _refused({**GOOD, "supplier_col": None, "leadtime_col": None}))
 _check("non-dict refused", _refused("not a recipe"))
 
+# review fixes: normalization collapse + column double-booking + type guards
+_check("normalised key collision refused",
+       _refused({**GOOD, "month_cols": {"2": 1, "02": 2, "3": 3, "4": 4, "5": 5, "6": 6}}))
+_check("supplier col on a month column refused", _refused({**GOOD, "supplier_col": 2}))
+_check("leadtime col equal to supplier col refused",
+       _refused({**GOOD, "supplier_col": 8, "leadtime_col": 8}))
+_check("supplier col equal to item col refused", _refused({**GOOD, "supplier_col": 1}))
+_check("bool header_row refused", _refused({**GOOD, "header_row": True}))
+_check("month number 13 refused",
+       _refused({**GOOD, "month_cols": {"2": 13, "3": 2, "4": 3, "5": 4, "6": 5, "7": 6}}))
+_check("bool month number refused",
+       _refused({**GOOD, "month_cols": {"2": True, "3": 2, "4": 3, "5": 4, "6": 5, "7": 6}}))
+
 if _FAILED:
     print("\nSOME TESTS FAILED")
     sys.exit(1)
