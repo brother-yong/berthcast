@@ -123,6 +123,7 @@
 }
 .overall-dot.done  { background: var(--success); animation: none; }
 .overall-dot.error { background: var(--danger);  animation: none; }
+.overall-dot.blocked { background: var(--warning); animation: none; }
 .overall-timer {
   font-family: 'SF Mono', 'Fira Code', monospace;
   font-size: 14px;
@@ -209,6 +210,13 @@
 .status-done    .agent-status-dot  { background: var(--success); }
 .status-error   .agent-status-pill { background: rgba(192,57,43,0.1); border-color: rgba(192,57,43,0.3); color: var(--danger); }
 .status-error   .agent-status-dot  { background: var(--danger); }
+
+/* Blocked = the safety net refused the file (user-fixable). Amber, not red —
+   visually distinct from a real crash so staff know which side must act. */
+.agent-card.status-blocked { border-color: var(--warning); background: rgba(230,180,80,0.08); }
+.status-blocked .agent-num { background: var(--warning); border-color: var(--warning); color: var(--paper); }
+.status-blocked .agent-status-pill { background: rgba(230,180,80,0.12); border-color: rgba(230,180,80,0.35); color: var(--warning); }
+.status-blocked .agent-status-dot  { background: var(--warning); }
 
 .agent-elapsed {
   font-family: 'SF Mono', 'Fira Code', monospace;
@@ -333,7 +341,7 @@ function escapeHtml(s) {
 function setCardStatus(name, status) {
   const card = document.getElementById('agent-' + name);
   if (!card) return;
-  card.classList.remove('status-pending', 'status-running', 'status-done', 'status-error');
+  card.classList.remove('status-pending', 'status-running', 'status-done', 'status-error', 'status-blocked');
   card.classList.add('status-' + status);
   const pillText = card.querySelector('.agent-status-text');
   if (pillText) {
@@ -341,6 +349,7 @@ function setCardStatus(name, status) {
       status === 'running' ? 'Running' :
       status === 'done'    ? 'Done'    :
       status === 'error'   ? 'Failed'  :
+      status === 'blocked' ? 'Needs a fix' :
                              'Pending'
     );
   }
@@ -516,24 +525,41 @@ async function poll() {
 
     if (data.status === 'error') {
       polling = false;
-      // Whatever agent was running, mark it as errored.
+      const blocked = !!data.blocked;
+      // Whatever agent was running, mark it — amber when the file was
+      // refused (user-fixable), red when something actually broke.
       const active = data.current_agent;
       if (active && agentState[active]) {
-        setCardStatus(active, 'error');
-        setSummary(active, 'Error: ' + (data.error || 'Unknown error'));
+        setCardStatus(active, blocked ? 'blocked' : 'error');
+        setSummary(active, blocked
+          ? "Can't use this file — see the reason below"
+          : 'Error: ' + (data.error || 'Unknown error'));
       }
-      document.getElementById('overall-dot').classList.add('error');
-      document.getElementById('overall-label').textContent = 'Analysis failed';
-      // Surface the error in a banner so the user actually sees it instead
+      document.getElementById('overall-dot').classList.add(blocked ? 'blocked' : 'error');
+      document.getElementById('overall-label').textContent =
+        blocked ? 'File needs a fix' : 'Analysis failed';
+      // Surface the reason in a banner so the user actually sees it instead
       // of having to spot a tiny pill on whichever card was running.
       const banner = document.createElement('div');
-      banner.style.cssText =
-        'margin-top:16px;padding:14px 18px;border:1px solid var(--danger);' +
-        'background:rgba(232,154,146,0.12);color:var(--danger);border-radius:12px;font-size:14px;line-height:1.5;';
-      banner.innerHTML =
-        '<strong>Analysis failed.</strong> ' + escapeHtml(data.error || 'Unknown error') +
-        '<br><a href="' + window.location.pathname + '" style="color:var(--danger);font-weight:600;">Try again</a>' +
-        ' or <a href="/dashboard" style="color:var(--danger);font-weight:600;">go back to dashboard</a>.';
+      if (blocked) {
+        // Recoverable: the message contains the fix. No "Try again" link —
+        // re-running the same file fails the same way, so the action is
+        // re-upload.
+        banner.style.cssText =
+          'margin-top:16px;padding:14px 18px;border:1px solid var(--warning);' +
+          'background:rgba(230,180,80,0.10);color:var(--warning);border-radius:12px;font-size:14px;line-height:1.5;';
+        banner.innerHTML =
+          "<strong>We couldn't read your file.</strong> " + escapeHtml(data.error || '') +
+          '<br><a href="/dashboard" style="color:var(--warning);font-weight:600;">Go back and re-upload</a>.';
+      } else {
+        banner.style.cssText =
+          'margin-top:16px;padding:14px 18px;border:1px solid var(--danger);' +
+          'background:rgba(232,154,146,0.12);color:var(--danger);border-radius:12px;font-size:14px;line-height:1.5;';
+        banner.innerHTML =
+          '<strong>Something broke on our end.</strong> ' + escapeHtml(data.error || 'Please try again in a moment.') +
+          '<br><a href="' + window.location.pathname + '" style="color:var(--danger);font-weight:600;">Try again</a>' +
+          ' or <a href="/dashboard" style="color:var(--danger);font-weight:600;">go back to dashboard</a>.';
+      }
       document.querySelector('.page-wrap').appendChild(banner);
       return;
     }
