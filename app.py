@@ -243,6 +243,13 @@ _ensure_admin()
 # means the run is gone; the window is just a safety margin against timing races.
 STUCK_ANALYSIS_SECONDS = 120
 
+# Shown to staff in place of a raw crash message. The raw text still reaches
+# the operator via logs + ALERT_EMAIL — it is scrubbed only from the page.
+# Blocked refusals keep their message: it is written for the user and
+# contains the fix. The bold title lives in the template.
+CRASH_FRIENDLY_ERROR = ("We've been alerted and we're looking at it. "
+                        "Please try again in a moment.")
+
 # Clean up analyses orphaned by a previous worker dying mid-run, so they don't sit
 # in 'analyzing' forever. Runs once at boot.
 try:
@@ -2649,6 +2656,7 @@ def analysis_status(upload_session_id):
                 "log":           list(entry["log"]),
                 "elapsed":       round(time.time() - entry["started_at"], 1),
                 "error":         entry.get("error"),
+                "blocked":       bool(entry.get("blocked")),
                 "current_agent": entry.get("current_agent"),
                 "agents":        {k: dict(v) for k, v in entry.get("agents", {}).items()},
                 "stats":         dict(entry.get("stats") or {}),
@@ -2657,6 +2665,10 @@ def analysis_status(upload_session_id):
             payload = None
 
     if payload is not None:
+        # A real crash must never show raw technical text to staff. A blocked
+        # run keeps its message — the safety net wrote it for the user.
+        if payload["status"] == "error" and not payload["blocked"]:
+            payload["error"] = CRASH_FRIENDLY_ERROR
         return jsonify(payload)
 
     # No in-memory entry — check DB. Worker may have restarted, or analysis
@@ -2675,6 +2687,7 @@ def analysis_status(upload_session_id):
     _interrupted = {
         "status": "error",
         "error": "The analysis stopped unexpectedly — the server may have restarted. Please run it again.",
+        "blocked": False,
         "log": [], "elapsed": 0, "agents": {}, "current_agent": None,
     }
     if status == "failed":
