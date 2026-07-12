@@ -280,7 +280,7 @@ function _setError(slot, slotId, msg) {
   slotEl.classList.remove('uploading','done'); slotEl.classList.add('error');
   _setLabelText(slot, 'Try again');
   _setProgress(slotId, 0);
-  _setStatus(slot, '<span style="color:var(--danger)">' + msg + '</span>');
+  _setStatus(slot, '<span style="color:var(--danger)">' + _esc(msg) + '</span>');
   document.getElementById('input-' + slot).value = '';
   _updateContinueBtn();
 }

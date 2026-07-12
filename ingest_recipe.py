@@ -67,9 +67,10 @@ def _size_guard(filepath):
         import zipfile
         try:
             with zipfile.ZipFile(filepath) as zf:
-                declared = sum(i.file_size for i in zf.infolist()
-                               if i.filename.startswith(("xl/sharedStrings",
-                                                         "xl/worksheets/")))
+                # ALL members, not just cell data: openpyxl also parses
+                # styles/theme/workbook XML in full just to open the file,
+                # so a bomb planted in any of them inflates at load time.
+                declared = sum(i.file_size for i in zf.infolist())
         except Exception:
             raise RecipeRefusal("not a readable xlsx")
         if declared > MAX_RECIPE_XML_MB * 1024 * 1024:
