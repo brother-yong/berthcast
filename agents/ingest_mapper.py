@@ -4,7 +4,6 @@ outputs quantities. Output is schema-validated by ingest_recipe.validate_recipe;
 anything unparseable or invalid becomes a refusal upstream."""
 import json
 import os
-import re
 
 from agents.shared import _call_claude, wrap_untrusted, UNTRUSTED_GUARD
 
@@ -43,16 +42,25 @@ def build_mapper_prompts(sample_text: str):
 
 
 def parse_recipe_response(text):
-    """Extract the first JSON object from the model reply. None if absent —
-    the caller treats None as a refusal."""
-    m = re.search(r"\{.*\}", str(text or ""), re.DOTALL)
-    if not m:
-        return None
-    try:
-        obj = json.loads(m.group())
-        return obj if isinstance(obj, dict) else None
-    except Exception:
-        return None
+    """Parse the FIRST complete JSON object in the reply, ignoring prose or
+    stray braces around it. None if nothing parses — the caller treats None
+    as a refusal. (A planted parseable object in echoed cell text would win
+    here, but validate_recipe bounds-checks and the executor verifies sums —
+    a wrong recipe cannot silently survive those gates.)"""
+    s = str(text or "")
+    decoder = json.JSONDecoder()
+    idx = 0
+    while True:
+        i = s.find("{", idx)
+        if i == -1:
+            return None
+        try:
+            obj, _end = decoder.raw_decode(s[i:])
+            if isinstance(obj, dict):
+                return obj
+        except ValueError:
+            pass
+        idx = i + 1
 
 
 def propose_recipe(sample_text: str):

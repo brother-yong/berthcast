@@ -56,6 +56,27 @@ _check("prose-wrapped json parsed",
 _check("garbage -> None", parse_recipe_response("no json here") is None)
 _check("empty -> None", parse_recipe_response("") is None)
 
+_check("stray braces before the object still parse",
+       parse_recipe_response("note {JAN} then\n" + good).get("header_row") == 3)
+_check("trailing brace junk still parses",
+       parse_recipe_response(good + "\ntrailing {oops").get("item_col") == 1)
+
+# propose_recipe: thin composition, tested with a monkeypatched _call_claude
+# (same pattern as tests/test_column_mapping.py)
+import agents.ingest_mapper as im
+
+im._call_claude = lambda *a, **k: "Sure! Here you go: " + good
+_check("propose_recipe returns parsed dict",
+       (im.propose_recipe("R1: x") or {}).get("layout") == "wide_matrix")
+
+
+def _boom(*a, **k):
+    raise RuntimeError("api down")
+
+
+im._call_claude = _boom
+_check("propose_recipe None on API failure", im.propose_recipe("R1: x") is None)
+
 if _FAILED:
     print("\nSOME TESTS FAILED")
     sys.exit(1)
