@@ -860,9 +860,13 @@ def get_conversion_status(session_id: int) -> dict:
         return {}
 
 
-def set_conversion_status(session_id: int, slot: str, status: str, rows_count: int = 0, error: str = ""):
+def set_conversion_status(session_id: int, slot: str, status: str, rows_count: int = 0,
+                          error: str = "", readback: dict = None):
     current = get_conversion_status(session_id)
-    current[slot] = {"status": status, "rows": rows_count, "error": error}
+    entry = {"status": status, "rows": rows_count, "error": error}
+    if readback:
+        entry["readback"] = readback
+    current[slot] = entry
     execute("UPDATE upload_sessions SET conversion_status_json=? WHERE id=?",
             (json.dumps(current), session_id))
 

@@ -192,6 +192,53 @@ state, rb = maybe_convert_sales(wide, SID, mapper=lambda s: GOOD_RECIPE,
 _check("coverage uses description column not code column",
        rb.get("coverage", {}).get("sales_items_matched") == 2, rb)
 
+# ── status plumbing ───────────────────────────────────────────────────────────
+db.init_db()  # upload_sessions doesn't exist yet in this ad-hoc test DB
+sid2 = db.execute(
+    "INSERT INTO upload_sessions (user_id, org_name, status) VALUES (1,'Test Org','uploading')")
+db.set_conversion_status(sid2, "sales", "done", rows_count=12,
+                         readback={"items": 2, "months_kept": [1, 2]})
+cs = db.get_conversion_status(sid2)
+_check("readback stored", cs["sales"]["readback"]["items"] == 2, cs)
+db.set_conversion_status(sid2, "sales", "unreadable", error="guidance text")
+cs = db.get_conversion_status(sid2)
+_check("unreadable status stored", cs["sales"]["status"] == "unreadable", cs)
+_check("readback dropped when absent", "readback" not in cs["sales"], cs)
+
+# ── end-to-end through _start_processing's thread (real wiring, fake mapper) ──
+import time as _time
+import app as appmod
+import agents.ingest_mapper as _im
+
+_im_orig = _im.propose_recipe
+_im.propose_recipe = lambda sample: GOOD_RECIPE
+sid3 = db.execute(
+    "INSERT INTO upload_sessions (user_id, org_name, status) VALUES (1,'Test Org','uploading')")
+appmod._start_processing(wide, "sales", sid3, "sales", "wide.xlsx")
+for _ in range(100):
+    _time.sleep(0.1)
+    _cs = db.get_conversion_status(sid3).get("sales", {})
+    if _cs.get("status") in ("done", "error", "unreadable"):
+        break
+_im.propose_recipe = _im_orig
+_check("wired: sales slot converts via thread", _cs.get("status") == "done", _cs)
+_check("wired: readback rides the status", (_cs.get("readback") or {}).get("items") == 2, _cs)
+_check("wired: rows count is canonical", _cs.get("rows") == 12, _cs)
+
+_im.propose_recipe = lambda sample: {"layout": "unknown"}
+sid4 = db.execute(
+    "INSERT INTO upload_sessions (user_id, org_name, status) VALUES (1,'Test Org','uploading')")
+appmod._start_processing(wide, "sales", sid4, "sales", "wide.xlsx")
+for _ in range(100):
+    _time.sleep(0.1)
+    _cs = db.get_conversion_status(sid4).get("sales", {})
+    if _cs.get("status") in ("done", "error", "unreadable"):
+        break
+_im.propose_recipe = _im_orig
+_check("wired: unreadable status set", _cs.get("status") == "unreadable", _cs)
+_check("wired: guidance in error field", "one row per sale" in (_cs.get("error") or ""), _cs)
+_check("wired: sales table cleared", not db.table_exists(f"sales_{sid4}"))
+
 if _FAILED:
     print("\nSOME TESTS FAILED")
     sys.exit(1)

@@ -1986,7 +1986,27 @@ def _start_processing(filepath, table, session_id, slot, orig_name):
         try:
             result = db.excel_to_sqlite(filepath, table, session_id)
             if result.get("ok"):
-                db.set_conversion_status(session_id, slot, "done", rows_count=result.get("rows", 0))
+                readback = None
+                if slot == "sales":
+                    # Smart ingestion (spec 2026-07-11): wide-matrix files are
+                    # re-mapped by AI recipe + deterministic conversion. Any
+                    # doubt -> "unreadable" and the naive table is cleared so
+                    # the analysis can't run on a known misread.
+                    from ingest_recipe import maybe_convert_sales
+                    from agents.ingest_mapper import propose_recipe
+                    state, payload = maybe_convert_sales(filepath, session_id,
+                                                         mapper=propose_recipe)
+                    if state == "unreadable":
+                        db.set_conversion_status(session_id, slot, "unreadable",
+                                                 error=payload)
+                        return
+                    if state == "converted":
+                        readback = payload
+                        result = {"ok": True, "rows": db.query(
+                            f'SELECT COUNT(*) AS n FROM "sales_{int(session_id)}"')[0]["n"]}
+                db.set_conversion_status(session_id, slot, "done",
+                                         rows_count=result.get("rows", 0),
+                                         readback=readback)
                 names_row = db.query("SELECT file_names_json FROM upload_sessions WHERE id=?", (session_id,))
                 names = json.loads(names_row[0]["file_names_json"] or "{}") if names_row and names_row[0]["file_names_json"] else {}
                 names[slot] = orig_name
