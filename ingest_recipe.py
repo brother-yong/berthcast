@@ -11,6 +11,8 @@ import os
 import re
 from datetime import date
 
+from logging_setup import logger
+
 MONTH_NAMES = {
     "JAN": 1, "FEB": 2, "MAR": 3, "APR": 4, "MAY": 5, "JUN": 6,
     "JUL": 7, "AUG": 8, "SEP": 9, "OCT": 10, "NOV": 11, "DEC": 12,
@@ -373,7 +375,8 @@ def maybe_convert_sales(filepath, session_id, mapper, today=None):
         try:
             db.execute(f"DROP TABLE IF EXISTS sales_{int(session_id)}")
         except Exception:
-            pass
+            logger.exception(
+                "maybe_convert_sales: failed to drop sales_%s after refusal", session_id)
         return ("unreadable", GUIDANCE)
 
     try:
@@ -387,12 +390,23 @@ def maybe_convert_sales(filepath, session_id, mapper, today=None):
         result = db.excel_to_sqlite(csv_path, "sales", session_id)
         if not result.get("ok"):
             return _refuse()
-        readback["coverage"] = _coverage(db, session_id, csv_path)
-        return ("converted", readback)
     except RecipeRefusal:
         return _refuse()
     except Exception:
+        logger.exception("maybe_convert_sales: unexpected failure converting %s", filepath)
         return _refuse()
+
+    # Coverage is an advisory read-back line only — a failure here (e.g. the
+    # inventory table lookup itself raising) must never undo a conversion
+    # that already succeeded and was already verified by execute_recipe's
+    # independent totals check.
+    try:
+        readback["coverage"] = _coverage(db, session_id, csv_path)
+    except Exception:
+        logger.exception(
+            "maybe_convert_sales: coverage computation failed for session %s", session_id)
+        readback["coverage"] = {}
+    return ("converted", readback)
 
 
 def _coverage(db, session_id, csv_path):
