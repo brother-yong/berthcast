@@ -930,10 +930,14 @@ def wrap_untrusted(text) -> str:
     return f"<untrusted_data>\n{cleaned}\n</untrusted_data>"
 
 
-def _call_claude(model: str, system: str, user: str, max_tokens: int = 4096) -> str:
+def _call_claude(model: str, system: str, user: str, max_tokens: int = 4096,
+                 timeout: float = None) -> str:
     # Use streaming internally — Anthropic requires it for large max_tokens values.
-    # Callers receive the complete text string exactly as before.
-    with client.messages.stream(
+    # Callers receive the complete text string exactly as before. `timeout`
+    # overrides the SDK's 10-minute default for short infrastructure calls
+    # (e.g. the ingest mapper) that must never pin a thread that long.
+    cl = client if timeout is None else client.with_options(timeout=timeout)
+    with cl.messages.stream(
         model=model,
         max_tokens=max_tokens,
         system=system,

@@ -1982,6 +1982,24 @@ def upload():
 
 
 def _start_processing(filepath, table, session_id, slot, orig_name):
+    # Ownership token: the smart-ingestion path can hold this thread open for
+    # many seconds (AI call). If the user removes the file or re-uploads the
+    # slot meanwhile, the OLD thread must not resurrect a dropped table's
+    # status or clobber the newer run — its terminal write becomes a no-op.
+    # ponytail: the slot's TABLE can still be rewritten by a stale thread
+    # (last writer wins there); serialising table writes needs a per-slot
+    # lock/queue if this ever bites in practice.
+    run_token = secrets.token_hex(8)
+    db.set_conversion_status(session_id, slot, "converting", token=run_token)
+
+    def _stale():
+        cur = db.get_conversion_status(session_id).get(slot, {})
+        if cur.get("token") != run_token:
+            logger.warning("Stale conversion thread (session %s, slot %s) — result discarded",
+                           session_id, slot)
+            return True
+        return False
+
     def _process():
         try:
             result = db.excel_to_sqlite(filepath, table, session_id)
@@ -1997,6 +2015,8 @@ def _start_processing(filepath, table, session_id, slot, orig_name):
                     state, payload = maybe_convert_sales(filepath, session_id,
                                                          mapper=propose_recipe)
                     if state == "unreadable":
+                        if _stale():
+                            return
                         db.set_conversion_status(session_id, slot, "unreadable",
                                                  error=payload)
                         return
@@ -2004,6 +2024,8 @@ def _start_processing(filepath, table, session_id, slot, orig_name):
                         readback = payload
                         result = {"ok": True, "rows": db.query(
                             f'SELECT COUNT(*) AS n FROM "sales_{int(session_id)}"')[0]["n"]}
+                if _stale():
+                    return
                 db.set_conversion_status(session_id, slot, "done",
                                          rows_count=result.get("rows", 0),
                                          readback=readback)
@@ -2014,10 +2036,13 @@ def _start_processing(filepath, table, session_id, slot, orig_name):
             else:
                 logger.warning("File conversion failed (session %s, slot %s): %s",
                                session_id, slot, result.get("error"))
+                if _stale():
+                    return
                 db.set_conversion_status(session_id, slot, "error", error=result.get("error", "Unknown error"))
         except Exception:
             logger.exception("File conversion crashed (session %s, slot %s)", session_id, slot)
-            db.set_conversion_status(session_id, slot, "error", error="Processing failed unexpectedly.")
+            if not _stale():
+                db.set_conversion_status(session_id, slot, "error", error="Processing failed unexpectedly.")
     t = threading.Thread(target=_process, daemon=True)
     t.start()
 

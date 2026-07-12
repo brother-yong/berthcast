@@ -239,6 +239,44 @@ _check("wired: unreadable status set", _cs.get("status") == "unreadable", _cs)
 _check("wired: guidance in error field", "one row per sale" in (_cs.get("error") or ""), _cs)
 _check("wired: sales table cleared", not db.table_exists(f"sales_{sid4}"))
 
+# unreadable must record no file name (the table was cleared; an attributed
+# filename would make the slot look half-uploaded)
+import json as _json
+
+_names_row = db.query("SELECT file_names_json FROM upload_sessions WHERE id=?", (sid4,))
+_names = _json.loads((_names_row[0]["file_names_json"] or "{}") if _names_row else "{}")
+_check("wired: unreadable records no file name", "sales" not in _names, _names)
+
+# converted CSV artifact must not pile up on the data disk after ingestion
+_check("converted CSV cleaned up after ingest",
+       not os.path.exists(wide + ".converted.csv"))
+
+# ── stale-thread guard: remove/re-upload during conversion ───────────────────
+# The OLD thread's result must be discarded once a newer run owns the slot.
+import threading as _threading
+
+_ev_started = _threading.Event()
+
+
+def _slow_mapper(sample):
+    _ev_started.set()
+    _time.sleep(0.6)          # hold the "AI call" open while the slot changes hands
+    return GOOD_RECIPE
+
+
+_im.propose_recipe = _slow_mapper
+sid5 = db.execute(
+    "INSERT INTO upload_sessions (user_id, org_name, status) VALUES (1,'Test Org','uploading')")
+appmod._start_processing(wide, "sales", sid5, "sales", "wide.xlsx")
+_ev_started.wait(5)
+# a re-upload lands while the old thread is inside the AI call
+db.set_conversion_status(sid5, "sales", "converting", token="newer-run")
+_time.sleep(1.5)              # let the stale thread reach its terminal write
+_im.propose_recipe = _im_orig
+_cs = db.get_conversion_status(sid5).get("sales", {})
+_check("stale thread result discarded",
+       _cs.get("status") == "converting" and _cs.get("token") == "newer-run", _cs)
+
 if _FAILED:
     print("\nSOME TESTS FAILED")
     sys.exit(1)

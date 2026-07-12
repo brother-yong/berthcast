@@ -413,6 +413,12 @@ def maybe_convert_sales(filepath, session_id, mapper, today=None):
         logger.exception(
             "maybe_convert_sales: coverage computation failed for session %s", session_id)
         readback["coverage"] = {}
+    try:
+        # Already ingested and measured — converted CSVs must not pile up on
+        # the data disk (one per wide-matrix upload, forever).
+        os.remove(csv_path)
+    except OSError:
+        pass
     return ("converted", readback)
 
 

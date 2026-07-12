@@ -10,6 +10,9 @@ from agents.shared import _call_claude, wrap_untrusted, UNTRUSTED_GUARD
 # Infrastructure model, not the org-facing chat model: fixed and cheap.
 MAPPER_MODEL = os.environ.get("INGEST_MAPPER_MODEL", "claude-haiku-4-5-20251001")
 MAPPER_MAX_TOKENS = 600
+# The SDK default timeout is 10 minutes — a stalled call would leave the
+# upload slot on "converting" that long. A layout question needs seconds.
+MAPPER_TIMEOUT_S = 60
 
 _SYSTEM = (
     "You analyse the LAYOUT of a spreadsheet sample from a sales report "
@@ -67,7 +70,8 @@ def propose_recipe(sample_text: str):
     """Call the model. Returns a raw dict (unvalidated) or None."""
     system, user = build_mapper_prompts(sample_text)
     try:
-        reply = _call_claude(MAPPER_MODEL, system, user, max_tokens=MAPPER_MAX_TOKENS)
+        reply = _call_claude(MAPPER_MODEL, system, user,
+                             max_tokens=MAPPER_MAX_TOKENS, timeout=MAPPER_TIMEOUT_S)
     except Exception:
         return None
     return parse_recipe_response(reply)
