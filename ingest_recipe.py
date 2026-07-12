@@ -337,3 +337,90 @@ def execute_recipe(filepath, recipe, today=None):
         "total_units": round(sum(r[2] for r in out), 1),
     }
     return csv_path, readback
+
+
+def _render_sample(rows) -> str:
+    """First SAMPLE_ROWS rows as 'R<n>: a | b | c' lines for the mapper."""
+    lines = []
+    for i, r in enumerate(rows[:SAMPLE_ROWS], 1):
+        cells = [str(c)[:40] if c is not None else "" for c in r]
+        lines.append(f"R{i}: " + " | ".join(cells))
+    return "\n".join(lines)
+
+
+def maybe_convert_sales(filepath, session_id, mapper, today=None):
+    """Run the smart-ingestion path for an already-ingested SALES upload.
+
+    mapper: callable(sample_text) -> raw recipe dict | None  (injected so
+    tests never touch the API; production passes
+    agents.ingest_mapper.propose_recipe).
+
+    Returns one of:
+      ("clean", None)            — not a wide-matrix file; nothing changed
+      ("converted", readback)    — table replaced with canonical rows
+      ("unreadable", guidance)   — refused; naive sales table CLEARED so the
+                                   analysis can't run on a known misread
+    """
+    import database as db
+
+    if not detect_wide_matrix(filepath):
+        return ("clean", None)
+
+    def _refuse():
+        # The naive ingest of a wide-matrix file is a known misread
+        # (January-as-the-year). Leaving it would repeat the failure this
+        # feature exists to kill — so clear it.
+        try:
+            db.execute(f"DROP TABLE IF EXISTS sales_{int(session_id)}")
+        except Exception:
+            pass
+        return ("unreadable", GUIDANCE)
+
+    try:
+        rows = _raw_rows(filepath)
+        raw = mapper(_render_sample(rows))
+        if not isinstance(raw, dict) or raw.get("layout") != "wide_matrix":
+            return _refuse()
+        n_cols = max((len(r) for r in rows[:SAMPLE_ROWS]), default=0)
+        recipe = validate_recipe(raw, n_rows=len(rows), n_cols=n_cols)
+        csv_path, readback = execute_recipe(filepath, recipe, today=today)
+        result = db.excel_to_sqlite(csv_path, "sales", session_id)
+        if not result.get("ok"):
+            return _refuse()
+        readback["coverage"] = _coverage(db, session_id, csv_path)
+        return ("converted", readback)
+    except RecipeRefusal:
+        return _refuse()
+    except Exception:
+        return _refuse()
+
+
+def _coverage(db, session_id, csv_path):
+    """Approximate item overlap vs the session's inventory table (trimmed,
+    case-insensitive exact match). {} when inventory isn't uploaded yet —
+    the UI omits the line. Real matching happens later in dedup."""
+    inv_table = f"inventory_{int(session_id)}"
+    if not db.table_exists(inv_table):
+        return {}
+    try:
+        row = db.query(f"SELECT * FROM {inv_table} LIMIT 1")
+        if not row:
+            return {}
+        cols = [c for c in row[0].keys() if c != "_session_id"]
+        desc = next((c for c in cols if any(h in c for h in
+                     ("item", "desc", "product", "sku"))), None)
+        if not desc:
+            return {}
+        inv_names = {str(r[desc] or "").strip().lower()
+                     for r in db.query(f'SELECT DISTINCT "{desc}" FROM {inv_table} LIMIT 5000')}
+        inv_names.discard("")
+        sales_names = set()
+        with open(csv_path, encoding="utf-8") as f:
+            for i, row_ in enumerate(_csv.DictReader(f)):
+                if i > 200000:
+                    break
+                sales_names.add(row_["Item Description"].strip().lower())
+        return {"sales_items_matched": len(sales_names & inv_names),
+                "inventory_items_total": len(inv_names)}
+    except Exception:
+        return {}
