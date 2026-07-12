@@ -303,6 +303,35 @@ _check("bool cell skipped, not exported as 1.0",
        not any(r["Item Description"] == "ITEM A" and r["Date"] == "2026-01-15"
                for r in _b_rows), _b_rows[:3])
 
+# critique fixes: per-row supplier repeats must not wipe lead time;
+# fiscal-year column order must refuse, not silently mis-year
+REPEAT_SUP_ROWS = [
+    ["", "JAN", "FEB", "MAR", "APR", "MAY", "JUN", "SUPPLIER", "LEAD TIME"],
+    ["ITEM ONE",   1, 2, 3, 4, 5, 6, "SUPPLIER A", "10 WEEKS"],
+    ["ITEM TWO",   2, 3, 4, 5, 6, 7, "SUPPLIER A", ""],
+    ["ITEM THREE", 3, 4, 5, 6, 7, 8, "SUPPLIER A", ""],
+]
+rs_recipe = validate_recipe(
+    {"layout": "wide_matrix", "header_row": 1, "item_col": 1,
+     "month_cols": {"2": 1, "3": 2, "4": 3, "5": 4, "6": 5, "7": 6},
+     "supplier_col": 8, "leadtime_col": 9}, n_rows=4, n_cols=9)
+_r, rrb = execute_recipe(make_wide_xlsx(REPEAT_SUP_ROWS, "repsup.xlsx"), rs_recipe,
+                         today=date(2026, 7, 11))
+with open(_r, encoding="utf-8") as f:
+    _rs_rows = list(_csv3.DictReader(f))
+_check("repeated supplier keeps block lead time",
+       all(r["Lead Time Days"] == "70" for r in _rs_rows), _rs_rows[:4])
+
+fiscal = {"layout": "wide_matrix", "header_row": 1, "item_col": 1,
+          "month_cols": {"2": 4, "3": 5, "4": 6, "5": 7, "6": 8, "7": 9,
+                         "8": 10, "9": 11, "10": 12, "11": 1, "12": 2, "13": 3},
+          "supplier_col": None, "leadtime_col": None}
+try:
+    validate_recipe(fiscal, n_rows=3, n_cols=13)
+    _check("fiscal-year column order refused", False)
+except RecipeRefusal as e:
+    _check("fiscal-year column order refused", "calendar order" in str(e), str(e))
+
 if _FAILED:
     print("\nSOME TESTS FAILED")
     sys.exit(1)

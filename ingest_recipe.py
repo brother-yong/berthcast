@@ -133,6 +133,12 @@ def validate_recipe(recipe, n_rows: int, n_cols: int) -> dict:
         _bad("duplicate month columns after normalisation")
     if len(set(month_cols.values())) != len(month_cols):
         _bad("duplicate month numbers")
+    seq = [m for _c, m in sorted(month_cols.items())]
+    if seq != sorted(seq):
+        # Fiscal-year / rotated grids (APR..MAR) would get one year stamped
+        # across a calendar boundary — three months land a year wrong, and the
+        # projection tail walk would inspect the wrong end. Refuse loudly (v1).
+        _bad("month columns are not in calendar order")
     if item_col in month_cols:
         _bad("item_col collides with a month column")
     for _name, _c in (("supplier_col", sup_col), ("leadtime_col", lt_col)):
@@ -279,9 +285,13 @@ def execute_recipe(filepath, recipe, today=None):
             continue
         if _is_total_row(name):
             continue
-        if recipe["supplier_col"] and str(_cell(sup_c) or "").strip():
-            cur_sup = str(_cell(sup_c)).strip()
-            cur_lt = ""    # new block: never inherit the previous block's lead time
+        _sup_val = str(_cell(sup_c) or "").strip() if recipe["supplier_col"] else ""
+        if _sup_val and _sup_val != cur_sup:
+            # New supplier block: never inherit the previous block's lead time.
+            # Change-detection matters — files that repeat the supplier on every
+            # row must not wipe the block's lead time on each repeat.
+            cur_sup = _sup_val
+            cur_lt = ""
         if recipe["leadtime_col"] and str(_cell(lt_c) or "").strip():
             cur_lt = lead_time_days(_cell(lt_c))
         items += 1
