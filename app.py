@@ -2912,6 +2912,30 @@ def _stock_on_hand_map(upload_session_id):
         return {}
 
 
+def _status_by_item_map(upload_session_id):
+    """Map item name -> stock status (CRITICAL / LOW / …), read from the saved
+    inventory report. Used to sort/label the supplier groups on the order sheets
+    the same way the on-screen results page does. Returns {} on any problem."""
+    try:
+        rows = db.query(
+            "SELECT inventory_report FROM analysis_results WHERE session_id=?",
+            (upload_session_id,)
+        )
+        if not rows:
+            return {}
+        inv = json.loads(rows[0]["inventory_report"] or "[]")
+        if isinstance(inv, dict):
+            inv = inv.get("report") if isinstance(inv.get("report"), list) else []
+        if not isinstance(inv, list):
+            return {}
+        return {
+            str(it.get("item", "")): it.get("status", "")
+            for it in inv if isinstance(it, dict)
+        }
+    except Exception:
+        return {}
+
+
 def _order_by_text(rec):
     """Order-by text shared by every order sheet so they stay consistent: an
     overdue date becomes 'ASAP', a future date shows as-is, unknown shows '—'."""
@@ -2962,7 +2986,11 @@ def print_results(upload_session_id):
         r["_order_by"]           = _compute_order_by(r)
         r["_current_stock"]      = stock_map.get(str(r.get("item", "")).strip())
         r["_order_covers"]       = _order_covers_months(r)
-    return render_template("print_order.html", recommendations=approved, org_name=session["org_name"])
+    # Group by supplier so each block prints as one hand-over-ready PO, same
+    # grouping/order the on-screen results page uses.
+    groups = _group_recs_by_supplier(approved, _status_by_item_map(upload_session_id))
+    return render_template("print_order.html", groups=groups, total=len(approved),
+                           org_name=session["org_name"])
 
 
 @app.route("/results/<int:upload_session_id>/export.csv")
@@ -2986,6 +3014,11 @@ def export_csv(upload_session_id):
     approved = [r for r in recommendations if r.get("approved") and not r.get("error")]
     for r in approved:
         _normalise_confidence(r)
+    # Sort rows into the same supplier grouping the print sheet uses, so each
+    # supplier's rows are contiguous and the file splits cleanly into one PO
+    # per supplier. Same helper, so the two outputs never drift apart.
+    groups = _group_recs_by_supplier(approved, _status_by_item_map(upload_session_id))
+    approved = [r for g in groups for r in g["recs"]]
     # Current stock (qty on hand) is joined from the inventory report by item name.
     stock_map = _stock_on_hand_map(upload_session_id)
 

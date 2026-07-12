@@ -14,6 +14,9 @@
     .flag { background: #fef9c3; color: #92400e; padding: 2px 8px; border-radius: 12px;
             font-size: 12px; display: inline-block; margin-top: 3px; }
     .note { color: #6b7280; margin-top: 3px; font-size: 13px; }
+    .group-head td { background: #eef2ff; color: #3730a3; font-weight: bold;
+                     text-transform: uppercase; letter-spacing: .4px; font-size: 12px;
+                     border-bottom: 2px solid #c7d2fe; padding-top: 16px; }
     .footer { margin-top: 40px; color: #9ca3af; font-size: 12px; border-top: 1px solid #e5e7eb; padding-top: 14px; }
     @media print { body { margin: 16px; } }
   </style>
@@ -23,10 +26,11 @@
   <div class="sub">
     {{ org_name }} &nbsp;|&nbsp;
     Prepared: <script>document.write(new Date().toLocaleDateString('en-SG', {day:'2-digit',month:'short',year:'numeric'}))</script>
-    &nbsp;|&nbsp; {{ recommendations | length }} item(s) approved
+    &nbsp;|&nbsp; {{ total }} item(s) approved &nbsp;|&nbsp; {{ groups | length }} supplier(s)
   </div>
 
-  {% if recommendations %}
+  {% if total %}
+  {% set ns = namespace(n=0) %}
   <table>
     <thead>
       <tr>
@@ -42,9 +46,17 @@
       </tr>
     </thead>
     <tbody>
-      {% for r in recommendations %}
+      {% for g in groups %}
+      <tr class="group-head">
+        <td colspan="9">
+          {{ g.name }} &nbsp;·&nbsp; {{ g.count }} item{{ '' if g.count == 1 else 's' }}
+          {%- if g.critical %} &nbsp;·&nbsp; {{ g.critical }} critical{% endif -%}
+        </td>
+      </tr>
+      {% for r in g.recs %}
+      {% set ns.n = ns.n + 1 %}
       <tr>
-        <td>{{ loop.index }}</td>
+        <td>{{ ns.n }}</td>
         <td><strong>{{ r.item }}</strong></td>
         <td>{{ r._current_stock if r._current_stock not in (None, '') else '—' }}</td>
         <td>
@@ -77,6 +89,7 @@
           {%- if r.note -%}{{ r.note }}{%- else -%}—{%- endif -%}
         </td>
       </tr>
+      {% endfor %}
       {% endfor %}
     </tbody>
   </table>
