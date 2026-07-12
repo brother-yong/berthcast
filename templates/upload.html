@@ -37,7 +37,9 @@
     {% set uploaded    = (conv_status == 'done') %}
     {% set processing  = (conv_status == 'converting') or (tables[slot] and not conv_status) %}
     {% set errored     = (conv_status == 'error') %}
-    <div class="upload-slot {% if uploaded %}done{% elif processing %}uploading{% elif errored %}error{% endif %}"
+    {% set unreadable  = (conv_status == 'unreadable') %}
+    {% set readback    = conv.get('readback') %}
+    <div class="upload-slot {% if uploaded %}done{% elif processing %}uploading{% elif errored or unreadable %}error{% endif %}"
          id="{{ slotId }}" data-slot="{{ slot }}"
          style="--icon: url('{{ url_for('static', filename='icons/' ~ icon_file) }}')">
       <div class="upload-slot-icon"></div>
@@ -58,6 +60,24 @@
             <span style="color:var(--danger)">Processing failed: {{ conv.get('error', 'Unknown error') }}</span>
           {% endif %}
         </div>
+        {% if readback %}
+        {# Wide-matrix conversion read-back (spec 2026-07-11): NON-blocking —
+           it informs, it never gates. Only "This looks wrong" (remove) acts. #}
+        <div class="slot-readback" style="margin-top:8px;padding:10px 12px;border:1px solid var(--warning);background:rgba(230,180,80,0.08);border-radius:8px;font-size:13px;line-height:1.55;">
+          <strong style="color:var(--warning);">⚠ This wasn't a standard sales export.</strong> berthcast read it as:<br>
+          • {{ '{:,}'.format(readback['items']) }} items<br>
+          • months {{ readback['months_kept']|join(', ') }} (year assumed {{ readback['assumed_year'] }})<br>
+          {% if readback['months_dropped'] %}• months {{ readback['months_dropped']|join(', ') }} dropped — they look like typed-in projections or empty columns, not sales<br>{% endif %}
+          • {{ '{:,.0f}'.format(readback['total_units']) }} units total<br>
+          {% if readback.get('coverage') and readback['coverage'].get('inventory_items_total') %}• covers ~{{ '{:,}'.format(readback['coverage']['sales_items_matched']) }} of your {{ '{:,}'.format(readback['coverage']['inventory_items_total']) }} inventory items (approximate) — items without sales data will show as "no sales data"<br>{% endif %}
+          <button class="remove-link" style="color:var(--warning);" onclick="removeFile('{{ slot }}','{{ slotId }}')">This looks wrong — remove and re-upload</button>
+        </div>
+        {% endif %}
+        {% if unreadable %}
+        <div class="slot-readback" style="margin-top:8px;padding:10px 12px;border:1px solid var(--warning);background:rgba(230,180,80,0.08);border-radius:8px;font-size:13px;line-height:1.55;color:var(--warning);">
+          <strong>We couldn't read this sales file.</strong> {{ conv.get('error', '') }}
+        </div>
+        {% endif %}
       </div>
       <div class="upload-slot-btn" style="display:flex; gap:8px; align-items:center;">
         <label class="btn btn-outline btn-sm" id="label-{{ slot }}" style="cursor:pointer;">
@@ -436,6 +456,17 @@ async function _pollConversionStatus(slot, slotId, displayName) {
         _pollingSlots.delete(slot);
         const fname = (data.file_names && data.file_names[slot]) || displayName;
         _markSlotDone(slot, slotId, fname, info.rows);
+        if (info.readback) {
+          // Wide-matrix conversion happened — the read-back panel is
+          // server-rendered; reload so the user sees what was read.
+          window.location.reload();
+        }
+
+      } else if (info.status === 'unreadable') {
+        clearInterval(interval);
+        _pollingSlots.delete(slot);
+        // Amber guidance panel is server-rendered — reload to show it.
+        window.location.reload();
 
       } else if (info.status === 'error') {
         clearInterval(interval);
