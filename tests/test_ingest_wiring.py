@@ -159,6 +159,29 @@ state, _g = maybe_convert_sales(wide, SID, mapper=lambda s: GOOD_RECIPE,
                                 today=date(2026, 7, 11))
 db.excel_to_sqlite = _orig_ing
 _check("re-ingest failure -> 'unreadable'", state == "unreadable", state)
+_check("re-ingest failure leaves no orphaned CSV (client data on disk)",
+       not os.path.exists(wide + ".converted.csv"))
+
+# resource caps: the recipe path re-reads the raw file with openpyxl, which
+# enforces none of database.py's zip-bomb limits — it must bound itself
+import ingest_recipe as _ir
+
+_orig_rows_cap = _ir.MAX_RECIPE_ROWS
+_ir.MAX_RECIPE_ROWS = 2
+state, _g = maybe_convert_sales(wide, SID, mapper=lambda s: GOOD_RECIPE,
+                                today=date(2026, 7, 11))
+_ir.MAX_RECIPE_ROWS = _orig_rows_cap
+_check("row-cap breach -> 'unreadable'", state == "unreadable", state)
+
+# An oversized file can't even be PROBED safely (openpyxl decompresses the
+# shared-strings table on open), so it never enters the recipe path at all —
+# it stays on the naive path, which database.py's own caps already bound.
+_orig_mb_cap = _ir.MAX_RECIPE_FILE_MB
+_ir.MAX_RECIPE_FILE_MB = 0
+state, _g = maybe_convert_sales(wide, SID, mapper=lambda s: GOOD_RECIPE,
+                                today=date(2026, 7, 11))
+_ir.MAX_RECIPE_FILE_MB = _orig_mb_cap
+_check("file-size cap breach bypasses recipe path ('clean')", state == "clean", state)
 
 # drop-table failure inside the refusal path must not crash the upload thread
 db.excel_to_sqlite(wide, "sales", SID)

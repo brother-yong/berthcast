@@ -1948,6 +1948,15 @@ def upload():
                         out.write(inf.read())
                     os.remove(cp)
 
+            # MAX_CONTENT_LENGTH bounds each chunk REQUEST; the client-side
+            # size check is advisory JavaScript. The ASSEMBLED file must be
+            # re-checked here or 4000 near-cap chunks add up unbounded.
+            max_bytes = app.config.get("MAX_CONTENT_LENGTH") or (100 * 1024 * 1024)
+            if os.path.getsize(filepath) > max_bytes:
+                os.remove(filepath)
+                return jsonify({"ok": False, "error": "File is too large "
+                                f"(max {max_bytes // (1024 * 1024)} MB)."})
+
             # Kick off background processing
             db.set_conversion_status(upload_session_id, slot, "converting")
             _start_processing(filepath, slot, upload_session_id, slot, orig_name)

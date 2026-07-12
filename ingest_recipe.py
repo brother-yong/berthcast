@@ -25,6 +25,14 @@ SAMPLE_ROWS    = 30    # rows shown to the AI mapper
 MIN_MONTH_COLS = 6     # a real month grid names at least half a year
 FLAT_TAIL_SHARE = 0.5  # >=50% of items identical across the tail => projections
 
+# Resource caps: this path re-reads the raw upload with openpyxl, which
+# enforces NONE of database.py's zip-bomb limits — so it bounds itself.
+# Planning grids are hundreds of rows and tens of KB; anything near these
+# caps is not a planning grid and refuses loudly.
+MAX_RECIPE_FILE_MB = 30     # raw upload size this path will even open
+MAX_RECIPE_XML_MB  = 60     # declared decompressed xlsx payload (zip bomb gate)
+MAX_RECIPE_ROWS    = 20000  # rows accumulated in memory before refusing
+
 GUIDANCE = (
     "We couldn't safely read this sales file. Ask your ERP admin for a "
     "sales export with one row per sale, a date column, an item name and "
@@ -48,10 +56,31 @@ def _month_of(cell) -> int:
     return MONTH_NAMES.get(str(cell or "").strip().upper(), 0)
 
 
+def _size_guard(filepath):
+    """Refuse before opening anything oversized. Python's zipfile truncates
+    each archive member at its DECLARED size, so the declared sizes are a
+    real ceiling on what openpyxl can decompress — checking them first
+    closes the zip-bomb hole without decompressing a byte."""
+    if os.path.getsize(filepath) > MAX_RECIPE_FILE_MB * 1024 * 1024:
+        raise RecipeRefusal("file too large for the conversion path")
+    if os.path.splitext(filepath)[1].lower() != ".csv":
+        import zipfile
+        try:
+            with zipfile.ZipFile(filepath) as zf:
+                declared = sum(i.file_size for i in zf.infolist()
+                               if i.filename.startswith(("xl/sharedStrings",
+                                                         "xl/worksheets/")))
+        except Exception:
+            raise RecipeRefusal("not a readable xlsx")
+        if declared > MAX_RECIPE_XML_MB * 1024 * 1024:
+            raise RecipeRefusal("spreadsheet decompresses too large")
+
+
 def _raw_rows(filepath, limit=None):
     """First `limit` raw rows (list of lists) of an .xlsx or .csv file.
     xlsx is read with cached formula VALUES (data_only) — planning sheets
     are full of `=489*12` cells and the formula text is useless."""
+    _size_guard(filepath)
     ext = os.path.splitext(filepath)[1].lower()
     if ext == ".csv":
         out = []
@@ -59,6 +88,8 @@ def _raw_rows(filepath, limit=None):
             for i, row in enumerate(_csv.reader(f)):
                 if limit is not None and i >= limit:
                     break
+                if limit is None and len(out) >= MAX_RECIPE_ROWS:
+                    raise RecipeRefusal("too many rows for a planning grid")
                 out.append(row)
         return out
     import openpyxl
@@ -69,6 +100,8 @@ def _raw_rows(filepath, limit=None):
         for i, row in enumerate(ws.iter_rows(values_only=True)):
             if limit is not None and i >= limit:
                 break
+            if limit is None and len(out) >= MAX_RECIPE_ROWS:
+                raise RecipeRefusal("too many rows for a planning grid")
             out.append(list(row))
         return out
     finally:
@@ -392,6 +425,11 @@ def maybe_convert_sales(filepath, session_id, mapper, today=None):
             logger.warning(
                 "maybe_convert_sales: re-ingest of converted CSV failed for session %s: %s",
                 session_id, result.get("error"))
+            try:
+                # Refusal must not orphan real client data on the disk.
+                os.remove(csv_path)
+            except OSError:
+                pass
             return _refuse()
     except RecipeRefusal as e:
         # Expected refusal, not a crash — but the REASON must reach the
