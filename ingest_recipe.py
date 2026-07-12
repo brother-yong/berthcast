@@ -437,4 +437,7 @@ def _coverage(db, session_id, csv_path):
         return {"sales_items_matched": len(sales_names & inv_names),
                 "inventory_items_total": len(inv_names)}
     except Exception:
+        # Coverage is advisory-only — never fail the conversion over it, but
+        # don't hide the failure from the operator either.
+        logger.exception("Coverage computation failed for session %s", session_id)
         return {}
