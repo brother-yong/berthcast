@@ -151,6 +151,47 @@ def _boom(sample):
 state, _g = maybe_convert_sales(wide, SID, mapper=_boom, today=date(2026, 7, 11))
 _check("mapper exception -> 'unreadable'", state == "unreadable", state)
 
+# review fixes: re-ingest failure, drop failure, coverage column ranking
+db.excel_to_sqlite(wide, "sales", SID)
+_orig_ing = db.excel_to_sqlite
+db.excel_to_sqlite = lambda *a, **k: {"ok": False, "error": "disk full"}
+state, _g = maybe_convert_sales(wide, SID, mapper=lambda s: GOOD_RECIPE,
+                                today=date(2026, 7, 11))
+db.excel_to_sqlite = _orig_ing
+_check("re-ingest failure -> 'unreadable'", state == "unreadable", state)
+
+# drop-table failure inside the refusal path must not crash the upload thread
+db.excel_to_sqlite(wide, "sales", SID)
+_orig_exec = db.execute
+
+
+def _no_drop(sql, *a, **k):
+    if sql.strip().upper().startswith("DROP"):
+        raise RuntimeError("locked")
+    return _orig_exec(sql, *a, **k)
+
+
+db.execute = _no_drop
+state, _g = maybe_convert_sales(wide, SID, mapper=lambda s: {"layout": "unknown"},
+                                today=date(2026, 7, 11))
+db.execute = _orig_exec
+_check("drop failure still returns 'unreadable' cleanly", state == "unreadable", state)
+
+# coverage must prefer a description-ish column over a code-ish one:
+# 'item_code' sits first in table order and would shadow 'item_description'
+# under naive first-match, showing a misleading near-zero overlap
+db.excel_to_sqlite(make_wide_xlsx(
+    [["Item Code", "Item Description", "Stock Qty"],
+     ["A1", "ALPHA BEANS 1KG", 5],
+     ["B2", "BRAVO RICE 10KG", 3],
+     ["C3", "CHARLIE OIL 1L", 9]], "inv2.xlsx"),
+    "inventory", SID)
+db.excel_to_sqlite(wide, "sales", SID)
+state, rb = maybe_convert_sales(wide, SID, mapper=lambda s: GOOD_RECIPE,
+                                today=date(2026, 7, 11))
+_check("coverage uses description column not code column",
+       rb.get("coverage", {}).get("sales_items_matched") == 2, rb)
+
 if _FAILED:
     print("\nSOME TESTS FAILED")
     sys.exit(1)

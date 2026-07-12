@@ -373,7 +373,7 @@ def maybe_convert_sales(filepath, session_id, mapper, today=None):
         # (January-as-the-year). Leaving it would repeat the failure this
         # feature exists to kill — so clear it.
         try:
-            db.execute(f"DROP TABLE IF EXISTS sales_{int(session_id)}")
+            db.execute(f'DROP TABLE IF EXISTS "sales_{int(session_id)}"')
         except Exception:
             logger.exception(
                 "maybe_convert_sales: failed to drop sales_%s after refusal", session_id)
@@ -389,8 +389,15 @@ def maybe_convert_sales(filepath, session_id, mapper, today=None):
         csv_path, readback = execute_recipe(filepath, recipe, today=today)
         result = db.excel_to_sqlite(csv_path, "sales", session_id)
         if not result.get("ok"):
+            logger.warning(
+                "maybe_convert_sales: re-ingest of converted CSV failed for session %s: %s",
+                session_id, result.get("error"))
             return _refuse()
-    except RecipeRefusal:
+    except RecipeRefusal as e:
+        # Expected refusal, not a crash — but the REASON must reach the
+        # operator's logs; the user only ever sees the generic guidance.
+        logger.info("maybe_convert_sales: recipe refused for session %s: %s",
+                    session_id, e)
         return _refuse()
     except Exception:
         logger.exception("maybe_convert_sales: unexpected failure converting %s", filepath)
@@ -417,16 +424,22 @@ def _coverage(db, session_id, csv_path):
     if not db.table_exists(inv_table):
         return {}
     try:
-        row = db.query(f"SELECT * FROM {inv_table} LIMIT 1")
+        row = db.query(f'SELECT * FROM "{inv_table}" LIMIT 1')
         if not row:
             return {}
         cols = [c for c in row[0].keys() if c != "_session_id"]
-        desc = next((c for c in cols if any(h in c for h in
-                     ("item", "desc", "product", "sku"))), None)
+        # Rank the hints: description-ish columns beat code-ish ones —
+        # 'item_code' must never shadow 'item_description', or the overlap
+        # count compares names against codes and reads as near-zero.
+        desc = None
+        for h in ("desc", "product", "item", "sku"):
+            desc = next((c for c in cols if h in c), None)
+            if desc:
+                break
         if not desc:
             return {}
         inv_names = {str(r[desc] or "").strip().lower()
-                     for r in db.query(f'SELECT DISTINCT "{desc}" FROM {inv_table} LIMIT 5000')}
+                     for r in db.query(f'SELECT DISTINCT "{desc}" FROM "{inv_table}" LIMIT 5000')}
         inv_names.discard("")
         sales_names = set()
         with open(csv_path, encoding="utf-8") as f:
