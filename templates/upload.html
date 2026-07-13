@@ -38,6 +38,7 @@
     {% set processing  = (conv_status == 'converting') or (tables[slot] and not conv_status) %}
     {% set errored     = (conv_status == 'error') %}
     {% set unreadable  = (conv_status == 'unreadable') %}
+    {% set needs_confirm = (conv_status == 'needs_confirm') %}
     {% set readback    = conv.get('readback') %}
     <div class="upload-slot {% if uploaded %}done{% elif processing %}uploading{% elif errored or unreadable %}error{% endif %}"
          id="{{ slotId }}" data-slot="{{ slot }}"
@@ -60,7 +61,18 @@
             <span style="color:var(--danger)">Processing failed: {{ conv.get('error', 'Unknown error') }}</span>
           {% endif %}
         </div>
-        {% if readback %}
+        {% if needs_confirm and readback %}
+        {# Degraded conversion (spec 2026-07-13 v2): converted + verified, but a
+           judgment call (borderline month kept, or a mixed-text month column).
+           The slot is held out of "done" so Continue stays locked until the
+           user taps once. Attention-toned, not an error. #}
+        <div class="slot-readback" style="margin-top:8px;padding:10px 12px;border:1px solid var(--brass);background:var(--paper-2);border-radius:8px;font-size:13px;line-height:1.55;">
+          <div style="margin-bottom:6px;">Read as {{ '{:,}'.format(readback['items']) }} items, {{ readback['months_kept']|month_span }} {{ readback['assumed_year'] }} · {{ '{:,.0f}'.format(readback['total_units']) }} units.</div>
+          <div style="margin-bottom:8px;color:var(--text);">{{ readback['question'] }}</div>
+          <button class="btn btn-primary btn-sm" onclick="confirmReadback('{{ slot }}','{{ slotId }}')">Yes — use this file</button>
+        </div>
+        {% endif %}
+        {% if readback and not needs_confirm %}
         {# Wide-matrix conversion read-back (spec 2026-07-11): NON-blocking and
            informational. A successful conversion reads CALM — one-line summary,
            details on click. Never styled as an error. #}
@@ -179,7 +191,7 @@ let uploadedSlots = {
 const _resumeSlots = [
   {% for slot in ['inventory','sales','purchase_orders','suppliers'] %}
     {% set cs = (conversion_status or {}).get(slot, {}).get('status') %}
-    {% if cs == 'converting' or (tables.get(slot) and not cs) %}
+    {% if cs == 'converting' or cs == 'needs_confirm' or (tables.get(slot) and not cs) %}
       ["{{ slot }}", "slot-{{ slot }}", "{{ file_names.get(slot, '') }}"],
     {% endif %}
   {% endfor %}
@@ -471,6 +483,13 @@ async function _pollConversionStatus(slot, slotId, displayName) {
           window.location.reload();
         }
 
+      } else if (info.status === 'needs_confirm') {
+        clearInterval(interval);
+        _pollingSlots.delete(slot);
+        // Degraded conversion — the question panel is server-rendered; reload
+        // so the user sees it and can tap once to confirm.
+        window.location.reload();
+
       } else if (info.status === 'unreadable') {
         clearInterval(interval);
         _pollingSlots.delete(slot);
@@ -526,6 +545,22 @@ function removeFile(slot, slotId) {
     } catch(e) { showToast('Could not remove file.'); }
     _updateContinueBtn();
   }, { label: 'Remove' });
+}
+
+// ── Confirm a degraded (needs_confirm) conversion ─────────────────────────
+// One authenticated tap flips the sales slot to "done" so Continue unlocks.
+// CSRF header is added by the global fetch patch in base.html.
+async function confirmReadback(slot, slotId) {
+  try {
+    const res = await fetch('/upload/confirm-readback', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ slot, session_id: sessionId })
+    });
+    const data = await res.json();
+    if (data.ok) { window.location.reload(); }
+    else { showToast('Could not confirm. Please try again.'); }
+  } catch(e) { showToast('Network error. Please try again.'); }
 }
 
 // ── Drag and drop ─────────────────────────────────────────────────────────

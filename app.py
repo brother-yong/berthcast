@@ -2035,11 +2035,14 @@ def _start_processing(filepath, table, session_id, slot, orig_name):
             result = db.excel_to_sqlite(filepath, table, session_id)
             if result.get("ok"):
                 readback = None
+                final_status = "done"
                 if slot == "sales":
-                    # Smart ingestion (spec 2026-07-11): wide-matrix files are
-                    # re-mapped by AI recipe + deterministic conversion. Any
-                    # doubt -> "unreadable" and the naive table is cleared so
-                    # the analysis can't run on a known misread.
+                    # Smart ingestion (spec 2026-07-11 / v2 2026-07-13): wide-matrix
+                    # files are re-mapped by AI recipe + deterministic conversion.
+                    # Any doubt -> "unreadable" and the naive table is cleared so
+                    # the analysis can't run on a known misread. A DEGRADED but
+                    # verified conversion -> "needs_confirm": the slot is held out
+                    # of "done" until the user taps once, so the paid run is blocked.
                     from ingest_recipe import maybe_convert_sales
                     from agents.ingest_mapper import propose_recipe
                     state, payload = maybe_convert_sales(filepath, session_id,
@@ -2054,9 +2057,11 @@ def _start_processing(filepath, table, session_id, slot, orig_name):
                         readback = payload
                         result = {"ok": True, "rows": db.query(
                             f'SELECT COUNT(*) AS n FROM "sales_{int(session_id)}"')[0]["n"]}
+                        if payload.get("tier") == "degraded":
+                            final_status = "needs_confirm"
                 if _stale():
                     return
-                db.set_conversion_status(session_id, slot, "done",
+                db.set_conversion_status(session_id, slot, final_status,
                                          rows_count=result.get("rows", 0),
                                          readback=readback)
                 names_row = db.query("SELECT file_names_json FROM upload_sessions WHERE id=?", (session_id,))
@@ -2075,6 +2080,28 @@ def _start_processing(filepath, table, session_id, slot, orig_name):
                 db.set_conversion_status(session_id, slot, "error", error="Processing failed unexpectedly.")
     t = threading.Thread(target=_process, daemon=True)
     t.start()
+
+
+@app.route("/upload/confirm-readback", methods=["POST"])
+@login_required
+def confirm_readback():
+    # A degraded sales conversion is held at "needs_confirm" (paid run blocked).
+    # This one authenticated tap acknowledges the read-back and flips it to
+    # "done", preserving the existing row count + read-back. No table change:
+    # the conversion already ran under the safe defaults.
+    data = request.get_json(silent=True) or {}
+    session_id = data.get("session_id")
+    slot = data.get("slot")
+    if not isinstance(session_id, int) or slot not in ("sales",):
+        return jsonify({"ok": False, "error": "bad request"}), 400
+    _verify_session_owner(session_id)
+    cur = db.get_conversion_status(session_id).get(slot, {})
+    if cur.get("status") != "needs_confirm":
+        return jsonify({"ok": False, "error": "nothing to confirm"}), 409
+    db.set_conversion_status(session_id, slot, "done",
+                             rows_count=cur.get("rows", 0),
+                             readback=cur.get("readback"))
+    return jsonify({"ok": True})
 
 
 @app.route("/upload/status/<int:upload_session_id>")
