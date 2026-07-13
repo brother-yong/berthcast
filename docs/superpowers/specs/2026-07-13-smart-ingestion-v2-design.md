@@ -110,11 +110,19 @@ columns are built by copying the *last real month* forward, that real month
 matches the flat run and gets dropped too — silently losing a month of real
 sales and undersizing every order.
 
-v2 does not try to out-guess this. When a dropped month is **borderline** (a
-meaningful minority of items disagree with the flat value), it is surfaced as
-a degraded-tier question — *"Dropped [month] as a projection — keep it?"* —
-and one tap restores it. A clear-cut projection tail (all items flat) still
-drops silently, as today.
+v2 does not try to out-guess this. When the earliest dropped month is
+**borderline** (a meaningful minority of items carry their own distinct value
+there, not the flat projection value), berthcast **keeps it by default** —
+dropping a real month is silent data loss, the one error the pipeline must
+never make — and surfaces it as a degraded-tier question: *"We kept [month] as
+real sales; the months after it look like typed projections. If [month] is
+also a projection, replace the file without it."* One tap acknowledges and
+unblocks the paid run. A clear-cut projection tail (the boundary month is flat
+for nearly all items) still drops silently, as today.
+
+An in-place keep/remove toggle (fix the month without re-uploading) is
+deferred to Phase 2 — Phase 1 defaults to the safe read and gates the run on
+one acknowledgement.
 
 ### 5. Verification — one added lever
 
@@ -205,6 +213,8 @@ upload → naive excel_to_sqlite (all slots)
 - Inventory / purchase-order slot mapping.
 - Retuning the flat-tail heuristic itself — the one-tap question covers the
   borderline case instead.
+- An in-place keep/remove toggle for the borderline month (Phase 1 defaults to
+  keep + acknowledge; the toggle is Phase 2).
 - Running the mapper on files the detector did **not** flag (cost; clean
   transaction files stay untouched).
 

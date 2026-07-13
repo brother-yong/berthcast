@@ -27,6 +27,12 @@ _SYSTEM = (
     '  "supplier_col": <1-based column number or null>,\n'
     '  "leadtime_col": <1-based column number or null>\n'
     "}\n"
+    "Month columns may be labelled several ways — treat all as months:\n"
+    "  names: Jan, February; codes: M1..M12; dates: Jan-26, 2026-01, 01/2026.\n"
+    "Common quirks to expect: a merged 'TOTAL' header can sit over the first "
+    "month column; supplier and lead-time values are often filled only on the "
+    "first row of each supplier block; a lead-time column can appear inside a "
+    "sales report. Map the month NUMBER (1-12) regardless of the label style.\n"
     "Rules: columns and rows are 1-based. Only include month columns you are "
     "sure about. If the layout is unclear, return {\"layout\": \"unknown\"}."
 )

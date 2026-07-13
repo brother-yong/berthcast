@@ -9,7 +9,7 @@ import csv as _csv
 import numbers
 import os
 import re
-from datetime import date
+from datetime import date, datetime
 
 from logging_setup import logger
 
@@ -20,10 +20,51 @@ MONTH_NAMES = {
     "JULY": 7, "AUGUST": 8, "SEPTEMBER": 9, "OCTOBER": 10,
     "NOVEMBER": 11, "DECEMBER": 12,
 }
+_MONTH_LABEL = ["", "January", "February", "March", "April", "May", "June",
+                "July", "August", "September", "October", "November", "December"]
+_MCODE_RE = re.compile(r"^M(\d{1,2})$", re.IGNORECASE)
+_YM_RE    = re.compile(r"^(\d{4})[-/](\d{1,2})$")   # 2026-01, 2026/1
+_MY_RE    = re.compile(r"^(\d{1,2})[-/](\d{4})$")   # 01/2026, 1-2026
+_NAME_DATE_RE = re.compile(r"^([A-Za-z]{3,9})[-/ ]?\d{2,4}$")  # Jan-26, Jan 2026
+
+
+def _cell_month(cell) -> int:
+    """Month 1-12 this HEADER cell names, else 0. Knows month names, M-codes
+    (M1..M12), month-year dates (Jan-26, 2026-01, 01/2026) and real datetime
+    cells. Bare integers are intentionally NOT months here — too ambiguous;
+    they are handled row-level in the detector under a strict guard."""
+    if isinstance(cell, (datetime, date)):
+        return cell.month
+    s = str(cell or "").strip()
+    if not s:
+        return 0
+    up = s.upper()
+    if up in MONTH_NAMES:
+        return MONTH_NAMES[up]
+    m = _MCODE_RE.match(s)
+    if m:
+        v = int(m.group(1))
+        return v if 1 <= v <= 12 else 0
+    m = _NAME_DATE_RE.match(s)
+    if m:
+        return MONTH_NAMES.get(m.group(1).upper(), 0)
+    m = _YM_RE.match(s)
+    if m:
+        v = int(m.group(2))
+        return v if 1 <= v <= 12 else 0
+    m = _MY_RE.match(s)
+    if m:
+        v = int(m.group(1))
+        return v if 1 <= v <= 12 else 0
+    return 0
+
+
 DETECT_ROWS    = 15    # rows scanned for the month-grid signature
 SAMPLE_ROWS    = 30    # rows shown to the AI mapper
 MIN_MONTH_COLS = 6     # a real month grid names at least half a year
 FLAT_TAIL_SHARE = 0.5  # >=50% of items identical across the tail => projections
+CONFIDENT_PROJECTION = 0.9  # earliest dropped month stays dropped only if this-flat vs next
+MIXED_TEXT_SHARE = 0.2      # a month column this-much-text-or-more is "mixed" -> degrade
 
 # Resource caps: this path re-reads the raw upload with openpyxl, which
 # enforces NONE of database.py's zip-bomb limits — so it bounds itself.
@@ -118,7 +159,8 @@ def detect_wide_matrix(filepath) -> bool:
     except Exception:
         return False
     for r in rows:
-        months = {_month_of(c) for c in r if _month_of(c)}
+        months = {_cell_month(c) for c in r}
+        months.discard(0)
         if len(months) >= MIN_MONTH_COLS:
             return True
     return False
@@ -267,6 +309,32 @@ def _split_projection_tail(data_rows, month_cols, item_col_1based):
     return months[:cut], months[cut:]
 
 
+def _boundary_is_borderline(data_rows, boundary_m, next_m, cols_by_month, item_col_1based):
+    """The earliest dropped month is borderline when a real minority of items
+    carry their OWN value there (boundary != next), i.e. it was likely a real
+    month copied forward to seed the projections. Returns True to KEEP + ask.
+    ponytail: compares against boundary+1 only; a gap between them (an empty
+    month) means no rescue — safe, that just falls back to the old drop."""
+    if boundary_m not in cols_by_month or next_m not in cols_by_month:
+        return False
+    bc = cols_by_month[boundary_m] - 1
+    nc = cols_by_month[next_m] - 1
+    item_i = item_col_1based - 1
+    flat = total = 0
+    for r in data_rows:
+        name = str((r[item_i] if item_i < len(r) else "") or "").strip()
+        if not name or _is_total_row(name):
+            continue
+        b = _num(r[bc]) if bc < len(r) else None
+        n = _num(r[nc]) if nc < len(r) else None
+        if b is None or n is None or b <= 0:
+            continue
+        total += 1
+        if b == n:
+            flat += 1
+    return total > 0 and (flat / total) < CONFIDENT_PROJECTION
+
+
 def execute_recipe(filepath, recipe, today=None):
     """Apply a VALIDATED recipe over the whole file. Returns
     (csv_path, readback_dict) or raises RecipeRefusal.
@@ -304,10 +372,32 @@ def execute_recipe(filepath, recipe, today=None):
             raise RecipeRefusal(
                 f"claimed month column for month {m} contains text, not quantities")
     empty_months = {m for _c, m in month_cols if numeric_n[m] == 0}
+    # Type-sanity: a month column that is mostly numbers but carries a real
+    # share of text is suspect (mapper may have grabbed a note/label column).
+    # Converted anyway (text cells skipped), but flagged for a one-tap confirm.
+    mixed_months = {m for _c, m in month_cols
+                    if numeric_n[m] > 0 and text_n[m] > 0
+                    and text_n[m] >= MIXED_TEXT_SHARE * (numeric_n[m] + text_n[m])}
     live_cols = [(c, m) for c, m in month_cols if m not in empty_months]
     if not live_cols:
         raise RecipeRefusal("no month column contains numeric data")
     kept_months, flat_dropped = _split_projection_tail(rows[hdr:], live_cols, recipe["item_col"])
+
+    # Borderline rescue: if the earliest dropped month looks like a real month
+    # copied forward to seed the projections (a minority of items disagree with
+    # the flat value), KEEP it — dropping a real month is silent data loss — and
+    # flag the run degraded so the user confirms before the paid analysis.
+    cols_by_month = {m: c for c, m in month_cols}
+    borderline_m = None
+    flat_dropped = list(flat_dropped)
+    if flat_dropped:
+        boundary = min(flat_dropped)
+        if _boundary_is_borderline(rows[hdr:], boundary, boundary + 1,
+                                   cols_by_month, recipe["item_col"]):
+            flat_dropped.remove(boundary)
+            kept_months = sorted(set(kept_months) | {boundary})
+            borderline_m = boundary
+
     dropped = sorted(set(flat_dropped) | empty_months)
 
     out, items = [], 0
@@ -365,12 +455,25 @@ def execute_recipe(filepath, recipe, today=None):
         w.writerow(["Date", "Item Description", "Qty Sold", "Supplier", "Lead Time Days"])
         w.writerows(out)
 
+    tier = "degraded" if (borderline_m is not None or mixed_months) else "confident"
+    parts = []
+    if borderline_m is not None:
+        nm = _MONTH_LABEL[borderline_m]
+        parts.append(f"We kept {nm} as real sales, but the months after it look "
+                     f"like typed projections. If {nm} is also a projection, "
+                     f"replace the file without it.")
+    if mixed_months:
+        names = ", ".join(_MONTH_LABEL[m] for m in sorted(mixed_months))
+        parts.append(f"The {names} column had some non-number cells — "
+                     f"double-check it read correctly.")
     readback = {
         "items": items,
         "months_kept": sorted(kept_months),
         "months_dropped": sorted(dropped),
         "assumed_year": year,
         "total_units": round(sum(r[2] for r in out), 1),
+        "tier": tier,
+        "question": " ".join(parts) if parts else None,
     }
     return csv_path, readback
 
