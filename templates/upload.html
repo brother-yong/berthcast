@@ -61,17 +61,18 @@
           {% endif %}
         </div>
         {% if readback %}
-        {# Wide-matrix conversion read-back (spec 2026-07-11): NON-blocking —
-           it informs, it never gates. Only "This looks wrong" (remove) acts. #}
-        <div class="slot-readback" style="margin-top:8px;padding:10px 12px;border:1px solid var(--warning);background:rgba(230,180,80,0.08);border-radius:8px;font-size:13px;line-height:1.55;">
-          <strong style="color:var(--warning);">⚠ This wasn't a standard sales export.</strong> berthcast read it as:<br>
-          • {{ '{:,}'.format(readback['items']) }} items<br>
-          • months {{ readback['months_kept']|join(', ') }} (year assumed {{ readback['assumed_year'] }})<br>
-          {% if readback['months_dropped'] %}• months {{ readback['months_dropped']|join(', ') }} dropped — they look like typed-in projections or empty columns, not sales<br>{% endif %}
-          • {{ '{:,.0f}'.format(readback['total_units']) }} units total<br>
-          {% if readback.get('coverage') and readback['coverage'].get('inventory_items_total') %}• covers ~{{ '{:,}'.format(readback['coverage']['sales_items_matched']) }} of your {{ '{:,}'.format(readback['coverage']['inventory_items_total']) }} inventory items (approximate) — items without sales data will show as "no sales data"<br>{% endif %}
-          <button class="remove-link" style="color:var(--warning);" onclick="removeFile('{{ slot }}','{{ slotId }}')">This looks wrong — remove and re-upload</button>
-        </div>
+        {# Wide-matrix conversion read-back (spec 2026-07-11): NON-blocking and
+           informational. A successful conversion reads CALM — one-line summary,
+           details on click. Never styled as an error. #}
+        <details class="slot-readback" style="margin-top:6px;font-size:13px;color:var(--muted);line-height:1.55;">
+          <summary style="cursor:pointer;">Read as {{ '{:,}'.format(readback['items']) }} items, {{ readback['months_kept']|month_span }} {{ readback['assumed_year'] }}</summary>
+          <div style="margin-top:6px;padding-left:2px;">
+            {{ '{:,.0f}'.format(readback['total_units']) }} units sold<br>
+            {% if readback['months_dropped'] %}Skipped {{ readback['months_dropped']|month_span }} — empty or future months, not sales<br>{% endif %}
+            {% if readback.get('coverage') and readback['coverage'].get('inventory_items_total') %}Covers ~{{ '{:,}'.format(readback['coverage']['sales_items_matched']) }} of your {{ '{:,}'.format(readback['coverage']['inventory_items_total']) }} inventory items (approximate)<br>{% endif %}
+            <button class="remove-link" onclick="removeFile('{{ slot }}','{{ slotId }}')" style="margin-top:4px;">Not what you expected? Replace file</button>
+          </div>
+        </details>
         {% endif %}
         {% if unreadable %}
         <div class="slot-readback" style="margin-top:8px;padding:10px 12px;border:1px solid var(--warning);background:rgba(230,180,80,0.08);border-radius:8px;font-size:13px;line-height:1.55;color:var(--warning);">
@@ -514,6 +515,9 @@ function removeFile(slot, slotId) {
       const data = await res.json();
       if (data.ok) {
         slotEl.classList.remove('done','error','uploading');
+        // Read-back / unreadable panels are server-rendered inside the slot;
+        // removing the file must take them with it, or they linger on a now-empty slot.
+        slotEl.querySelectorAll('.slot-readback').forEach(el => el.remove());
         _setLabelText(slot, 'Upload');
         _setProgress(slotId, 0);
         uploadedSlots[slot] = false;

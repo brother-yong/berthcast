@@ -454,6 +454,27 @@ def _conf_label(value):
     }.get((value or "").upper(), (value or "").title() or "—")
 
 
+_MONTH_ABBR = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+               "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+
+@app.template_filter("month_span")
+def _month_span(nums):
+    """[1,2,3,4,5] -> 'Jan–May'; single -> 'Jan'; gaps -> 'Jan, Mar, May'.
+    Display only, for the upload read-back summary."""
+    try:
+        nums = sorted({n for n in nums if isinstance(n, int) and 1 <= n <= 12})
+    except TypeError:
+        return ""
+    if not nums:
+        return ""
+    if len(nums) == 1:
+        return _MONTH_ABBR[nums[0]]
+    if nums == list(range(nums[0], nums[-1] + 1)):   # contiguous run
+        return f"{_MONTH_ABBR[nums[0]]}–{_MONTH_ABBR[nums[-1]]}"
+    return ", ".join(_MONTH_ABBR[n] for n in nums)
+
+
 @app.route("/")
 def landing():
     if "user_id" in session:
