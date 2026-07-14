@@ -41,6 +41,10 @@ def _summarise_recommendations(recs):
     total    = len(valid)
     flagged  = sum(1 for r in valid if r.get("supplier_risk") == "HIGH" or r.get("flags"))
     if total == 0:
+        # An error dict means the step FAILED — saying "none needed" here
+        # masked a real crash as a healthy result (14 Jul 2026 client run).
+        if any(isinstance(r, dict) and r.get("error") for r in recs):
+            return "Recommendation step failed — see the results page"
         return "No reorder recommendations needed"
     s = f"{total} reorder recommendation" + ("s" if total != 1 else "")
     if flagged:

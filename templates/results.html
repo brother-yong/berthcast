@@ -476,9 +476,22 @@
     </div>
 
     {% else %}
+    {# A rec-agent failure returns [{"error": ...}] and is SAVED — it must never
+       render as an innocent "all good" zero (14 Jul 2026: a run with ~40
+       criticals displayed as a clean empty page). Loud amber, plus the saved
+       error text so the operator can diagnose without touching the DB. #}
+    {% set rec_error = (recommendations | selectattr('error') | list | first) if recommendations else none %}
+    {% if rec_error %}
+    <div class="card" style="margin-top:24px;border:1px solid var(--warning);background:rgba(230,180,80,0.08);">
+      <p style="color:var(--warning);font-weight:600;margin-bottom:6px;">The recommendation step failed — no purchase advice was generated for this run.</p>
+      <p style="color:var(--muted);font-size:14px;margin-bottom:6px;">Your inventory health report above is still valid. Re-running the analysis usually fixes this; if it happens again, send us the error below.</p>
+      <p style="color:var(--muted);font-size:13px;font-family:monospace;">{{ rec_error.error }}</p>
+    </div>
+    {% else %}
     <div class="card" style="margin-top: 24px;">
       <p style="color:var(--muted);">No recommendations generated. Your inventory may be in good shape, or there was insufficient sales data.</p>
     </div>
+    {% endif %}
     {% endif %}
   </div>
 
