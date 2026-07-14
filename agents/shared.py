@@ -7,6 +7,9 @@ Moved verbatim from the old single-file agents.py — no logic changes.
 import json
 import os
 import re
+import time
+
+from logging_setup import logger
 from database import (
     query,
     get_supplier_profile,
@@ -930,22 +933,56 @@ def wrap_untrusted(text) -> str:
     return f"<untrusted_data>\n{cleaned}\n</untrusted_data>"
 
 
+# Pauses between retry attempts (seconds). Injectable so tests don't sleep.
+_RETRY_BACKOFF = (3, 12)
+_RETRY_SLEEP = time.sleep
+
+
+def _is_transient_api_error(e) -> bool:
+    """True for errors worth retrying: the API saying 'busy/broken, try again'
+    (429 rate limit, 529 overloaded, any 5xx) and connection/timeout drops.
+    Anything else (auth, bad request) is permanent — fail fast."""
+    status = getattr(e, "status_code", None)
+    if status in (429, 529) or (isinstance(status, int) and status >= 500):
+        return True
+    if status is not None:
+        return False
+    # No HTTP status: connection/timeout errors and mid-stream error events.
+    # Matched by message because the SDK raises several classes for these.
+    s = str(e).lower()
+    return any(t in s for t in ("overloaded", "connection", "timeout", "timed out"))
+
+
 def _call_claude(model: str, system: str, user: str, max_tokens: int = 4096,
                  timeout: float = None) -> str:
     # Use streaming internally — Anthropic requires it for large max_tokens values.
     # Callers receive the complete text string exactly as before. `timeout`
     # overrides the SDK's 10-minute default for short infrastructure calls
     # (e.g. the ingest mapper) that must never pin a thread that long.
+    #
+    # Transient API failures are retried with a pause (14 Jul 2026: one 529
+    # 'Overloaded' reply killed a client run's whole recommendation step —
+    # the API asked us to try again and we never did). Mid-stream overload
+    # events bypass the SDK's own request-level retry, so the loop wraps the
+    # complete stream, not just the connection.
     cl = client if timeout is None else client.with_options(timeout=timeout)
-    with cl.messages.stream(
-        model=model,
-        max_tokens=max_tokens,
-        system=system,
-        messages=[{"role": "user", "content": user}],
-        **sampling_kwargs(model),
-        **thinking_kwargs(model),
-    ) as stream:
-        return stream.get_final_text()
+    for attempt in range(len(_RETRY_BACKOFF) + 1):
+        try:
+            with cl.messages.stream(
+                model=model,
+                max_tokens=max_tokens,
+                system=system,
+                messages=[{"role": "user", "content": user}],
+                **sampling_kwargs(model),
+                **thinking_kwargs(model),
+            ) as stream:
+                return stream.get_final_text()
+        except Exception as e:
+            if attempt >= len(_RETRY_BACKOFF) or not _is_transient_api_error(e):
+                raise
+            logger.warning("Claude call hit a transient error (attempt %d/%d): %s — retrying",
+                           attempt + 1, len(_RETRY_BACKOFF) + 1, e)
+            _RETRY_SLEEP(_RETRY_BACKOFF[attempt])
 
 
 def _num_sql(col: str) -> str:
