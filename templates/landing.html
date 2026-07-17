@@ -37,18 +37,16 @@
   body{ background:var(--green-deep); color:var(--ivory); font-family:var(--sans); font-weight:400;
         line-height:1.6; -webkit-font-smoothing:antialiased; position:relative; overflow-x:hidden; font-size:16px; }
   img{max-width:100%;display:block}
+  /* the page's only decoration now: one warm dawn-glow behind the hero text,
+     one cool counterweight low-left, and the grain */
   body::before{ content:''; position:fixed; inset:0; pointer-events:none; z-index:0;
     background:
-      radial-gradient(ellipse at 82% 4%, rgba(201,162,39,.10), transparent 50%),
-      radial-gradient(ellipse at 10% 88%, rgba(26,77,46,.28), transparent 55%); }
+      radial-gradient(ellipse at 76% 14%, rgba(201,162,39,.16), transparent 52%),
+      radial-gradient(ellipse at 8% 90%, rgba(26,77,46,.3), transparent 55%); }
   body::after{ content:''; position:fixed; inset:0; pointer-events:none; z-index:0; opacity:.018;
     background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
 
   .wrap{ position:relative; z-index:2; max-width:1180px; margin:0 auto; padding-left:40px; padding-right:40px; }
-  .running-head{ position:relative; z-index:3; max-width:1180px; margin:0 auto; display:flex; justify-content:space-between;
-                 padding:16px 40px 0; font-family:var(--sans); font-size:10px; font-weight:500; letter-spacing:.16em;
-                 text-transform:uppercase; color:var(--ivory-faint); }
-  .running-head .g{ color:var(--gold); }
 
   .eyebrow{ font-family:var(--sans); font-size:11.5px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
             color:var(--gold); display:flex; align-items:center; gap:14px; }
@@ -75,103 +73,17 @@
   .btn-secondary{ background:transparent; color:var(--ivory); font-size:15px; padding:14px 22px; border-color:var(--gold-line); }
   .btn-secondary:hover{ border-color:var(--gold); }
 
-  /* hero — one cohesive block left (eyebrow, display headline, copy, CTAs)
-     against the morning-report card right, lit by a gold dawn-glow. The
-     card is the dominant object (denser + bigger than the page's other
-     surfaces); the two columns centre on each other so neither floats. */
-  .hero{ position:relative; z-index:2; max-width:1180px; margin:0 auto; padding:46px 40px 72px;
-         display:grid; grid-template-columns:.98fr 1.02fr; gap:56px; align-items:center; }
-  .hero .eyebrow{ margin-bottom:24px; }
-  h1.hero-title{ font-family:var(--serif); font-weight:600; font-size:clamp(42px,4.8vw,66px); line-height:1.02;
-                 letter-spacing:-.008em; color:var(--ivory); }
+  /* hero — pure text, fills the first screen (Minds-level minimal) */
+  .hero{ position:relative; z-index:2; max-width:1180px; margin:0 auto; padding:0 40px 40px;
+         min-height:calc(100vh - 150px); display:flex; flex-direction:column; justify-content:center; }
+  .hero .eyebrow{ margin-bottom:26px; }
+  h1.hero-title{ font-family:var(--serif); font-weight:600; font-size:clamp(46px,6.4vw,86px); line-height:1.02;
+                 letter-spacing:-.008em; color:var(--ivory); max-width:12.5em; }
   h1.hero-title em{ font-style:normal; font-weight:600; color:var(--gold); }
-  .hero-sub{ font-size:17px; color:var(--ivory-dim); line-height:1.62; margin-top:22px; max-width:30em; }
-  .hero-ctas{ display:flex; gap:14px; flex-wrap:wrap; margin-top:30px; }
-  .hero-note{ display:flex; align-items:center; gap:9px; margin-top:20px; font-size:13px; color:var(--ivory-dim); }
-  .hero-note .tick{ color:var(--moss); }
-  /* dawn-glow: one warm light source rising behind the morning report */
-  .hero-stage{ position:relative; }
-  .hero-stage::before{ content:''; position:absolute; inset:-180px -200px -120px -200px; z-index:0; pointer-events:none;
-    background:radial-gradient(ellipse 55% 42% at 58% 26%, rgba(201,162,39,.15), rgba(201,162,39,.04) 55%, transparent 78%); }
-  .hero-stage .snap{ position:relative; z-index:1; }
+  .hero-sub{ font-size:18px; color:var(--ivory-dim); line-height:1.6; margin-top:24px; max-width:32em; }
+  .hero-ctas{ display:flex; gap:14px; flex-wrap:wrap; margin-top:34px; }
 
-  .snap{ background:linear-gradient(180deg, var(--green-800), var(--green-900)); border:1px solid var(--gold-line);
-         border-radius:8px; overflow:hidden; box-shadow:0 40px 90px -30px rgba(0,0,0,.7); }
-  .snap-head{ display:flex; justify-content:space-between; align-items:baseline; padding:14px 22px; border-bottom:1px solid var(--hair);
-              font-family:var(--sans); font-size:10px; font-weight:500; letter-spacing:.14em; text-transform:uppercase; color:var(--ivory-faint); }
-  .snap-head .g{ color:var(--gold); }
-  .snap-body{ padding:22px 26px 24px; }
-  .snap-title{ font-family:var(--serif); font-weight:600; font-size:26px; color:var(--ivory); line-height:1.05; }
-  .snap-rule{ height:1px; background:var(--gold-line); margin:14px 0 0; position:relative; }
-  .snap-rule::before{ content:''; position:absolute; left:0; top:0; width:46px; height:1px; background:var(--gold); }
-  /* ledger column heads — same flex geometry as .row so labels sit dead
-     above their columns (spacer mirrors the dot) */
-  .snap-cols{ display:flex; gap:14px; padding:12px 0 7px; border-bottom:1px solid var(--hair);
-              font-family:var(--sans); font-size:9.5px; font-weight:600; letter-spacing:.14em;
-              text-transform:uppercase; color:var(--ivory-faint); }
-  .snap-cols .sp{ width:7px; flex-shrink:0; }
-  .snap-cols .c1{ flex:1; }
-  .snap-cols .c2{ min-width:72px; text-align:right; }
-  .snap-cols .c3{ min-width:80px; text-align:right; }
-  .row{ display:flex; align-items:center; gap:14px; padding:14px 0; border-bottom:1px solid var(--hair); }
-  /* nth-last-child(2): the LAST .row — .snap-foot is the true last child, so
-     :last-child never matched and the foot's border-top doubled the hairline */
-  .snap-body .row:nth-last-child(2){ border-bottom:none; }
-  .dot{ width:7px; height:7px; border-radius:50%; flex-shrink:0; }
-  .dot.c{ background:var(--crit); } .dot.l{ background:var(--gold); } .dot.h{ background:var(--moss); }
-  .nm{ flex:1; } .nm b{ font-family:var(--sans); font-weight:500; font-size:14px; color:var(--ivory); display:block; }
-  .nm span{ font-family:var(--sans); font-size:12px; color:var(--ivory-faint); }
-  /* fixed min-widths + right alignment so status and quantity read as two
-     clean columns — without them CRITICAL/LOW/HEALTHY left edges wander */
-  .st{ font-family:var(--sans); font-size:10px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; min-width:72px; text-align:right; }
-  .st.c{ color:var(--crit); } .st.l{ color:var(--gold); } .st.h{ color:var(--moss); }
-  .qty{ font-family:var(--sans); font-weight:600; font-size:15px; color:var(--ivory); text-align:right; min-width:80px; font-variant-numeric:tabular-nums; }
-  .qty span{ font-size:11px; color:var(--ivory-faint); }
-  .snap-foot{ display:flex; justify-content:space-between; margin-top:16px; padding-top:14px; border-top:1px solid var(--hair);
-              font-family:var(--sans); font-size:11px; font-weight:500; letter-spacing:.04em; color:var(--ivory-faint); }
-  .snap-foot .g{ color:var(--crit); }
-  /* The card animates like the analysis happening, in reading order:
-     item names appear first (the read), verdicts stamp in a beat later
-     (the judgment), quantities write in (the order), and the summary line
-     tots up last. Then stillness — only the critical dot keeps a faint
-     breathe. Plain opacity + a stamp settle on purpose: uniform fade-up
-     staggers, count-up-everything and halo pulses are the generic AI kit. */
-  @keyframes fadeIn{ from{ opacity:0; } to{ opacity:1; } }
-  @keyframes stampIn{ from{ opacity:0; transform:scale(1.16); } to{ opacity:1; transform:scale(1); } }
-  @keyframes ruleDraw{ from{ width:0; } to{ width:46px; } }
-  @keyframes dotBreathe{ 0%,100%{ opacity:1; } 50%{ opacity:.5; } }
-  .snap-cols{ animation:fadeIn .35s ease both; animation-delay:.12s; }
-  .snap-body .row:nth-child(4){ --d:.2s; }
-  .snap-body .row:nth-child(5){ --d:.34s; }
-  .snap-body .row:nth-child(6){ --d:.48s; }
-  .snap-body .row:nth-child(7){ --d:.62s; }
-  .snap-body .row:nth-child(8){ --d:.76s; }
-  .row .dot, .row .nm{ animation:fadeIn .35s ease both; animation-delay:var(--d); }
-  .row .st{ animation:stampIn .22s cubic-bezier(.2,.9,.3,1.3) both; animation-delay:calc(var(--d) + .55s); transform-origin:right center; }
-  .row .qty{ animation:fadeIn .3s ease both; animation-delay:calc(var(--d) + .7s); }
-  .snap-foot{ animation:fadeIn .4s ease both; animation-delay:1.85s; }
-  .snap-rule::before{ animation:ruleDraw .6s ease .1s both; }
-  .dot.c{ animation:fadeIn .35s ease both, dotBreathe 3.4s ease-in-out infinite; animation-delay:var(--d), 2.4s; }
-
-  /* figures strip */
-  .strip{ position:relative; z-index:2; border-top:1px solid var(--hair); border-bottom:1px solid var(--hair); background:rgba(13,40,24,.4); }
-  /* gap + measure sized so the folio fits INLINE right of the figures at
-     desktop widths instead of wrapping onto a lonely second row */
-  .strip-inner{ max-width:1180px; margin:0 auto; padding:22px 40px; display:flex; gap:40px; align-items:baseline; flex-wrap:wrap; }
-  .si{ display:flex; align-items:baseline; gap:12px; }
-  .si .n{ font-family:var(--serif); font-weight:600; font-size:30px; color:var(--gold); line-height:1; font-variant-numeric:tabular-nums; }
-  .si .t{ font-size:13px; color:var(--ivory-dim); max-width:16em; }
-  .strip .folio{ font-family:var(--sans); font-size:10px; font-weight:500; letter-spacing:.16em; text-transform:uppercase; color:var(--ivory-faint); margin-left:auto; }
-
-  /* problem */
-  .problem{ padding:96px 0; }
-  .problem-grid{ display:grid; grid-template-columns:1fr .82fr; gap:64px; align-items:center; }
-  .problem p{ font-size:16.5px; color:var(--ivory-dim); line-height:1.7; margin-top:16px; }
-  .problem p strong{ color:var(--ivory); font-weight:500; }
-  .pullquote{ font-family:var(--serif); font-style:italic; font-size:clamp(1.5rem,2.6vw,2.1rem); line-height:1.3;
-              color:var(--gold); padding-left:26px; border-left:1px solid var(--gold); }
-
-  /* sections */
+  /* how it works */
   .section-head{ text-align:center; max-width:640px; margin:0 auto 56px; }
   .section-head .eyebrow{ margin-bottom:14px; }
   .section-head p{ font-size:16px; color:var(--ivory-dim); margin-top:14px; }
@@ -181,13 +93,6 @@
   .step h3{ font-family:var(--serif); font-weight:600; font-size:24px; color:var(--ivory); margin:14px 0 8px; }
   .step p{ font-size:14px; color:var(--ivory-dim); line-height:1.6; }
   .step__rule{ width:40px; height:1px; background:var(--gold-line); margin:18px 0; }
-
-  .features{ padding:90px 0; border-top:1px solid var(--hair); }
-  .feat-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:18px; }
-  .feat{ background:rgba(13,40,24,.45); border:1px solid var(--gold-line); border-radius:10px; padding:26px; }
-  .feat-ic{ width:42px; height:42px; border:1px solid var(--gold-line); border-radius:9px; display:flex; align-items:center; justify-content:center; color:var(--gold); margin-bottom:16px; }
-  .feat h3{ font-family:var(--serif); font-weight:600; font-size:21px; color:var(--ivory); margin-bottom:7px; }
-  .feat p{ font-size:13.5px; color:var(--ivory-dim); line-height:1.6; }
 
   /* worked example */
   .demo{ padding:90px 0; border-top:1px solid var(--hair); }
@@ -212,16 +117,6 @@
   .read-out .v{ font-family:var(--serif); font-weight:600; font-size:28px; margin-top:5px; color:var(--gold); }
   .read-out .v.crit{ color:var(--crit); }
 
-  /* proof */
-  .proof{ padding:90px 0; border-top:1px solid var(--hair); }
-  .proof-stage{ display:grid; grid-template-columns:1.1fr .9fr; gap:28px; align-items:start; margin-top:48px; }
-  .shot{ background:var(--green-800); border:1px solid var(--gold-line); border-radius:10px; overflow:hidden; }
-  .shot-head{ display:flex; align-items:center; gap:10px; padding:11px 16px; border-bottom:1px solid var(--hair);
-              font-family:var(--sans); font-size:10px; font-weight:600; letter-spacing:.1em; text-transform:uppercase; color:var(--gold); }
-  .shot-dot{ width:7px; height:7px; border-radius:50%; background:var(--gold); }
-  .shot img{ width:100%; height:auto; }
-  .shot--order{ margin-top:54px; }
-
   /* cta */
   .cta{ padding:104px 0; border-top:1px solid var(--hair); text-align:center; }
   .cta h2{ font-family:var(--serif); font-weight:600; font-size:clamp(38px,5vw,60px); line-height:1.05; color:var(--ivory); }
@@ -229,10 +124,7 @@
   .cta p{ font-size:17px; color:var(--ivory-dim); margin:18px auto 32px; max-width:34em; }
   .cta-btns{ display:flex; gap:14px; justify-content:center; flex-wrap:wrap; }
 
-  /* footer — logo + links share the top row; the colophon sits centred on its
-     own line beneath (print-colophon style). space-between with all three on
-     one row dragged the colophon left of centre, and a 3-col grid couldn't
-     centre it without wrapping the link row. */
+  /* footer */
   footer.site{ border-top:1px solid var(--hair); padding:40px 0; }
   .foot{ max-width:1180px; margin:0 auto; padding:0 40px; display:flex; align-items:center; justify-content:space-between; gap:20px; flex-wrap:wrap; }
   .foot img{ height:34px; }
@@ -243,106 +135,51 @@
   .colophon{ font-family:var(--serif); font-style:italic; color:var(--ivory-faint); font-size:14px; }
 
   @media (max-width:900px){
-    .hero,.problem-grid,.how-steps,.feat-grid,.demo-grid,.proof-stage{ grid-template-columns:1fr; gap:36px; }
-    .hero{ padding:34px 22px 44px; }
-    nav,.running-head,.strip-inner,.wrap,.foot{ padding-left:22px; padding-right:22px; }
+    .how-steps,.demo-grid{ grid-template-columns:1fr; gap:36px; }
+    nav,.wrap,.foot{ padding-left:22px; padding-right:22px; }
+    .hero{ padding:0 22px 34px; min-height:calc(100svh - 120px); }
     .nav-link{ display:none; }
-    .shot--order{ margin-top:0; }
-    /* figures stack one per row: fixed number column keeps the text edges
-       aligned; the folio takes its own full row instead of hugging an item */
-    .si .n{ min-width:78px; }
-    .strip .folio{ flex-basis:100%; text-align:right; margin-left:0; }
-    /* footer stacks left-aligned: logo, links, colophon last */
     .foot{ flex-direction:column; align-items:flex-start; gap:14px; }
     .foot .colophon{ text-align:left; margin-top:0; }
   }
-  @media (prefers-reduced-motion: reduce){ *{ transition-duration:.01ms !important; animation-duration:.01ms !important; animation-iteration-count:1 !important; } html{ scroll-behavior:auto; } }
+  @media (prefers-reduced-motion: reduce){ html{ scroll-behavior:auto; } }
   </style>
 </head>
 <body>
 
-<div class="running-head"><span>berthcast — <span class="g">operations intelligence</span></span></div>
-
 <nav>
   <a class="brand" href="{{ url_for('landing') }}"><img src="{{ url_for('static', filename='logo-dark.png') }}" alt="berthcast"></a>
   <div class="nav-right">
-    <a class="nav-link" href="#demo">Worked example</a><a class="nav-link" href="#features">Features</a>
-    <a class="nav-link" href="#how">How it works</a><a class="nav-link" href="{{ url_for('pricing') }}">Pricing</a>
+    <a class="nav-link" href="#how">How it works</a>
+    <a class="nav-link" href="{{ url_for('pricing') }}">Pricing</a>
     <a class="btn btn-nav" href="{{ url_for('login') }}">Sign in →</a>
   </div>
 </nav>
 
 <!-- HERO -->
 <section class="hero">
-  <div>
-    <div class="eyebrow">AI inventory operations for food distributors</div>
-    <h1 class="hero-title">Stop losing revenue to <em>stockouts</em> you could have seen coming.</h1>
-    <p class="hero-sub">berthcast reads your inventory, purchase, and sales exports, ranks what's going critical, and writes the order you should place — before the gap shows up as a sale you can't fill.</p>
-    <div class="hero-ctas"><a class="btn btn-primary" href="{{ url_for('contact') }}">Get in touch →</a><a class="btn btn-secondary" href="#demo">See a real decision</a></div>
-    <div class="hero-note"><span class="tick">✓</span> Want to see it on your own data? Get in touch and we'll set you up with a trial.</div>
-  </div>
-  <div class="hero-stage">
-      <div class="snap">
-        <div class="snap-head"><span>berthcast · <span class="g">priorities</span></span><span>Wk 28 · Mon 06:00</span></div>
-        <div class="snap-body">
-          <div class="snap-title">What to order this week</div>
-          <div class="snap-rule"></div>
-          <div class="snap-cols"><span class="sp"></span><span class="c1">Item</span><span class="c2">Status</span><span class="c3">Order</span></div>
-          <div class="row"><span class="dot c"></span><div class="nm"><b>Brookvale UHT Milk Full Cream 1L</b><span>0 in stock · sells ~300/mo · order by 8 Jul</span></div><span class="st c">Critical</span><div class="qty"><span id="snapQty">1,570</span> <span>CTN</span></div></div>
-          <div class="row"><span class="dot l"></span><div class="nm"><b>Greenfjord Mature Cheddar Block 200g</b><span>1.2 months cover · import</span></div><span class="st l">Low</span><div class="qty">628 <span>CTN</span></div></div>
-          <div class="row"><span class="dot l"></span><div class="nm"><b>Marikita Coconut Milk 400ml</b><span>1.8 months cover · import</span></div><span class="st l">Low</span><div class="qty">240 <span>CTN</span></div></div>
-          <div class="row"><span class="dot h"></span><div class="nm"><b>Padimas Premium Jasmine Rice 5kg</b><span>8 months cover · local</span></div><span class="st h">Healthy</span><div class="qty">—</div></div>
-          <div class="row"><span class="dot h"></span><div class="nm"><b>Oakfield Free-Range Eggs 30s</b><span>6 months cover · local</span></div><span class="st h">Healthy</span><div class="qty">—</div></div>
-          <div class="snap-foot"><span>12 items to order · <span class="g">1 critical</span></span><span>Generated by berthcast</span></div>
-        </div>
-      </div>
+  <div class="eyebrow">AI inventory operations for food distributors</div>
+  <h1 class="hero-title">Stop losing revenue to <em>stockouts</em> you could have seen coming.</h1>
+  <p class="hero-sub">berthcast reads your ERP exports and writes the order you should place.</p>
+  <div class="hero-ctas">
+    <a class="btn btn-primary" href="{{ url_for('contact') }}">Get in touch →</a>
+    <a class="btn btn-secondary" href="#demo">See a real decision</a>
   </div>
 </section>
 
-<div class="strip"><div class="strip-inner">
-  <div class="si"><span class="n">16<span style="font-size:15px"> wks</span></span><span class="t">longest import lead time every reorder is planned around</span></div>
-  <div class="si"><span class="n">400+</span><span class="t">SKUs ranked by revenue at risk, every run</span></div>
-  <div class="si"><span class="n">3</span><span class="t">passes — read, score health, write the order</span></div>
-  <span class="folio">No. 01 — berthcast</span>
-</div></div>
-
-<!-- PROBLEM -->
-<section class="problem"><div class="wrap"><div class="problem-grid">
-  <div>
-    <div class="eyebrow">What stockouts really cost</div>
-    <h2 class="sec-title">A stockout doesn't warn you. It just <em>arrives</em>.</h2>
-    <p>A high-runner quietly draws down. A supplier slips a week. The first real signal is a customer order you can't fill — and on import lines with lead times measured in months, that gap isn't a bad afternoon. It's weeks of orders walking out the door.</p>
-    <p><strong>The maths is unforgiving on the items that matter most.</strong> The faster a line sells, the less warning you get; the longer the lead time, the earlier you needed to act. Spreadsheets don't flag that. berthcast does — every line, every run.</p>
-  </div>
-  <div class="pullquote">The faster it sells, the less warning you get. The longer the lead, the earlier you needed to act.</div>
-</div></div></section>
-
 <!-- HOW -->
 <section class="how" id="how"><div class="wrap">
-  <div class="section-head"><div class="eyebrow center">How it works</div><h2 class="sec-title">From your exports to a written order</h2><p>No integration. It works directly from the Excel reports you already pull out of your ERP.</p></div>
+  <div class="section-head"><div class="eyebrow center">How it works</div><h2 class="sec-title">From your exports to a written order</h2></div>
   <div class="how-steps">
-    <div class="step"><div class="step__n">01</div><div class="step__rule"></div><h3>Upload your files</h3><p>Drop in your inventory, purchase, and sales exports. No setup, no mapping, no formulas to maintain.</p></div>
-    <div class="step"><div class="step__n">02</div><div class="step__rule"></div><h3>It reads and scores</h3><p>Three passes normalise your columns, score every SKU against demand and real lead times, and rank what's at risk.</p></div>
-    <div class="step"><div class="step__n">03</div><div class="step__rule"></div><h3>Approve and order</h3><p>Review the written recommendations, adjust anything, approve the ones you want, and send the order.</p></div>
-  </div>
-</div></section>
-
-<!-- FEATURES -->
-<section class="features" id="features"><div class="wrap">
-  <div class="section-head"><div class="eyebrow center">What berthcast does</div><h2 class="sec-title">Built for the lines that <em>matter most</em></h2></div>
-  <div class="feat-grid">
-    <div class="feat"><div class="feat-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="m15.5 20.025 -4 -4 1.075 -1.075L15.5 17.875 21.475 11.9l1.075 1.075L15.5 20.025Zm5.5 -10.35h-1.5V4.5h-1.5v2.25H6V4.5H4.5v15h6.275v1.5H3V3h6.55c0.11665 -0.583335 0.40415 -1.0625 0.8625 -1.4375C10.87085 1.1875 11.4 1 12 1c0.6 0 1.12915 0.1875 1.5875 0.5625 0.45835 0.375 0.74585 0.854165 0.8625 1.4375H21v6.675ZM12 4.5c0.28335 0 0.52085 -0.095835 0.7125 -0.2875C12.90415 4.020835 13 3.783335 13 3.5s-0.09585 -0.520835 -0.2875 -0.7125C12.52085 2.595835 12.28335 2.5 12 2.5c-0.28335 0 -0.52085 0.095835 -0.7125 0.2875C11.09585 2.979165 11 3.216665 11 3.5s0.09585 0.520835 0.2875 0.7125c0.19165 0.191665 0.42915 0.2875 0.7125 0.2875Z"/></svg></div><h3>Inventory health</h3><p>Every SKU classified Critical, Low, or Healthy from days of stock left versus your real import-vs-local lead times.</p></div>
-    <div class="feat"><div class="feat-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M8.7999 21.5c-1.98335 -0.66665 -3.6125 -1.85835 -4.8875 -3.575 -1.275 -1.71665 -1.9125 -3.69165 -1.9125 -5.925 0 -0.53335 0.0375 -1.06665 0.1125 -1.6 0.075 -0.53335 0.20417 -1.05835 0.3875 -1.575l-1.6 0.925 -0.7499975 -1.275 4.3250025 -2.5 2.499995 4.3 -1.3 0.75 -1.449995 -2.475c-0.233335 0.55 -0.412505 1.1125 -0.537505 1.6875S3.4999 11.4 3.4999 12c0 1.93335 0.570835 3.64585 1.7125 5.1375 1.14165 1.49165 2.59585 2.50415 4.3625 3.0375l-0.775 1.325Zm7.2 -13v-1.5h2.875c-0.8 -1.1 -1.80415 -1.95835 -3.0125 -2.575C14.65405 3.808335 13.36655 3.5 11.9999 3.5c-1.15 0 -2.22085 0.208335 -3.2125 0.625 -0.99165 0.416665 -1.87085 0.99165 -2.6375 1.725l-0.775 -1.35c0.9 -0.783335 1.9125 -1.395835 3.0375 -1.8375S10.73325 2 11.9999 2c1.46665 0 2.84585 0.295835 4.1375 0.8875 1.29165 0.591665 2.4125 1.429165 3.3625 2.5125V3.5h1.5v5h-5Zm-1.125 15.5 -4.325 -2.5 2.5 -4.3 1.275 0.75 -1.45 2.525c2.16665 -0.21665 3.97915 -1.13335 5.4375 -2.75 1.45835 -1.61665 2.1875 -3.525 2.1875 -5.725 0 -0.35 -0.02085 -0.6875 -0.0625 -1.0125 -0.04165 -0.325 -0.10415 -0.65415 -0.1875 -0.9875h1.55c0.06665 0.33335 0.11665 0.66665 0.15 1 0.03335 0.33335 0.05 0.66665 0.05 1 0 2.38335 -0.74585 4.49165 -2.2375 6.325 -1.49165 1.83335 -3.39585 2.99165 -5.7125 3.475l1.575 0.925 -0.75 1.275Z"/></svg></div><h3>Written reorders</h3><p>An exact quantity per item, sized from sales velocity, spoilage thresholds, and supplier lead times. No guesswork.</p></div>
-    <div class="feat"><div class="feat-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M1 21 12 2l11 19H1Zm2.6 -1.5h16.8L12 5 3.6 19.5Zm8.5045 -1.425c0.21365 0 0.39135 -0.07235 0.533 -0.217 0.14165 -0.1445 0.2125 -0.32365 0.2125 -0.5375 0 -0.21365 -0.07235 -0.39135 -0.217 -0.533 -0.1445 -0.14165 -0.32365 -0.2125 -0.5375 -0.2125 -0.21365 0 -0.39135 0.07235 -0.533 0.217 -0.14165 0.1445 -0.2125 0.32365 -0.2125 0.5375 0 0.21365 0.07235 0.39135 0.217 0.533 0.1445 0.14165 0.32365 0.2125 0.5375 0.2125ZM11.35 15.3h1.5V9.7h-1.5v5.6Z"/></svg></div><h3>Stockout flagging</h3><p>Surfaces what's most likely to run dry from current velocity, stock on hand, and lead time — before the gap, not after.</p></div>
-    <div class="feat"><div class="feat-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M3 21V7.05h6.175V4.75L12 2l2.825 2.75v6.45H21V21H3Zm1.5 -1.5h2.65v-2.65H4.5V19.5Zm0 -4.15h2.65v-2.65H4.5v2.65Zm0 -4.15h2.65v-2.65H4.5v2.65ZM10.675 19.5h2.65v-2.65h-2.65V19.5Zm0 -4.15h2.65v-2.65h-2.65v2.65Zm0 -4.15h2.65v-2.65h-2.65v2.65Zm0 -4.15h2.65V4.4h-2.65v2.65ZM16.85 19.5H19.5v-2.65h-2.65V19.5Zm0 -4.15H19.5v-2.65h-2.65v2.65Z"/></svg></div><h3>Supplier-aware</h3><p>Knows which suppliers are import versus local and applies the right buffer automatically, so orders land before you run dry.</p></div>
-    <div class="feat"><div class="feat-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M11.25 18.975h1.5v-1h1.5c0.2125 0 0.39065 -0.0719 0.5345 -0.21575 0.14365 -0.14365 0.2155 -0.32175 0.2155 -0.53425v-3.25c0 -0.2125 -0.07185 -0.39065 -0.2155 -0.5345 -0.14385 -0.14365 -0.322 -0.2155 -0.5345 -0.2155H10.5v-1.75h4.5v-1.5h-2.25v-1h-1.5v1h-1.5c-0.2125 0 -0.3906 0.07185 -0.53425 0.2155 -0.14385 0.14385 -0.21575 0.322 -0.21575 0.5345v3.25c0 0.2125 0.0719 0.3906 0.21575 0.53425 0.14365 0.14385 0.32175 0.21575 0.53425 0.21575H13.5v1.75h-4.5v1.5h2.25v1ZM5.5 22c-0.4 0 -0.75 -0.15 -1.05 -0.45 -0.3 -0.3 -0.45 -0.65 -0.45 -1.05V3.5c0 -0.4 0.15 -0.75 0.45 -1.05 0.3 -0.3 0.65 -0.45 1.05 -0.45h9.025L20 7.475V20.5c0 0.4 -0.15 0.75 -0.45 1.05 -0.3 0.3 -0.65 0.45 -1.05 0.45H5.5Zm7.775 -14.525V3.5H5.5v17h13V7.475H13.275Z"/></svg></div><h3>Ready-to-send orders</h3><p>Approve with one click and berthcast produces a clean order you can send straight to the supplier — no reformatting.</p></div>
-    <div class="feat"><div class="feat-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M6 14.025h7.825v-1.5H6v1.5Zm0 -3.25h12v-1.5H6v1.5Zm0 -3.25h12v-1.5H6v1.5ZM2 22V3.5c0 -0.4 0.15 -0.75 0.45 -1.05C2.75 2.15 3.1 2 3.5 2h17c0.4 0 0.75 0.15 1.05 0.45 0.3 0.3 0.45 0.65 0.45 1.05v13c0 0.4 -0.15 0.75 -0.45 1.05 -0.3 0.3 -0.65 0.45 -1.05 0.45H6l-4 4Zm3.35 -5.5H20.5V3.5H3.5v15l1.85 -2Z"/></svg></div><h3>Ask in plain language</h3><p>"Which items are critical this week?" "What do I order before the long weekend?" Answered from your own data, instantly.</p></div>
+    <div class="step"><div class="step__n">01</div><div class="step__rule"></div><h3>Upload your files</h3><p>Drop in your inventory, purchase, and sales exports.</p></div>
+    <div class="step"><div class="step__n">02</div><div class="step__rule"></div><h3>It reads and scores</h3><p>Every SKU scored against demand and real lead times.</p></div>
+    <div class="step"><div class="step__n">03</div><div class="step__rule"></div><h3>Approve and order</h3><p>Review, adjust, and send the order it writes.</p></div>
   </div>
 </div></section>
 
 <!-- WORKED EXAMPLE -->
 <section class="demo" id="demo"><div class="wrap">
-  <div class="section-head"><div class="eyebrow center">A worked example · no black box</div><h2 class="sec-title">Why berthcast says order <em>1,570</em></h2><p>One real line from a live run — and the read behind the number. The same logic runs on every SKU, every time.</p></div>
+  <div class="section-head"><div class="eyebrow center">A worked example</div><h2 class="sec-title">Why berthcast says order <em>1,570</em></h2><p>One real line from a live run. The same logic runs on every SKU.</p></div>
   <div class="demo-grid">
     <div class="panel">
       <div class="panel-tag">The line · as berthcast reads it</div>
@@ -358,7 +195,7 @@
     <div class="panel read">
       <div class="panel-tag">berthcast's read</div>
       <span class="pill">● Critical</span>
-      <div class="read-line" style="margin-top:14px">Nothing on the shelf, and the next shipment is <b>~16 weeks</b> out. To cover demand until fresh stock can land — plus a safety buffer — the order is sized at:</div>
+      <div class="read-line" style="margin-top:14px">Nothing on the shelf, next shipment <b>~16 weeks</b> out. Sized to cover demand until stock lands:</div>
       <div class="ex-num">1,570 <span>CTN</span></div>
       <div class="read-out">
         <div><div class="l">Decision</div><div class="v">Order now</div></div>
@@ -368,20 +205,11 @@
   </div>
 </div></section>
 
-<!-- PROOF -->
-<section class="proof"><div class="wrap">
-  <div class="section-head" style="text-align:left;margin-left:0;max-width:600px;"><div class="eyebrow">Straight from the product</div><h2 class="sec-title">The report it writes. <em>The order it drafts.</em></h2></div>
-  <div class="proof-stage">
-    <figure class="shot"><div class="shot-head"><span class="shot-dot"></span> Health report — every SKU ranked</div><img src="{{ url_for('static', filename='screenshot-inventory.png') }}" alt="berthcast health report: items ranked CRITICAL to HEALTHY with stock, spoilage risk, days of supply and a plain-English note per item" loading="lazy"></figure>
-    <figure class="shot shot--order"><div class="shot-head"><span class="shot-dot"></span> Reorder — decision drafted</div><img src="{{ url_for('static', filename='screenshot-recommendations.png') }}" alt="berthcast reorder recommendation: suggested quantity with confidence level, what happens if you order or wait, and a supplier-risk action plan" loading="lazy"></figure>
-  </div>
-</div></section>
-
 <!-- CTA -->
 <section class="cta"><div class="wrap">
   <h2>Ready to stop <em>guessing</em> your reorders?</h2>
-  <p>Get in touch and we'll set you up with a trial on your own data — the full report, same as a paid plan.</p>
-  <div class="cta-btns"><a class="btn btn-primary" href="{{ url_for('contact') }}">Get in touch →</a><a class="btn btn-secondary" href="#demo">See a real decision</a></div>
+  <p>Get in touch and we'll run it on your own data.</p>
+  <div class="cta-btns"><a class="btn btn-primary" href="{{ url_for('contact') }}">Get in touch →</a></div>
 </div></section>
 
 <!-- FOOTER -->
@@ -395,28 +223,5 @@
     <a href="{{ url_for('login') }}">Sign in</a>
   </div>
 </div></footer>
-
-<script>
-(function(){
-  var el=document.getElementById('snapQty');
-  if(!el) return;
-  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  if(reduce) return;
-  // Timed to the card sequence: the critical row's verdict stamps at ~.75s,
-  // its quantity cell fades in at .9s, and this write-in finishes just
-  // before the summary line arrives at 1.85s. Only THIS number counts up —
-  // it's the order being sized, not a decoration.
-  var target=1570, dur=650, startT=null;
-  el.textContent='0';
-  function step(t){
-    if(!startT) startT=t;
-    var p=Math.min(1,(t-startT)/dur);
-    var eased=1-Math.pow(1-p,3);
-    el.textContent=Math.round(target*eased).toLocaleString('en-US');
-    if(p<1) requestAnimationFrame(step);
-  }
-  setTimeout(function(){ requestAnimationFrame(step); }, 950);
-})();
-</script>
 </body>
 </html>
