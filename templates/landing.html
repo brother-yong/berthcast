@@ -41,8 +41,9 @@
      one cool counterweight low-left, and the grain */
   body::before{ content:''; position:fixed; inset:0; pointer-events:none; z-index:0;
     background:
-      radial-gradient(ellipse at 76% 14%, rgba(201,162,39,.16), transparent 52%),
-      radial-gradient(ellipse at 8% 90%, rgba(26,77,46,.3), transparent 55%); }
+      radial-gradient(ellipse at 76% 14%, rgba(201,162,39,.18), transparent 52%),
+      radial-gradient(ellipse at 42% 68%, rgba(201,162,39,.07), transparent 45%),
+      radial-gradient(ellipse at 8% 90%, rgba(26,77,46,.32), transparent 55%); }
   body::after{ content:''; position:fixed; inset:0; pointer-events:none; z-index:0; opacity:.018;
     background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
 
@@ -56,8 +57,11 @@
                 letter-spacing:-.005em; color:var(--ivory); margin-top:16px; }
   h2.sec-title em{ font-style:normal; color:var(--gold); }
 
-  /* nav */
-  nav{ position:relative; z-index:3; max-width:1180px; margin:0 auto; padding:14px 40px;
+  /* nav — frosted glass bar, stays put while the page scrolls under it */
+  .topbar{ position:sticky; top:0; z-index:10; background:rgba(5,20,10,.55);
+           -webkit-backdrop-filter:blur(14px); backdrop-filter:blur(14px);
+           border-bottom:1px solid var(--hair); }
+  nav{ max-width:1180px; margin:0 auto; padding:14px 40px;
        display:flex; align-items:center; justify-content:space-between; }
   .brand{ display:inline-flex; align-items:center; text-decoration:none; }
   .brand img{ height:44px; width:auto; }
@@ -77,8 +81,8 @@
   .hero{ position:relative; z-index:2; max-width:1180px; margin:0 auto; padding:0 40px 40px;
          min-height:calc(100vh - 150px); display:flex; flex-direction:column; justify-content:center; }
   .hero .eyebrow{ margin-bottom:26px; }
-  h1.hero-title{ font-family:var(--serif); font-weight:600; font-size:clamp(46px,6.4vw,86px); line-height:1.02;
-                 letter-spacing:-.008em; color:var(--ivory); max-width:12.5em; }
+  h1.hero-title{ font-family:var(--serif); font-weight:600; font-size:clamp(38px,4.6vw,60px); line-height:1.04;
+                 letter-spacing:-.008em; color:var(--ivory); max-width:14em; }
   h1.hero-title em{ font-style:normal; font-weight:600; color:var(--gold); }
   .hero-sub{ font-size:18px; color:var(--ivory-dim); line-height:1.6; margin-top:24px; max-width:32em; }
   .hero-ctas{ display:flex; gap:14px; flex-wrap:wrap; margin-top:34px; }
@@ -97,8 +101,10 @@
   /* worked example */
   .demo{ padding:90px 0; border-top:1px solid var(--hair); }
   .demo-grid{ display:grid; grid-template-columns:1fr 1fr; gap:24px; align-items:stretch; }
-  .panel{ background:rgba(13,40,24,.5); border:1px solid var(--gold-line); border-radius:10px; padding:28px; }
-  .panel.read{ background:linear-gradient(180deg, var(--green-800), var(--green-900)); }
+  /* frosted glass panels — translucent over the glow behind them */
+  .panel{ background:rgba(13,40,24,.38); -webkit-backdrop-filter:blur(14px); backdrop-filter:blur(14px);
+          border:1px solid var(--gold-line); border-radius:10px; padding:28px; }
+  .panel.read{ background:rgba(8,28,15,.55); }
   .panel-tag{ font-family:var(--sans); font-size:10px; font-weight:500; letter-spacing:.14em; text-transform:uppercase; color:var(--ivory-faint); margin-bottom:18px; }
   .sku-name{ font-family:var(--serif); font-weight:600; font-size:24px; color:var(--ivory); }
   .sku-meta{ font-family:var(--sans); font-size:12px; color:var(--ivory-faint); margin-top:4px; }
@@ -147,14 +153,14 @@
 </head>
 <body>
 
-<nav>
+<header class="topbar"><nav>
   <a class="brand" href="{{ url_for('landing') }}"><img src="{{ url_for('static', filename='logo-dark.png') }}" alt="berthcast"></a>
   <div class="nav-right">
     <a class="nav-link" href="#how">How it works</a>
     <a class="nav-link" href="{{ url_for('pricing') }}">Pricing</a>
     <a class="btn btn-nav" href="{{ url_for('login') }}">Sign in →</a>
   </div>
-</nav>
+</nav></header>
 
 <!-- HERO -->
 <section class="hero">
