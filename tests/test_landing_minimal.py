@@ -60,6 +60,12 @@ _check("stampIn" not in html, "card animations deleted")
 _check('href="#how"' in html, "nav links to #how")
 _check("#features" not in html, "features nav link gone")
 
+# hamburger menu: every page reachable without scrolling to the footer
+_check("menu-panel" in html, "hamburger menu present")
+for page in ("/terms", "/privacy", "/about", "/contact"):
+    _check(f'href="{page}"' in html and html.index(f'href="{page}"') < html.index("<footer"),
+           f"{page} reachable from the top menu (not just the footer)")
+
 if F:
     print("\nSOME TESTS FAILED")
     sys.exit(1)
