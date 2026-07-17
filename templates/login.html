@@ -23,12 +23,17 @@
       <button type="submit" class="btn btn-primary btn-full" style="margin-top:8px;">
         Sign in
       </button>
-      <p style="text-align:right; margin-top:10px; margin-bottom:0;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-top:10px;">
+        <label style="display:flex; align-items:center; gap:7px; font-size:13px; color:var(--muted); cursor:pointer; margin:0;">
+          <input type="checkbox" name="remember" value="on"
+                 style="width:15px; height:15px; accent-color:var(--brass);">
+          Keep me signed in
+        </label>
         <a href="{{ url_for('forgot_password') }}"
            style="font-size:13px; color:var(--muted); text-decoration:none;">
           Forgot password?
         </a>
-      </p>
+      </div>
     </form>
   </div>
 

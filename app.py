@@ -6,7 +6,7 @@ import hashlib
 import shutil
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from flask import (
     Flask, render_template, request, redirect,
@@ -123,11 +123,15 @@ DEDUP_STREAM_TIMEOUT_S = 300
 # Session cookie hardening. SECURE is only enforced in production (on Render,
 # which is HTTPS-only) so local http dev still works. HTTPONLY keeps JavaScript
 # from reading the login cookie; SAMESITE=Lax stops it being sent on cross-site
-# requests. Session length is left as a browser-session cookie (clears on close).
+# requests. Sessions default to browser-session cookies; "Keep me signed in"
+# opts into a 30-day permanent cookie.
 app.config.update(
     SESSION_COOKIE_SECURE=bool(os.environ.get("RENDER")),
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
+    # Only applies when a login opts in via "Keep me signed in" — the default
+    # session stays a browser-session cookie (clears on close).
+    PERMANENT_SESSION_LIFETIME=timedelta(days=30),
 )
 
 
@@ -756,6 +760,9 @@ def login():
             rate_limit.clear(ip)
             if acct_key:
                 rate_limit.clear(acct_key)
+            # "Keep me signed in" — opt-in 30-day cookie (PERMANENT_SESSION_LIFETIME).
+            # Unticked keeps the default browser-session cookie.
+            session.permanent = bool(request.form.get("remember"))
             session["user_id"]  = u["id"]
             session["email"]    = u["email"]
             session["org_name"] = u["org_name"]
