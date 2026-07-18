@@ -2662,13 +2662,18 @@ def run_analysis(upload_session_id):
             # on the bad ones. classify_complete_run distinguishes a genuinely
             # healthy zero-rec run from one that FAILED to produce recs — so a
             # client-facing empty order list reaches the operator's inbox first.
-            outcome = usage.classify_complete_run(
-                inventory_report, recommendations, result.get("data_notes") or [])
-            if usage.should_alert(outcome["category"]):
-                logger.warning("Analysis %s completed as %s (items=%s, recs=%s) for %s",
-                               upload_session_id, outcome["category"],
-                               outcome["items"], outcome["recs"], _org_name)
-                _alert_failure(outcome["category"])
+            try:
+                outcome = usage.classify_complete_run(
+                    inventory_report, recommendations, result.get("data_notes") or [])
+                if usage.should_alert(outcome["category"]):
+                    logger.warning("Analysis %s completed as %s (items=%s, recs=%s) for %s",
+                                   upload_session_id, outcome["category"],
+                                   outcome["items"], outcome["recs"], _org_name)
+                    _alert_failure(outcome["category"])
+            except Exception:
+                # Never let outcome-classification break a saved, successful run.
+                logger.warning("Run-outcome alert step failed for session %s",
+                               upload_session_id, exc_info=True)
 
             # Increment analyses_used for free users
             if _user_tier == "free":
