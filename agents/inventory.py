@@ -682,7 +682,8 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
         low  = sum(1 for r in report if r.get("status") == "LOW")
         _emit(progress_emit,
               f"Done checking stock — {len(report)} items: {crit} critical, {low} running low")
-        return {"report": report, "items_analysed": len(report), "partial": any_repaired,
+        return {"report": report, "items_analysed": len(report),
+                "partial": any_repaired or len(report) < total_items,
                 "data_notes": data_notes}
     except Exception as e:
         # Raw exception text is for the operator (logs + ALERT_EMAIL via the

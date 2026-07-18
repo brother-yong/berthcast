@@ -34,7 +34,8 @@ from .shared import (
 from quantity import sanitize_suggested_quantity
 
 
-def run_recommendation_agent(session_id: int, model: str, inventory_report: list, context: dict, progress_emit=None) -> list:
+def run_recommendation_agent(session_id: int, model: str, inventory_report: list, context: dict, progress_emit=None,
+                             data_notes=None) -> list:
     _emit(progress_emit, "Loading company config and supplier profiles")
 
     # Pull org name from session
@@ -394,6 +395,7 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
     rec_batches = [enriched_lines[i:i+_REC_BATCH]
                    for i in range(0, len(enriched_lines), _REC_BATCH)]
     n_batches   = len(rec_batches)
+    expected_items = len(enriched_lines)
     if n_batches > 1:
         _emit(progress_emit,
               f"Splitting into {n_batches} recommendation batches of up to {_REC_BATCH} items")
@@ -433,6 +435,12 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
             return [{"error": "Recommendation agent returned no usable JSON for any batch."}]
 
         recs = all_recs
+
+        if data_notes is not None and len(all_recs) < expected_items:
+            data_notes.append(
+                "The AI's reply was cut short or unusable for part of the "
+                "recommendation step, so some items may be missing "
+                "recommendations. Re-running the analysis usually completes it.")
 
         # Save outcome stubs for future learning, and attach the quantity
         # basis (monthly sales + unit) so the results page can explain the
