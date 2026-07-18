@@ -153,8 +153,12 @@ def _send_run_failure_alert(org_name: str, upload_session_id: int, category: str
         return  # not configured — the admin usage page is still the source of truth
 
     human = {
-        "blank":  "came back BLANK — 0 items reviewed",
-        "failed": "FAILED — it crashed or the server restarted mid-run",
+        "blank":       "came back BLANK — 0 items reviewed",
+        "failed":      "FAILED — it crashed or the server restarted mid-run",
+        "recs_failed": "produced NO usable recommendations — the items were "
+                       "classified but every recommendation errored",
+        "incomplete":  "came back INCOMPLETE — the AI reply was cut short, so "
+                       "items and/or recommendations are missing",
     }.get(category, f"ended as '{category}'")
 
     link = f"{base_url}/results/{upload_session_id}" if base_url else f"session {upload_session_id}"

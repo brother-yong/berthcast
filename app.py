@@ -2658,14 +2658,17 @@ def run_analysis(upload_session_id):
             )
             db.execute("UPDATE upload_sessions SET status='complete' WHERE id=?", (upload_session_id,))
 
-            # Silent failure: the run finished and is saved as complete, but it
-            # produced zero items — the client just sees a blank report. Mark it
-            # complete (so the page behaves) but page the operator, because this
-            # is exactly the case that used to go unnoticed until a complaint.
-            if not any(isinstance(i, dict) for i in inventory_report):
-                logger.warning("Analysis %s completed BLANK (0 items) for %s",
-                               upload_session_id, _org_name)
-                _alert_failure("blank")
+            # Name the true outcome of this "complete" run and page the operator
+            # on the bad ones. classify_complete_run distinguishes a genuinely
+            # healthy zero-rec run from one that FAILED to produce recs — so a
+            # client-facing empty order list reaches the operator's inbox first.
+            outcome = usage.classify_complete_run(
+                inventory_report, recommendations, result.get("data_notes") or [])
+            if usage.should_alert(outcome["category"]):
+                logger.warning("Analysis %s completed as %s (items=%s, recs=%s) for %s",
+                               upload_session_id, outcome["category"],
+                               outcome["items"], outcome["recs"], _org_name)
+                _alert_failure(outcome["category"])
 
             # Increment analyses_used for free users
             if _user_tier == "free":

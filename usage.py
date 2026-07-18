@@ -36,11 +36,12 @@ PENDING     = "pending"      # uploaded, not yet analysed
 # can flag an incomplete run. If that wording changes, change this with it.
 _TRUNCATED_NOTE_HINT = "cut short"
 
-# Outcomes worth emailing the operator about. A REFUSED run is deliberately
-# excluded: that is the product correctly declining unreadable data, a coaching
-# moment, not an outage. INCOMPLETE / RECS_FAILED are shown on the page but not
-# paged on — they are partial results, not nothing.
-ALERTABLE = frozenset({BLANK, FAILED})
+# Outcomes worth emailing the operator about. REFUSED stays excluded — the
+# product correctly declining unreadable data is a coaching nudge, not an
+# outage. RECS_FAILED and INCOMPLETE now alert: a run with items but no usable
+# recommendations is the silent trust-killer (client sees an empty order list),
+# so the operator must hear about it before the client does.
+ALERTABLE = frozenset({BLANK, FAILED, RECS_FAILED, INCOMPLETE})
 
 
 def _loads(blob, default):
