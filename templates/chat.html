@@ -1124,6 +1124,7 @@ async function sendMessage() {
   const bubbleEl       = assistantRow.querySelector('.msg-bubble');
   let fullText         = '';
   let rawText          = '';
+  let finished         = false;   // ev.done or ev.error rendered a final state
 
   try {
     const res = await fetch('/api/chat', {
@@ -1202,19 +1203,34 @@ async function sendMessage() {
             scrollToBottom();
           }
           if (ev.done) {
+            finished = true;
             bubbleEl.innerHTML = renderMarkdown(fullText);   // format once, at the end
             applyHighlighting(bubbleEl);
+            scrollToBottom();
             loadConversations();
           }
           if (ev.error) {
+            finished = true;
             bubbleEl.innerHTML = `<span style="color:#E89A92">Error: ${escHtml(ev.error)}</span>`;
           }
         } catch(e) {}
       }
     }
+    // Stream ended without an ev.done (deploy restart, proxy timeout): finalize
+    // the partial answer instead of leaving raw unrendered markdown on screen.
+    if (!finished && fullText) {
+      bubbleEl.innerHTML = renderMarkdown(fullText);
+      applyHighlighting(bubbleEl);
+    }
   } catch(e) {
-    const bubbleEl2 = document.querySelector('.msg-bubble.assistant:last-of-type');
-    if (bubbleEl2) bubbleEl2.innerHTML = `<span style="color:#E89A92">Network error. Please try again.</span>`;
+    // Keep whatever already streamed — losing a half-written answer to a
+    // connection blip is worse than showing it with a warning underneath.
+    // Skip if the answer already finished (a hiccup while the stream closes).
+    if (!finished) {
+      const errLine = '<div style="color:#E89A92;margin-top:8px">Connection lost — this answer may be incomplete. Please try again.</div>';
+      bubbleEl.innerHTML = (fullText ? renderMarkdown(fullText) : '') + errLine;
+      if (fullText) applyHighlighting(bubbleEl);
+    }
   } finally {
     isStreaming = false;
     document.getElementById('sendBtn').disabled = !input.value.trim();

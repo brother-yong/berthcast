@@ -49,6 +49,20 @@ _check("renderMarkdown(fullText) + '<span class=\"typing-cursor\"></span>'" not 
 _check("bubbleEl.innerHTML = renderMarkdown(fullText);" in html,
        "markdown is still rendered once, on done")
 
+# 4) Stream-failure handling: a partial answer must survive.
+#    (a) Stream ends without an ev.done (deploy restart, proxy cut): finalize
+#        the markdown render after the read loop instead of leaving raw text.
+#    (b) Network error mid-stream: keep what already streamed, append an error
+#        line — never wipe the bubble.
+_check("finished = true" in html,
+       "done/error branches mark the stream finished")
+_check("if (!finished && fullText)" in html,
+       "stream ending without done still finalizes the render")
+_check("Network error. Please try again." not in html,
+       "network error preserves the partial answer (old wipe is gone)")
+_check("Connection lost" in html,
+       "network error appends a connection-lost line instead")
+
 # 3) Robust <thinking> parsing over the whole accumulated stream.
 _check("rawText += ev.text" in html,
        "stream is accumulated into rawText before parsing")
