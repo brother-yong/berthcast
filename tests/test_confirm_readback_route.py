@@ -66,14 +66,21 @@ db.execute(
     (SID2, 1, "V2Org", "uploading", "all", "{}"),
 )
 db.set_conversion_status(SID2, "sales", "needs_confirm", rows_count=891, readback=rb)
+# The other-org user must really exist, or login_required revokes the session
+# before the cross-org guard runs (session_version check needs a live row).
+db.execute("DELETE FROM users WHERE email=?", ("x@otherorg.com",))
+other_uid = db.execute(
+    "INSERT INTO users (email, password_hash, org_name, model) VALUES (?,?,?,?)",
+    ("x@otherorg.com", "x", "OtherOrg", "claude-sonnet-4-6"))
 with client.session_transaction() as s:
-    s["user_id"] = 2
+    s["user_id"] = other_uid
     s["org_name"] = "OtherOrg"
     s["email"] = "x@otherorg.com"
 r = client.post("/upload/confirm-readback", json={"slot": "sales", "session_id": SID2})
 _check(r.status_code in (403, 404), f"cross-org confirm must be blocked, got {r.status_code}")
 still = db.get_conversion_status(SID2).get("sales", {})
 _check(still.get("status") == "needs_confirm", "cross-org attempt must NOT flip the slot")
+db.execute("DELETE FROM users WHERE id=?", (other_uid,))
 db.execute("DELETE FROM upload_sessions WHERE id=?", (SID2,))
 
 db.execute("DELETE FROM upload_sessions WHERE id=?", (SID,))

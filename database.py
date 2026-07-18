@@ -247,6 +247,11 @@ def init_db():
         "ALTER TABLE supplier_profiles ADD COLUMN stockouts_happened INTEGER DEFAULT 0",
         "ALTER TABLE supplier_profiles ADD COLUMN last_scored_at TIMESTAMP",
         "CREATE INDEX IF NOT EXISTS idx_supplier_profiles_org ON supplier_profiles(org_name)",
+        # Session revocation: stamped into the signed cookie at login and re-checked
+        # each request. Bumping it (remove/demote/password-reset) invalidates every
+        # live cookie for that user immediately, instead of waiting out the 30-day
+        # "remember me" lifetime. Existing users default to 0.
+        "ALTER TABLE users ADD COLUMN session_version INTEGER NOT NULL DEFAULT 0",
     ]:
         try:
             conn.execute(migration)
@@ -848,6 +853,14 @@ def update_recommendations(session_id, mutator):
         raise
     finally:
         conn.close()
+
+
+def bump_session_version(user_id) -> None:
+    """Invalidate every live session for a user. Call after any change that should
+    end their current sessions: password reset, removal, or a role/trial change.
+    login_required compares the cookie's stamped version to this, so a bump makes
+    all existing cookies stop working on their next request."""
+    execute("UPDATE users SET session_version = session_version + 1 WHERE id=?", (user_id,))
 
 
 def get_conversion_status(session_id: int) -> dict:

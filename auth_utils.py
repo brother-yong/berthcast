@@ -51,6 +51,16 @@ def login_required(f):
     def decorated(*args, **kwargs):
         if "user_id" not in session:
             return redirect(url_for("login"))
+        # Revalidate the cookie against the live account each request. A signed
+        # cookie is valid for its full 30-day life, so without this a removed,
+        # demoted, or password-reset user would keep access until it expired.
+        # One cheap indexed primary-key read; a missing row (deleted user) or a
+        # version bump both invalidate the session. Cookies minted before this
+        # column existed carry no "sv" and default to 0, matching the DB default.
+        rows = db.query("SELECT session_version FROM users WHERE id=?", (session["user_id"],))
+        if not rows or (rows[0]["session_version"] or 0) != session.get("sv", 0):
+            session.clear()
+            return redirect(url_for("login"))
         return f(*args, **kwargs)
     return decorated
 

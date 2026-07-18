@@ -763,6 +763,9 @@ def login():
             # "Keep me signed in" — opt-in 30-day cookie (PERMANENT_SESSION_LIFETIME).
             # Unticked keeps the default browser-session cookie.
             session.permanent = bool(request.form.get("remember"))
+            # Stamp the live session_version so login_required can revoke this
+            # cookie the moment the account is removed/demoted/reset.
+            session["sv"]       = u.get("session_version") or 0
             session["user_id"]  = u["id"]
             session["email"]    = u["email"]
             session["org_name"] = u["org_name"]
@@ -896,6 +899,7 @@ def reset_password(token):
             "UPDATE users SET password_hash=? WHERE id=?",
             (generate_password_hash(password), user_id)
         )
+        db.bump_session_version(user_id)  # a reset must kill any other live session
         db.execute("DELETE FROM password_reset_tokens WHERE token=?", (_hash_token(token),))
         flash("Password updated. Sign in with your new password.", "success")
         return redirect(url_for("login"))
@@ -1208,11 +1212,13 @@ def admin_panel():
         elif action == "make_permanent":
             uid = request.form.get("user_id")
             db.execute("UPDATE users SET trial_ends_at=NULL WHERE id=?", (uid,))
+            db.bump_session_version(uid)  # re-login picks up the lifted trial lock
             flash("Account set to permanent (no trial end).", "success")
         elif action == "set_trial_date":
             uid   = request.form.get("user_id")
             trial = request.form.get("trial_ends_at", "").strip() or None
             db.execute("UPDATE users SET trial_ends_at=? WHERE id=?", (trial, uid))
+            db.bump_session_version(uid)  # force re-login so the new trial date takes effect
             flash("Trial date updated." if trial else "Trial cleared — account is now permanent.", "success")
         elif action == "verify_user":
             # Safety net: manually mark a user as email-verified so they can
@@ -1246,6 +1252,7 @@ def admin_panel():
                     flash(err, "error")
                 else:
                     db.execute("UPDATE users SET email=? WHERE id=?", (normalized, target_id))
+                    db.bump_session_version(target_id)  # login identity changed — end old sessions
                     flash(f"Email updated to {normalized}.", "success")
         elif action == "set_password":
             # Admin sets a new password for an account (e.g. a locked-out user
@@ -1264,6 +1271,7 @@ def admin_panel():
                 else:
                     db.execute("UPDATE users SET password_hash=? WHERE id=?",
                                (generate_password_hash(new_password), target_id))
+                    db.bump_session_version(target_id)  # kill the locked-out user's old sessions
                     flash("Password updated. Share it with the user and ask them "
                           "to change it after signing in.", "success")
         elif action == "mark_contact_read":
@@ -1488,7 +1496,12 @@ def user_settings():
                     "UPDATE users SET password_hash=? WHERE id=?",
                     (generate_password_hash(new_pw), session["user_id"])
                 )
-                flash("Password updated.", "success")
+                # Kill every OTHER device (a changed password should sign them
+                # out), then re-stamp THIS session so the person doing it stays in.
+                db.bump_session_version(session["user_id"])
+                row = db.query("SELECT session_version FROM users WHERE id=?", (session["user_id"],))
+                session["sv"] = (row[0]["session_version"] if row else 0)
+                flash("Password updated. Other devices have been signed out.", "success")
         elif action == "save_defaults":
             # Default lead times — used by the AI when an item has no supplier
             # profile on file. The user (not just admin) gets to set these now.
@@ -1611,9 +1624,11 @@ def user_settings():
                                 flash("Can't demote the last admin.", "error")
                             else:
                                 db.execute("UPDATE users SET role=? WHERE id=?", (cr_role, cr_id))
+                                db.bump_session_version(cr_id)  # force re-login so the new role takes effect
                                 flash("Role updated.", "success")
                         else:
                             db.execute("UPDATE users SET role=? WHERE id=?", (cr_role, cr_id))
+                            db.bump_session_version(cr_id)  # apply the new role on their next request
                             flash("Role updated.", "success")
 
         return redirect(url_for("user_settings"))
