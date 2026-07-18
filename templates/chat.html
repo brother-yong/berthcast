@@ -1042,9 +1042,13 @@ async function loadConversation(convId) {
     currentConvId = convId;
     document.getElementById('chatTitle').textContent = data.title || 'Conversation';
     clearMessages();
-    for (const msg of (data.messages || [])) {
+    const msgs = data.messages || [];
+    for (const msg of msgs) {
       appendMessage(msg.role, msg.content, false);
     }
+    // clearMessages() re-adds the centered 'new chat' layout (is-empty); a loaded
+    // conversation has real messages, so drop it or history looks like a new chat.
+    if (msgs.length) hideWelcome();
     scrollToBottom();
     history.replaceState(null, '', `/chat?c=${convId}`);
     document.querySelectorAll('.conv-item').forEach(el => {
@@ -1119,8 +1123,7 @@ async function sendMessage() {
   const thinkingBody   = assistantRow.querySelector('.thinking-body');
   const bubbleEl       = assistantRow.querySelector('.msg-bubble');
   let fullText         = '';
-  let thinkingText     = '';
-  let inThinking       = false;
+  let rawText          = '';
 
   try {
     const res = await fetch('/api/chat', {
@@ -1171,38 +1174,35 @@ async function sendMessage() {
             loadConversations();
           }
           if (ev.text) {
-            const chunk = ev.text;
+            rawText += ev.text;
 
-            // Parse <thinking> blocks out of the stream
-            if (!inThinking && chunk.includes('<thinking>')) {
-              inThinking = true;
-              const parts = chunk.split('<thinking>');
-              if (parts[0]) { fullText += parts[0]; }
-              thinkingText += (parts[1] || '');
-            } else if (inThinking && chunk.includes('</thinking>')) {
-              inThinking = false;
-              const parts = chunk.split('</thinking>');
-              thinkingText += parts[0];
-              if (parts[1]) { fullText += parts[1]; }
-              // Show thinking block
-              if (thinkingText.trim()) {
-                thinkingEl.style.display = 'block';
-                thinkingBody.textContent = thinkingText.trim();
+            // Split hidden <thinking> reasoning from the visible answer against the
+            // WHOLE accumulated stream, so a tag split across network chunks
+            // (`<think` + `ing>`) can't leak raw reasoning into the answer.
+            let answer = rawText, thinking = '';
+            const open = rawText.indexOf('<thinking>');
+            if (open !== -1) {
+              const close = rawText.indexOf('</thinking>', open);
+              if (close !== -1) {
+                thinking = rawText.slice(open + 10, close);
+                answer   = rawText.slice(0, open) + rawText.slice(close + 12);
+              } else {
+                thinking = rawText.slice(open + 10);   // block still open
+                answer   = rawText.slice(0, open);
               }
-            } else if (inThinking) {
-              thinkingText += chunk;
-            } else {
-              fullText += chunk;
             }
-
-            if (thinkingBody.textContent !== thinkingText.trim() && inThinking) {
-              thinkingBody.textContent = thinkingText.trim();
+            fullText = answer;
+            if (thinking.trim()) {
+              thinkingEl.style.display = 'block';
+              thinkingBody.textContent = thinking.trim();
             }
-            bubbleEl.innerHTML = renderMarkdown(fullText) + '<span class="typing-cursor"></span>';
+            // Smooth stream: plain text while forming — no per-token markdown
+            // re-parse (that caused the reflow/flicker) and no trailing cursor.
+            bubbleEl.textContent = fullText;
             scrollToBottom();
           }
           if (ev.done) {
-            bubbleEl.innerHTML = renderMarkdown(fullText);
+            bubbleEl.innerHTML = renderMarkdown(fullText);   // format once, at the end
             applyHighlighting(bubbleEl);
             loadConversations();
           }

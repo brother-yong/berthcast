@@ -67,6 +67,8 @@ _check("guide mentions the real Print / PDF button", "Print / PDF" in p)
 _check("guide states it never places orders", "never places orders" in p)
 _check("untrusted-data guard rule present", UNTRUSTED_GUARD in p)
 _check("org name reaches the persona line", f"inventory advisor for {ORG}" in p)
+_check("no-preamble rule present (don't think out loud in the reply)",
+       "think out loud" in p and "Lead with the answer" in p)
 
 # ---------------------------------------------------------------------------
 # 2. Fencing: attack inside, guide outside, tags balanced

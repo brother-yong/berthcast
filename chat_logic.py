@@ -183,6 +183,8 @@ def build_chat_system_prompt(org_name: str, chat_ctx: dict, features=None) -> st
         "Be direct and practical. If the data doesn't cover what they're asking, "
         "say so and suggest what data they'd need.\n\n"
         "RULES:\n"
+        "- Lead with the answer. Do not narrate your process, think out loud, or open "
+        "with preamble like \"Let me look\" or \"Sure\" — give the direct answer first.\n"
         "- Always reference the real data below — never make up item names or numbers.\n"
         "- When asked what to order, prioritise by: days of supply (lowest first), "
         "then confidence level, then supplier risk.\n"
