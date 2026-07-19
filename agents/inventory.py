@@ -497,11 +497,26 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
     # The exact per-item numbers printed into the prompt, kept so the verifier
     # can recompute the status rules against what Claude actually saw.
     verify_inputs = {}
+    # Items whose stock cell couldn't be read as a real quantity (blank,
+    # non-numeric, or negative) — surfaced in one capped data note below.
+    unreadable_stock = []
     for row in inventory_sorted:
         desc      = row.get(_desc_col) or "Unknown"
-        qty_raw   = row.get(_qty_col)  or "0"
         cat       = (row.get(_cat_col) if _cat_col else None) or "GENERAL"
         canonical = alias_map.get(str(desc).strip().lower(), str(desc).strip())
+
+        _raw_cell = row.get(_qty_col)
+        qty_raw   = str(_raw_cell).strip() if _raw_cell is not None else ""
+        # Blank, non-numeric ("N/A"), or negative (-5) stock is a data-entry
+        # artifact, never a usable quantity. Feeding it into the math as 0 or
+        # -5 manufactures CRITICALs from typos — flag it as missing instead
+        # (same principle as no_sales_data above: missing data, not a zero).
+        stock_units = _to_num(qty_raw, default=None) if qty_raw else None
+        if stock_units is not None and stock_units < 0:
+            stock_units = None
+        stock_unreadable = stock_units is None
+        if stock_unreadable:
+            unreadable_stock.append((canonical, qty_raw or "(blank)"))
 
         # Drift-tolerant lookup; None means the sales file did not cover this
         # item at all — which is missing data, not a real zero.
@@ -512,7 +527,6 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
 
         # Compute months of supply from concrete numbers. A monthly average the
         # sheet itself states beats anything we derive from a guessed period.
-        stock_units = _to_num(qty_raw)
         _avg_direct = (sales_info or {}).get("avg_monthly_direct") or 0
         if _avg_direct > 0:
             avg_monthly = _avg_direct
@@ -526,7 +540,7 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
             if _pat and _pat["pattern"] == "spiky" and _pat["corrected_avg"]:
                 avg_monthly = _pat["corrected_avg"]
         months_supply = None
-        if avg_monthly > 0:
+        if avg_monthly > 0 and stock_units is not None:
             months_supply = round(stock_units / avg_monthly, 1)
             supply_tag = f" | Months of supply: {months_supply}"
         else:
@@ -553,10 +567,23 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
             # round() to match the displayed figure — Claude judges what it sees
             "total_sold":    None if no_sales_data else round(total_sold),
         }
+        # Unreadable rows tell Claude plainly that the cell is missing data,
+        # never the raw junk value — printing "-5" or "N/A" here is exactly
+        # the silent-wrong-answer class this fix exists to kill.
+        stock_tag = (f'unreadable ("{qty_raw or "blank"}") — missing data, not zero'
+                     if stock_unreadable else qty_raw)
         inv_summary_lines.append(
-            f"Item: {canonical} | Category: {cat} | Stock: {qty_raw} | "
+            f"Item: {canonical} | Category: {cat} | Stock: {stock_tag} | "
             f"Total sold ({months_of_data}mo): {sold_txt}{revenue_tag}{supply_tag}{lt_tag}"
         )
+
+    if unreadable_stock:
+        _ex = ", ".join(f"{n} ('{v}')" for n, v in unreadable_stock[:3])
+        data_notes.append(
+            f"{len(unreadable_stock)} item(s) had stock values we couldn't "
+            f"read (blank, text, or negative) — e.g. {_ex}. Their health is "
+            "judged on sales alone and marked for checking; fix the stock "
+            "column in the export for exact results.")
 
     if not inv_summary_lines:
         return {"error": f"No inventory rows. desc_col={_desc_col}, qty_col={_qty_col}, rows={len(inventory)}"}
@@ -610,6 +637,15 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
         "data was missing and that the item should be included in the sales export if it still sells.\n"
         "    - no sales data AND stock > 0: mark HEALTHY, observation noting demand can't be "
         "judged from this upload. NEVER mark these DEAD.\n\n"
+        "UNREADABLE STOCK — the stock cell was blank or not a number:\n"
+        "  - 'Stock: unreadable' means the export's stock cell could not be read. "
+        "That is missing data, NOT zero. NEVER mark CRITICAL or DEAD because of "
+        "unreadable stock.\n"
+        "  - unreadable stock AND total sold > 0: mark LOW; the observation MUST name "
+        "the unreadable cell value and say the stock column needs fixing.\n"
+        "  - unreadable stock AND total sold = 0 (or no sales data): mark HEALTHY, "
+        "observation noting stock can't be judged from this upload.\n"
+        "  - Set days_of_supply to null for unreadable-stock items.\n\n"
         "Spoilage rules:\n"
         + spoilage_rules +
         "\nReturn ONLY a JSON array of objects with keys:\n"

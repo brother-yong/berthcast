@@ -23,16 +23,27 @@ def expected_status(months_supply, lt_months, stock, total_sold):
     """The status the prompt's own rules dictate, or None where the rules
     leave room for judgment.
 
+    stock is None when the stock cell was blank, non-numeric, or negative —
+    unreadable, not a real quantity (never a proven zero). With sales it's
+    worth a human look (LOW); without, there's no evidence of trouble
+    (HEALTHY). This check MUST come first: None > 0 raises TypeError, so it
+    has to short-circuit before the total_sold-is-None branch below ever
+    compares stock against a number.
+
     total_sold is None when the sales file did not cover the item at all
     (missing data, not a real zero) — the prompt mandates DEAD at zero stock
     and HEALTHY otherwise, never a demand judgment. months_supply / lt_months
     are the 1-decimal figures printed into the prompt (None when absent)."""
+    if stock is None:
+        # Stock cell was blank/junk/negative — missing data, not a quantity.
+        # With sales: worth a human look (LOW). Without: no evidence of trouble.
+        return "LOW" if (total_sold or 0) > 0 else "HEALTHY"
     if total_sold is None:
         if stock == 0:
             return "DEAD"
         if stock > 0:
             return "HEALTHY"
-        return None  # negative stock with no sales data: rules are silent
+        return None  # negative stock is normalised to None upstream (agents/inventory.py); unreachable here
     if total_sold > 0 and stock == 0:
         return "CRITICAL"
     if months_supply is None:
