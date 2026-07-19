@@ -9,7 +9,7 @@ from database import (
     query,
     get_company_config,
     get_supplier_profile,
-    save_recommendation_outcome,
+    save_recommendation_outcomes_bulk,
     get_supplier_accuracy,
 )
 from .shared import (
@@ -90,7 +90,7 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
                     f'FROM {inv_table_r} WHERE "{uom_col_r}" IS NOT NULL LIMIT 5000'
                 )
                 for row in uom_rows_r:
-                    key = str(row.get("item") or "").strip().lower()
+                    key = normalise_match_key(row.get("item"))
                     uom_val = str(row.get("uom") or "").strip()
                     if uom_val and key and key not in uom_by_item_r:
                         uom_by_item_r[key] = uom_val
@@ -284,6 +284,20 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
     # a supplier listing or PO file needs an explicit "verify before you
     # order" flag, since nothing here confirmed those names.
     _sup_from_sales_count = 0
+    # One DB read per distinct supplier per run, not 3-4 per item — query()
+    # opens a fresh SQLite connection every call.
+    _profile_memo, _acc_memo = {}, {}
+
+    def _profile(sup):
+        if sup not in _profile_memo:
+            _profile_memo[sup] = get_supplier_profile(org_name, sup)
+        return _profile_memo[sup]
+
+    def _accuracy(sup):
+        if sup not in _acc_memo:
+            _acc_memo[sup] = get_supplier_accuracy(org_name, sup)
+        return _acc_memo[sup]
+
     for inv_item in actionable:
         iname    = inv_item.get("item", "Unknown")
 
@@ -307,7 +321,7 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
             stype    = supplier_type_map.get(supplier, "other")
             if stype == "other" and supplier == "Unknown":
                 stype = _infer_supplier_type(iname)
-            sup_profile = get_supplier_profile(org_name, supplier)
+            sup_profile = _profile(supplier)
             if supplier == "Unknown":
                 lt_days = None
             else:
@@ -317,11 +331,12 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
             delay_prob = sup_profile.get("delay_probability", 0.2)
             high_risk  = delay_prob > 0.30 or sup_profile.get("data_quality_score", 0.3) < 0.50
 
-        quality   = get_supplier_profile(org_name, supplier).get("data_quality_score", 0.3)
-        sup_notes = get_supplier_profile(org_name, supplier).get("notes", "")
+        _prof     = _profile(supplier)
+        quality   = _prof.get("data_quality_score", 0.3)
+        sup_notes = _prof.get("notes", "")
         known_sup = quality >= 0.5
 
-        acc      = get_supplier_accuracy(org_name, supplier)
+        acc      = _accuracy(supplier)
         acc_note = ""
         if acc.get("total_recs", 0) > 0:
             acc_note = (f" | Past recs: {acc['total_recs']} — "
@@ -334,7 +349,7 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
         #   - Unreliable import (delay_prob > 0.35):         +2.5 months
         _vel = sales_velocity.get(iname) if sales_velocity is not None else None
         avg_monthly = round((_vel or {}).get("avg_monthly", 0) or 0, 1)
-        uom = uom_by_item_r.get(iname.lower(), "")
+        uom = uom_by_item_r.get(normalise_match_key(iname), "")
         uom_label = f" {uom}" if uom else " units"
         if avg_monthly > 0:
             lt_months = (lt_days / 30) if lt_days else 2.0
@@ -351,7 +366,9 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
             suggested_qty_str = None
         # Keep the Python-computed figure so we can sanity-check whatever the
         # model echoes back (see sanitize_suggested_quantity below).
-        qty_basis_by_item[iname] = (avg_monthly, uom_label, suggested_qty)
+        # Keyed by normalise_match_key: the model's echo of the name must
+        # never miss on case/punctuation drift.
+        qty_basis_by_item[normalise_match_key(iname)] = (avg_monthly, uom_label, suggested_qty)
 
         _pat = pattern_stats.get(normalise_match_key(iname))
         if _pat and _pat["pattern"] == "spiky":
@@ -522,9 +539,10 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
         # suggested quantity against it so a hallucinated or missing number can
         # never reach the printed PO sheet.
         qty_corrections = 0
+        outcome_rows = []
         for rec in recs:
             if isinstance(rec, dict):
-                basis = qty_basis_by_item.get(rec.get("item", ""))
+                basis = qty_basis_by_item.get(normalise_match_key(rec.get("item", "")))
                 if basis:
                     avg_m, uom_lbl, precomputed = basis
                     rec["avg_monthly_sales"] = avg_m
@@ -535,18 +553,23 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
                     if corrected:
                         rec["_quantity_corrected"] = True
                         qty_corrections += 1
-            try:
-                save_recommendation_outcome(
-                    session_id=session_id,
-                    item=rec.get("item", ""),
-                    action_recommended=rec.get("recommended_action", ""),
-                    predicted_loss_no_act=0,
-                    predicted_cost_act=0,
-                    net_benefit=0,
-                    confidence=rec.get("confidence", ""),
-                )
-            except Exception:
-                pass
+                outcome_rows.append({
+                    "session_id": session_id,
+                    "item": rec.get("item", ""),
+                    "action_recommended": rec.get("recommended_action", ""),
+                    "predicted_loss_no_act": 0,
+                    "predicted_cost_act": 0,
+                    "net_benefit": 0,
+                    "confidence": rec.get("confidence", ""),
+                    "supplier": rec.get("supplier", ""),
+                })
+        # One transaction for the whole run's outcome stubs (was one
+        # connection+commit per rec). Non-fatal: the analysis must never
+        # die because outcome stubs failed to save.
+        try:
+            save_recommendation_outcomes_bulk(outcome_rows)
+        except Exception:
+            pass
 
         if qty_corrections:
             _emit(progress_emit,
