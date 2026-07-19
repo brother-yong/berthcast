@@ -1061,6 +1061,26 @@ def save_recommendation_outcome(session_id: int, item: str, action_recommended: 
     )
 
 
+def save_recommendation_outcomes_bulk(rows: list) -> None:
+    """One transaction for a whole run's outcome stubs. The per-rec singular
+    version opened a connection per row — hundreds of serial commits per
+    analysis. Row keys match save_recommendation_outcome's parameters."""
+    if not rows:
+        return
+    conn = get_db()
+    try:
+        conn.executemany(
+            """INSERT OR IGNORE INTO recommendation_outcomes
+               (session_id, item, action_recommended, predicted_loss_no_act,
+                predicted_cost_act, net_benefit, confidence, supplier)
+               VALUES (:session_id, :item, :action_recommended, :predicted_loss_no_act,
+                       :predicted_cost_act, :net_benefit, :confidence, :supplier)""",
+            rows)
+        conn.commit()
+    finally:
+        conn.close()
+
+
 
 def get_supplier_accuracy(org_name: str, supplier_name: str, days: int = 90) -> dict:
     """Return historical prediction accuracy for a supplier across recent sessions."""
