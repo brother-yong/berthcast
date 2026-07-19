@@ -193,28 +193,82 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
             # Supplier names from the sales sheet — lowest-priority source,
             # consulted only for items the PO table knows nothing about.
             # Supplier/category columns in summary exports use MERGED cells:
-            # only the first row of each group carries the value, so fill the
-            # last seen name down the column before mapping.
+            # only the first row of each group carries the value, so those
+            # exports need the last seen name filled down the column before
+            # mapping. But a transaction dump's supplier column can be sparse
+            # or per-row too, and unconditional fill-down there paints
+            # whichever name happened to come before onto every following
+            # item (19 Jul 2026: a live file did exactly this and put all 39
+            # reorder items onto two suppliers, wrongly). So fill-down is
+            # only trusted when the column actually LOOKS like a merged-cell
+            # export, which takes TWO conditions:
+            #   1. every supplier name must appear in exactly one contiguous
+            #      run down the column (a genuine block export can't repeat a
+            #      name in two separate, non-adjacent groups). Formally, with
+            #      `vals` the non-blank cells in row order, that's
+            #      `runs(vals) == len(set(vals))` — a scattered/random column
+            #      fails this because the same name resurfaces in unrelated
+            #      rows.
+            #   2. the FIRST non-blank cell must appear within the first two
+            #      data rows. A genuine merged-cell report's first group
+            #      header sits on row one — every row belongs to a block. A
+            #      supplier column whose first name appears deep into the
+            #      file is a transaction dump with a couple of stray labels,
+            #      and fill-down from its last "island" would run unbounded
+            #      to end-of-file. (This is exactly how the dummy fixture
+            #      broke: two real-world items each had their own supplier
+            #      named on every one of their rows — technically satisfying
+            #      condition 1 — and the second one sat near the file's tail,
+            #      so every unrelated item after it inherited that name.)
+            # Own-row values are read separately below and are unaffected by
+            # either condition — this gate only decides whether the carried-
+            # down (fill-down) value may ALSO be trusted.
             _sup_col = next((c for c in s_cols
                              if "supplier" in c.lower() or "vendor" in c.lower()), None)
             if s_desc and _sup_col:
                 _sup_rows = query(
                     f'SELECT "{s_desc}" as item, "{_sup_col}" as sup '
                     f'FROM {sal_table_r} ORDER BY rowid LIMIT 5000')
+                _raw_vals = [str(_r.get("sup") or "").strip() for _r in _sup_rows]
+                _first_idx = next((i for i, v in enumerate(_raw_vals) if v), None)
+                _seq = [v for v in _raw_vals if v]
+                _runs = 1 + sum(1 for a, b in zip(_seq, _seq[1:]) if a != b) if _seq else 0
+                _is_blocky = (bool(_seq) and _runs == len(set(_seq))
+                              and _first_idx is not None and _first_idx <= 1)
+
+                # Two buckets per item, built in one pass: `_own` from the
+                # item's OWN row(s), `_filled` from the carried-down name
+                # (collected only when the column is blocky). An item is
+                # mapped from its own row when possible; the fill-down value
+                # is used only as a fallback, and only on blocky files.
+                _own, _filled = {}, {}
                 _last_sup = None
-                _sup_raw = {}
                 for _r in _sup_rows:
-                    _sv = str(_r.get("sup") or "").strip()
+                    _sv  = str(_r.get("sup") or "").strip()
+                    _itm = str(_r.get("item") or "").strip()
                     if _sv:
                         _last_sup = _sv
-                    _itm = str(_r.get("item") or "").strip()
-                    if _itm and _last_sup and _itm not in _sup_raw:
-                        _sup_raw[_itm] = {"supplier": _last_sup}
+                        if _itm:
+                            _own.setdefault(_itm, set()).add(_sv)
+                    elif _itm and _is_blocky and _last_sup:
+                        _filled.setdefault(_itm, set()).add(_last_sup)
+
+                # A set with two+ distinct names means the source disagrees
+                # with itself for this item — crediting either one would be
+                # a guess, so the item is left out entirely (resolves to
+                # "Unknown" downstream) rather than picking a side.
+                _sup_raw = {}
+                for _itm in set(_own) | set(_filled):
+                    _names = _own.get(_itm) or _filled.get(_itm)
+                    if _names and len(_names) == 1:
+                        _sup_raw[_itm] = {"supplier": next(iter(_names))}
+
                 if _sup_raw:
                     sales_supplier_idx = SalesNameIndex(_sup_raw, claimed_keys=_claimed_rec)
                     _emit(progress_emit,
                           f"Supplier names read from the sales sheet "
-                          f"({len(_sup_raw)} items, merged cells filled down)")
+                          f"({len(_sup_raw)} items"
+                          + (", merged cells filled down)" if _is_blocky else ", no fill-down — column isn't a merged-cell export)"))
     except Exception:
         sales_velocity = None
         sales_supplier_idx = None
@@ -225,6 +279,11 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
     # quantity, keyed by item name. Attached to the saved recs below so the
     # results page can explain where the number came from.
     qty_basis_by_item = {}
+    # Counts items whose supplier came from the sales-sheet fallback below —
+    # drives the results-page caveat after this loop: a report built without
+    # a supplier listing or PO file needs an explicit "verify before you
+    # order" flag, since nothing here confirmed those names.
+    _sup_from_sales_count = 0
     for inv_item in actionable:
         iname    = inv_item.get("item", "Unknown")
 
@@ -244,6 +303,7 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
                 _ss = sales_supplier_idx.get(iname) or {}
                 if _ss.get("supplier"):
                     supplier = _ss["supplier"]
+                    _sup_from_sales_count += 1
             stype    = supplier_type_map.get(supplier, "other")
             if stype == "other" and supplier == "Unknown":
                 stype = _infer_supplier_type(iname)
@@ -323,6 +383,19 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
             f"High-risk supplier: {'YES' if high_risk else 'No'}\n"
             f"Observation: {inv_item.get('observation', '')}\n"
         )
+
+    # A run whose actionable items took their supplier only from the sales
+    # sheet had no supplier listing or PO file to confirm those names —
+    # exactly the situation that produced the 19 Jul 2026 bad Purchase Order
+    # sheet. One plain-English caveat covers the whole run; it doesn't need
+    # to name every affected item, just tell the client to check before they
+    # send an order built on it.
+    if data_notes is not None and _sup_from_sales_count > 0:
+        data_notes.append(
+            "Supplier names on this report were read from the sales file "
+            "itself — no supplier list or purchase-order file was uploaded "
+            "to confirm them. Double-check the supplier on each order "
+            "before sending it.")
 
     context_text = _format_context(context)
     company_desc_rec = config.get("company_description") or org_name

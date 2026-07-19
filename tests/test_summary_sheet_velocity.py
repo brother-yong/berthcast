@@ -358,7 +358,8 @@ _check("e2e: no-sales display stand stays out of recommendations (DEAD)",
 _check("e2e: stocked no-sales bracket is HEALTHY, not dead",
        report.get("SPARE SHELF BRACKET", {}).get("status") == "HEALTHY")
 _check("e2e: no 12-month assumption note (period was inferred)",
-       not result.get("data_notes"), detail=str(result.get("data_notes")))
+       not any("12 months" in n for n in (result.get("data_notes") or [])),
+       detail=str(result.get("data_notes")))
 _check("e2e: period inference visible in the run log",
        any("inferred" in l for l in e2e_log))
 
