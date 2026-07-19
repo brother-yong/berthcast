@@ -546,6 +546,7 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
                     predicted_cost_act=0,
                     net_benefit=0,
                     confidence=rec.get("confidence", ""),
+                    supplier=rec.get("supplier", ""),
                 )
             except Exception:
                 pass

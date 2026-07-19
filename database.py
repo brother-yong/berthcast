@@ -252,6 +252,10 @@ def init_db():
         # live cookie for that user immediately, instead of waiting out the 30-day
         # "remember me" lifetime. Existing users default to 0.
         "ALTER TABLE users ADD COLUMN session_version INTEGER NOT NULL DEFAULT 0",
+        # Supplier accuracy history: outcomes must record WHICH supplier the rec
+        # was for — get_supplier_accuracy used to LIKE-match item names against
+        # supplier names and always returned zero. Old rows stay NULL (unknown).
+        "ALTER TABLE recommendation_outcomes ADD COLUMN supplier TEXT",
     ]:
         try:
             conn.execute(migration)
@@ -1046,14 +1050,14 @@ def seed_distributor_defaults():
 
 def save_recommendation_outcome(session_id: int, item: str, action_recommended: str,
                                   predicted_loss_no_act: float, predicted_cost_act: float,
-                                  net_benefit: float, confidence: str):
+                                  net_benefit: float, confidence: str, supplier: str = ""):
     execute(
         """INSERT OR IGNORE INTO recommendation_outcomes
            (session_id, item, action_recommended, predicted_loss_no_act,
-            predicted_cost_act, net_benefit, confidence)
-           VALUES (?,?,?,?,?,?,?)""",
+            predicted_cost_act, net_benefit, confidence, supplier)
+           VALUES (?,?,?,?,?,?,?,?)""",
         (session_id, item, action_recommended, predicted_loss_no_act,
-         predicted_cost_act, net_benefit, confidence)
+         predicted_cost_act, net_benefit, confidence, supplier)
     )
 
 
@@ -1067,8 +1071,8 @@ def get_supplier_accuracy(org_name: str, supplier_name: str, days: int = 90) -> 
         "JOIN upload_sessions us ON ro.session_id = us.id "
         "WHERE us.org_name=? "
         "  AND ro.created_at >= datetime('now', ?) "
-        "  AND ro.item LIKE ?",
-        (org_name, f"-{days} days", f"%{supplier_name}%")
+        "  AND ro.supplier = ?",
+        (org_name, f"-{days} days", supplier_name)
     )
     total = len(rows)
     dismissed = sum(1 for r in rows if r.get("user_action") == "dismissed")
