@@ -90,7 +90,7 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
                     f'FROM {inv_table_r} WHERE "{uom_col_r}" IS NOT NULL LIMIT 5000'
                 )
                 for row in uom_rows_r:
-                    key = str(row.get("item") or "").strip().lower()
+                    key = normalise_match_key(row.get("item"))
                     uom_val = str(row.get("uom") or "").strip()
                     if uom_val and key and key not in uom_by_item_r:
                         uom_by_item_r[key] = uom_val
@@ -334,7 +334,7 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
         #   - Unreliable import (delay_prob > 0.35):         +2.5 months
         _vel = sales_velocity.get(iname) if sales_velocity is not None else None
         avg_monthly = round((_vel or {}).get("avg_monthly", 0) or 0, 1)
-        uom = uom_by_item_r.get(iname.lower(), "")
+        uom = uom_by_item_r.get(normalise_match_key(iname), "")
         uom_label = f" {uom}" if uom else " units"
         if avg_monthly > 0:
             lt_months = (lt_days / 30) if lt_days else 2.0
@@ -351,7 +351,9 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
             suggested_qty_str = None
         # Keep the Python-computed figure so we can sanity-check whatever the
         # model echoes back (see sanitize_suggested_quantity below).
-        qty_basis_by_item[iname] = (avg_monthly, uom_label, suggested_qty)
+        # Keyed by normalise_match_key: the model's echo of the name must
+        # never miss on case/punctuation drift.
+        qty_basis_by_item[normalise_match_key(iname)] = (avg_monthly, uom_label, suggested_qty)
 
         _pat = pattern_stats.get(normalise_match_key(iname))
         if _pat and _pat["pattern"] == "spiky":
@@ -524,7 +526,7 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
         qty_corrections = 0
         for rec in recs:
             if isinstance(rec, dict):
-                basis = qty_basis_by_item.get(rec.get("item", ""))
+                basis = qty_basis_by_item.get(normalise_match_key(rec.get("item", "")))
                 if basis:
                     avg_m, uom_lbl, precomputed = basis
                     rec["avg_monthly_sales"] = avg_m
