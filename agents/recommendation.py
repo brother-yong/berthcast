@@ -393,8 +393,8 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
     if data_notes is not None and _sup_from_sales_count > 0:
         data_notes.append(
             "Supplier names on this report were read from the sales file "
-            "itself — no supplier list or purchase-order file was uploaded "
-            "to confirm them. Double-check the supplier on each order "
+            "itself and weren't confirmed by a supplier list or "
+            "purchase-order file. Double-check the supplier on each order "
             "before sending it.")
 
     context_text = _format_context(context)
