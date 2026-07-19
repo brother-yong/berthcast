@@ -113,6 +113,57 @@ db.execute(f'INSERT INTO sales_{SID2} VALUES ("Padimas Rice", "7")')
 _check("wrapper: dateless table -> empty stats", monthly_pattern_stats(SID2) == {})
 
 # ---------------------------------------------------------------------------
+# monthly_pattern_stats: deterministic row cap — a capped read must drop the
+# sliced boundary item (flags absent), never classify it from partial months
+# ---------------------------------------------------------------------------
+import agents.shared as shared
+
+SID3 = 913
+db.execute(f'CREATE TABLE IF NOT EXISTS sales_{SID3} '
+           '("item_description" TEXT, "invoice_date" TEXT, "qty" TEXT)')
+for r in [
+    ("AAA BROOKVALE MILK", "2026-01-15", "10"),
+    ("AAA BROOKVALE MILK", "2026-02-15", "20"),
+    ("AAA BROOKVALE MILK", "2026-03-15", "30"),
+    ("ZZZ PADIMAS RICE", "2026-01-20", "5"),
+    ("ZZZ PADIMAS RICE", "2026-02-20", "5"),
+    ("ZZZ PADIMAS RICE", "2026-03-20", "5"),
+]:
+    db.execute(f'INSERT INTO sales_{SID3} VALUES (?,?,?)', r)
+
+AAA = normalise_match_key("AAA BROOKVALE MILK")
+ZZZ = normalise_match_key("ZZZ PADIMAS RICE")
+
+# 1. Under the cap: both items get stats.
+full = monthly_pattern_stats(SID3)
+_check("cap: under the cap both items present", AAA in full and ZZZ in full)
+aaa_mean = full[AAA]["mean"] if AAA in full else None
+
+_orig_cap = getattr(shared, "_PATTERN_ROW_CAP", 200000)
+
+# 2. Cap hit mid-item (AAA's 3 rows + 1 of ZZZ's): boundary item dropped,
+# surviving item's stats identical to the uncapped run.
+try:
+    shared._PATTERN_ROW_CAP = 4
+    capped = monthly_pattern_stats(SID3)
+    _check("cap: sliced boundary item dropped", ZZZ not in capped)
+    _check("cap: surviving item kept with unchanged mean",
+           AAA in capped and capped[AAA]["mean"] == aaa_mean)
+finally:
+    shared._PATTERN_ROW_CAP = _orig_cap
+
+# 3. Exact-fit cap (all 6 rows) is indistinguishable from truncation — the
+# accepted ceiling is that the last item MAY be dropped; the first item must
+# still be present and correct.
+try:
+    shared._PATTERN_ROW_CAP = 6
+    exact = monthly_pattern_stats(SID3)
+    _check("cap: exact-fit keeps first item correct",
+           AAA in exact and exact[AAA]["mean"] == aaa_mean)
+finally:
+    shared._PATTERN_ROW_CAP = _orig_cap
+
+# ---------------------------------------------------------------------------
 # apply_sales_pattern_flags: deterministic flag + confidence cap on recs
 # ---------------------------------------------------------------------------
 from agents.shared import apply_sales_pattern_flags

@@ -56,6 +56,11 @@ CATEGORY_SUPPLIER_TYPE = {
 
 LEAD_TIME_BY_TYPE = {"import": 112, "local": 21, "other": 56}
 
+# Memory guard for monthly_pattern_stats on the 512MB host: cap the day-level
+# rows read. With ORDER BY item, a hit cap slices AT MOST the final item, which
+# is then dropped — pattern flags degrade to absent, never wrong.
+_PATTERN_ROW_CAP = 200000
+
 
 def _infer_supplier_type(item_name: str) -> str:
     """Guess import vs local from product keywords. Last-resort fallback."""
@@ -423,9 +428,18 @@ def monthly_pattern_stats(session_id):
             f'SELECT "{desc}" AS item, substr("{dcol}", 1, 10) AS d, '
             f'SUM({_num_sql(qty)}) AS q FROM {tbl} '
             f'WHERE "{desc}" IS NOT NULL '
-            f'GROUP BY "{desc}", substr("{dcol}", 1, 10) LIMIT 200000')
+            f'GROUP BY "{desc}", substr("{dcol}", 1, 10) '
+            f'ORDER BY "{desc}", d LIMIT {int(_PATTERN_ROW_CAP)}')
         if not rows:
             return out
+        if len(rows) >= _PATTERN_ROW_CAP:
+            # Cap hit: the last item's rows may be cut mid-item. ORDER BY makes
+            # the damage bounded to that one item — drop it rather than compute
+            # a pattern from partial months.
+            last_item = rows[-1]["item"]
+            rows = [r for r in rows if r["item"] != last_item]
+            if not rows:
+                return out
 
         day_first = _column_day_first([str(r["d"] or "") for r in rows[:500]])
         per_item = {}          # key -> {(y,m): qty}
