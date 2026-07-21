@@ -1108,15 +1108,17 @@ tbody tr:hover td { background: var(--paper); }
 .mc-layout {
   margin-top: 24px;
 }
+/* One line, not three. It follows you down 50+ rows, so every pixel of its
+   height is stolen from the list — stacked group headings made it ~180px. */
 .mc-filterbar {
   display: flex;
   flex-wrap: wrap;
-  gap: 26px;
-  align-items: flex-start;
+  gap: 8px 18px;
+  align-items: center;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 14px 18px;
+  padding: 8px 14px;
   margin-bottom: 18px;
   position: sticky;
   top: 78px;
@@ -1130,15 +1132,25 @@ tbody tr:hover td { background: var(--paper); }
   margin-left: 3px;
 }
 .mc-chip.is-active .mc-chip-count { color: #fff; }
-.mc-filter-group { margin-bottom: 18px; }
-.mc-filter-group:last-child { margin-bottom: 0; }
+/* Heading sits beside its chips, not above them. Only inside the filter bar —
+   the class is reused elsewhere, so don't make this global. */
+.mc-filterbar .mc-filter-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 0;
+}
 .mc-filter-heading {
   font-family: var(--font-display);
-  font-size: 10px;
+  font-size: 9px;
   text-transform: uppercase;
   letter-spacing: 0.12em;
-  color: var(--muted);
-  margin-bottom: 8px;
+  color: var(--brass-3);
+  white-space: nowrap;
+}
+.mc-filterbar .mc-filter-group + .mc-filter-group {
+  border-left: 1px solid var(--border);
+  padding-left: 18px;
 }
 .mc-chips {
   display: flex;
