@@ -1606,3 +1606,28 @@ tbody tr:hover td { background: rgba(255,255,255,0.03); }
 }
 .rec-supplier-approve-link:hover:not(:disabled) { color: var(--brass); }
 .rec-supplier-approve-link:disabled { cursor: not-allowed; text-decoration: none; }
+
+/* Ledger skin for the results-page tables only. Scoped on purpose: .data-table
+   alone is shared with suppliers/diff/guide/settings/admin/dashboard. */
+.data-table-ledger th {
+  font-family: var(--font-display);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.13em;
+  color: var(--muted);
+  font-weight: 600;
+}
+.data-table-ledger td { border-bottom: 1px solid var(--border); }
+.data-table-ledger td:nth-child(3),
+.data-table-ledger td:nth-child(6),
+.data-table-ledger th:nth-child(3),
+.data-table-ledger th:nth-child(6) {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.inv-spoilage-note {
+  font-size: 12.5px;
+  color: var(--danger);
+  margin-bottom: 12px;
+}

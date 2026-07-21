@@ -470,8 +470,11 @@
   <div id="tab-inv" style="display:none; margin-top: 24px;">
     {% set live_items = inventory | rejectattr('status', 'equalto', 'DEAD') | list %}
     {% if live_items %}
+    {% if high_sp %}
+    <p class="inv-spoilage-note">{{ high_sp }} item{{ 's' if high_sp != 1 }} at high spoilage risk.</p>
+    {% endif %}
     <div class="card" style="overflow-x:auto;">
-      <table class="data-table">
+      <table class="data-table data-table-ledger">
         <thead>
           <tr>
             <th>Item</th>
@@ -524,7 +527,7 @@
       </p>
     </div>
     <div class="card" style="overflow-x:auto;">
-      <table class="data-table">
+      <table class="data-table data-table-ledger">
         <thead>
           <tr>
             <th>Item</th>

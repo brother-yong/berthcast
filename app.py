@@ -3043,7 +3043,11 @@ def _order_covers_months(rec):
 @app.route("/results/<int:upload_session_id>/print")
 @login_required
 def print_results(upload_session_id):
-    """Render a print-ready sheet containing only approved recommendations."""
+    """Render a print-ready sheet of every recommendation, approved ones marked.
+
+    Approved-only until 21 Jul 2026: staff decide on paper with a pen, so the
+    sheet has to carry the items they haven't approved on screen yet.
+    """
     _verify_session_owner(upload_session_id)
     ar = db.query("SELECT recommendations_json FROM analysis_results WHERE session_id=?", (upload_session_id,))
     if not ar:
@@ -3053,11 +3057,11 @@ def print_results(upload_session_id):
         recommendations = json.loads(ar[0]["recommendations_json"] or "[]")
     except Exception:
         recommendations = []
-    approved = [r for r in recommendations if r.get("approved") and not r.get("error")]
+    printable = [r for r in recommendations if not r.get("error")]
     # Current stock (qty on hand) isn't on the rec — join it from the inventory report.
     stock_map = _stock_on_hand_map(upload_session_id)
     # Enrich with effective values + order-by so the print template can stay simple.
-    for r in approved:
+    for r in printable:
         _normalise_confidence(r)
         r["_effective_qty"]      = _effective_qty(r)
         r["_effective_supplier"] = _effective_supplier(r)
@@ -3066,8 +3070,9 @@ def print_results(upload_session_id):
         r["_order_covers"]       = _order_covers_months(r)
     # Group by supplier so each block prints as one hand-over-ready PO, same
     # grouping/order the on-screen results page uses.
-    groups = _group_recs_by_supplier(approved, _status_by_item_map(upload_session_id))
-    return render_template("print_order.html", groups=groups, total=len(approved),
+    groups = _group_recs_by_supplier(printable, _status_by_item_map(upload_session_id))
+    return render_template("print_order.html", groups=groups, total=len(printable),
+                           approved_count=sum(1 for r in printable if r.get("approved")),
                            org_name=session["org_name"])
 
 
