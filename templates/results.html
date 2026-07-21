@@ -124,64 +124,46 @@
 
     <div class="mc-layout">
 
-      <!-- Sticky sidebar: filters + summary -->
-      <aside class="mc-sidebar">
-        <div class="mc-side-title">Overview</div>
-        <div class="mc-side-stats">
-          <div class="mc-side-stat {% if crit_count %}is-warn{% endif %}">
-            <div class="v">{{ crit_count }}</div>
-            <div class="l">Critical</div>
-          </div>
-          <div class="mc-side-stat">
-            <div class="v">{{ low_count }}</div>
-            <div class="l">Low stock</div>
-          </div>
-          <div class="mc-side-stat">
-            <div class="v">{{ high_sp }}</div>
-            <div class="l">Spoilage</div>
-          </div>
-          <div class="mc-side-stat">
-            <div class="v" id="approved-counter">{{ approved_init }}</div>
-            <div class="l">Approved</div>
-          </div>
-        </div>
-
+      <!-- Counted filter bar. Counts are filled in by initChipCounts() from the
+           rendered rows — the old sidebar counted `inventory` while the list
+           below showed `recommendations`, so its numbers never matched. -->
+      <div class="mc-filterbar">
         <div class="mc-filter-group">
           <div class="mc-filter-heading">Status</div>
           <div class="mc-chips" data-filter="status">
-            <span class="mc-chip" data-val="CRITICAL">Critical</span>
-            <span class="mc-chip" data-val="LOW">Low</span>
+            <span class="mc-chip" data-val="CRITICAL">Critical <b class="mc-chip-count">0</b></span>
+            <span class="mc-chip" data-val="LOW">Low <b class="mc-chip-count">0</b></span>
           </div>
         </div>
 
         <div class="mc-filter-group">
           <div class="mc-filter-heading">Supplier type</div>
           <div class="mc-chips" data-filter="suptype">
-            <span class="mc-chip" data-val="import">Import</span>
-            <span class="mc-chip" data-val="local">Local</span>
-            <span class="mc-chip" data-val="other">Other</span>
+            <span class="mc-chip" data-val="import">Import <b class="mc-chip-count">0</b></span>
+            <span class="mc-chip" data-val="local">Local <b class="mc-chip-count">0</b></span>
+            <span class="mc-chip" data-val="other">Other <b class="mc-chip-count">0</b></span>
           </div>
         </div>
 
         <div class="mc-filter-group">
           <div class="mc-filter-heading">Confidence</div>
           <div class="mc-chips" data-filter="confidence">
-            <span class="mc-chip" data-val="HIGH">High</span>
-            <span class="mc-chip" data-val="MEDIUM">Medium</span>
-            <span class="mc-chip" data-val="LOW">Low</span>
+            <span class="mc-chip" data-val="HIGH">High <b class="mc-chip-count">0</b></span>
+            <span class="mc-chip" data-val="MEDIUM">Medium <b class="mc-chip-count">0</b></span>
+            <span class="mc-chip" data-val="LOW">Low <b class="mc-chip-count">0</b></span>
           </div>
         </div>
 
         <div class="mc-filter-group">
-          <div class="mc-filter-heading">Action state</div>
+          <div class="mc-filter-heading">State</div>
           <div class="mc-chips" data-filter="action">
-            <span class="mc-chip is-active" data-val="all">All</span>
-            <span class="mc-chip" data-val="pending">Pending</span>
-            <span class="mc-chip" data-val="approved">Approved</span>
-            <span class="mc-chip" data-val="dismissed">Dismissed</span>
+            <span class="mc-chip is-active" data-val="all">All <b class="mc-chip-count">0</b></span>
+            <span class="mc-chip" data-val="pending">Pending <b class="mc-chip-count">0</b></span>
+            <span class="mc-chip" data-val="approved">Approved <b class="mc-chip-count" id="approved-counter">0</b></span>
+            <span class="mc-chip" data-val="dismissed">Dismissed <b class="mc-chip-count">0</b></span>
           </div>
         </div>
-      </aside>
+      </div>
 
       <!-- Main canvas: search/sort + cards -->
       <div class="mc-canvas">
@@ -261,15 +243,20 @@
               </div>
             </div>
             {% if user_role != 'viewer' %}
-            <button type="button" class="btn btn-primary btn-sm no-print rec-supplier-approve"
+            {# Demoted from a gold primary button: one click approves a whole
+               supplier's worth of orders, so prominence should match consequence. #}
+            <button type="button" class="rec-supplier-approve rec-supplier-approve-link no-print"
                     data-group-key="{{ group.key }}"
                     data-items='{{ group.item_names | tojson }}'
                     onclick="approveSupplier(this)">
-              ✓ Approve all {{ group.count }} from this supplier
+              approve all {{ group.count }}
             </button>
             {% endif %}
           </div>
           <div class="rec-supplier-cards">
+          <div class="rec-ledger-head" aria-hidden="true">
+            <span></span><span>Item</span><span>Order</span><span>By</span><span>Type</span><span></span>
+          </div>
         {% for rec in group.recs %}
         {% if not rec.error %}
           {% set item_status = status_by_item.get(rec.item, '') %}
@@ -282,83 +269,67 @@
                data-supplier="{{ rec.supplier or '' }}"
                data-item="{{ rec.item }}">
 
-            <!-- Line 1: name · qty · date · actions · chevron -->
+            <!-- Ledger row: # · name+tags · qty · order-by · type · actions.
+                 Name and its tags share ONE grid cell so the tags can never
+                 steal width from the name (the 2026-07-06 layout let them). -->
             <div class="rec-card-header rec-row-main" onclick="rowMainClick(event, {{ rec._card_idx }})">
-              <span class="rec-row-num" aria-hidden="true">#{{ rec._display_num }}</span>
-              <span class="rec-row-item">{{ rec.item }}</span>
-              {% if low_conf %}<span class="rec-row-lowconf">low confidence</span>{% endif %}
-              {% if rec.approved %}
-                <span class="badge badge-healthy">✓ Approved</span>
-              {% elif rec.dismissed %}
-                <span class="badge badge-dead">Dismissed</span>
-              {% endif %}
+              <span class="rec-row-num" aria-hidden="true">{{ rec._display_num }}</span>
+              <span class="rec-row-namecell">
+                <span class="rec-row-item">{{ rec.item }}</span>
+                {% if low_conf %}<span class="rec-row-lowconf">low confidence</span>{% endif %}
+                {% if rec.approved %}
+                  <span class="badge badge-healthy">✓ Approved</span>
+                {% elif rec.dismissed %}
+                  <span class="badge badge-dead">Dismissed</span>
+                {% endif %}
+              </span>
               <span class="rec-row-qty">{{ rec.edited_quantity or rec.suggested_quantity or '—' }}</span>
               {% if rec._order_by and rec._order_by.order_by_date %}
               <span class="rec-row-date rec-row-date-{{ rec._order_by.status }}">
                 {% if rec._order_by.status == 'overdue' %}overdue {{ rec._order_by.buffer_days | abs }}d
-                {% else %}by {{ rec._order_by.order_by_date }}{% endif %}
+                {% else %}{{ rec._order_by.order_by_date }}{% endif %}
               </span>
               {% else %}
-              <span class="rec-row-date">no date</span>
+              <span class="rec-row-date">—</span>
               {% endif %}
-              {% if user_role != 'viewer' %}
+              <span class="rec-row-type">{{ (rec.supplier_type or 'other') | title }}</span>
               {# Buttons carry data attrs only — the delegated listener reads the
                  item from the card's data-item, so no user text is ever spliced
                  into inline JS (XSS-safe by construction). #}
               <span class="rec-row-act no-print">
+                {% if user_role != 'viewer' %}
                 <button type="button" class="rec-row-btn rec-row-btn-ok" title="Approve"
                         data-rec-action="approve">✓</button>
                 <button type="button" class="rec-row-btn" title="Dismiss"
                         data-rec-action="dismiss">✕</button>
+                <button type="button" class="rec-row-btn rec-row-btn-note" title="Add a note"
+                        data-rec-action="note">note</button>
+                {% endif %}
+                <span class="rec-row-chev" id="chev-{{ rec._card_idx }}">▾</span>
               </span>
-              {% endif %}
-              <span class="rec-row-chev" id="chev-{{ rec._card_idx }}">▾</span>
             </div>
 
-            <!-- Line 2: reason snippet OR outcome prompt · note -->
+            <!-- Line 2: reason snippet only. The outcome prompt and the note
+                 field both moved out — the prompt is gone from the product
+                 (paper checkbox replaces it), the note lives in the panel. -->
             <div class="rec-row-sub">
-              <span class="rec-row-snippet" id="snippet-{{ rec._card_idx }}"
-                    {% if rec.approved and user_role != 'viewer' %}style="display:none;"{% endif %}>
+              <span class="rec-row-snippet" id="snippet-{{ rec._card_idx }}">
                 {{ ((rec.reason or '').split('.') | first ~ '.') if rec.reason else '' }}
               </span>
-              {% if user_role != 'viewer' %}
-              <span class="rec-row-outcome" id="outcome-{{ rec._card_idx }}"
-                    {% if rec.order_placed or rec.outcome_status %}data-progressed="1"{% endif %}
-                    {% if not rec.approved %}style="display:none;"{% endif %}>
-                {% if rec.approved %}
-                  {% if not rec.order_placed %}
-                  <span class="outcome-q">Did you place this order?</span>
-                  <button class="btn btn-outline btn-sm outcome-btn"
-                          data-rec-action="outcome" data-field="order_placed" data-value="true">Yes, ordered</button>
-                  <button class="btn btn-ghost btn-sm outcome-btn"
-                          data-rec-action="outcome" data-field="order_placed" data-value="false">Not yet</button>
-                  <span class="outcome-why no-print">One tap — it's how berthcast proves it's saving you money.</span>
-                  {% elif not rec.outcome_status %}
-                  <span class="outcome-check">Order placed</span>
-                  <span class="outcome-q outcome-q-secondary">Was the stockout avoided?</span>
-                  <button class="btn btn-success btn-sm outcome-btn"
-                          data-rec-action="outcome" data-field="outcome_status" data-value="stockout_avoided">Yes, avoided</button>
-                  <button class="btn btn-muted btn-sm outcome-btn"
-                          data-rec-action="outcome" data-field="outcome_status" data-value="stockout_happened">No, stockout</button>
-                  {% elif rec.outcome_status == 'stockout_avoided' %}
-                  <span class="outcome-check">Order placed</span>
-                  <span class="outcome-result outcome-good">Stockout avoided</span>
-                  {% else %}
-                  <span class="outcome-check">Order placed</span>
-                  <span class="outcome-result outcome-bad">Stockout occurred</span>
-                  {% endif %}
-                {% endif %}
-              </span>
-              <input type="text" class="rec-note"
-                     id="note-{{ rec._card_idx }}"
-                     data-item="{{ rec.item }}"
-                     placeholder="add note…"
-                     value="{{ rec.note or '' }}">
-              {% endif %}
             </div>
 
             <!-- Expanded panel: full detail (hidden until expand) -->
             <div class="rec-row-panel" id="panel-{{ rec._card_idx }}" hidden>
+              {% if user_role != 'viewer' %}
+              <div class="rec-panel-note">
+                <label for="note-{{ rec._card_idx }}">Note</label>
+                <input type="text" class="rec-note"
+                       id="note-{{ rec._card_idx }}"
+                       data-item="{{ rec.item }}"
+                       placeholder="e.g. PO number, ETA, called supplier"
+                       value="{{ rec.note or '' }}">
+              </div>
+              {% endif %}
               <div class="rec-panel-meta">
                 {% if rec._order_by and rec._order_by.order_by_date %}
                 <strong>Order by {{ rec._order_by.order_by_date }}</strong><button type="button" class="help-dot no-print"
@@ -695,6 +666,39 @@ if (searchInput) {
   });
 }
 
+// Fill the chip counts from the rendered recommendation rows. Totals, not
+// live-filtered subsets — a count that shrank as you filtered would be
+// useless for deciding what to filter to next.
+function initChipCounts() {
+  const cards = document.querySelectorAll('.rec-card');
+  const tally = { status: {}, suptype: {}, confidence: {} };
+  cards.forEach(c => {
+    const s = c.dataset.status || '';
+    const t = (c.dataset.suptype || '').toLowerCase();
+    const f = c.dataset.confidence || '';
+    tally.status[s]      = (tally.status[s]      || 0) + 1;
+    tally.suptype[t]     = (tally.suptype[t]     || 0) + 1;
+    tally.confidence[f]  = (tally.confidence[f]  || 0) + 1;
+  });
+  const approved  = document.querySelectorAll('.rec-card.approved').length;
+  const dismissed = document.querySelectorAll('.rec-card.dismissed').length;
+  document.querySelectorAll('.mc-chip[data-val]').forEach(chip => {
+    const dim = chip.closest('.mc-chips')?.dataset.filter;
+    const out = chip.querySelector('.mc-chip-count');
+    if (!dim || !out) return;
+    if (dim === 'action') {
+      const v = chip.dataset.val;
+      out.textContent = v === 'all'       ? cards.length
+                      : v === 'approved'  ? approved
+                      : v === 'dismissed' ? dismissed
+                      : cards.length - approved - dismissed;
+    } else {
+      out.textContent = tally[dim][chip.dataset.val] || 0;
+    }
+  });
+}
+initChipCounts();
+
 function applyFilters() {
   const cards = document.querySelectorAll('.rec-card');
   let visible = 0;
@@ -755,8 +759,8 @@ function applyFilters() {
       approveBtn.style.opacity = pendingVisible === 0 ? '0.45' : '';
       approveBtn.style.cursor  = pendingVisible === 0 ? 'not-allowed' : '';
       approveBtn.textContent = pendingVisible === 0
-        ? '✓ All approved or dismissed'
-        : '✓ Approve all ' + pendingVisible + ' from this supplier';
+        ? 'all done'
+        : 'approve all ' + pendingVisible;
     }
   });
 
@@ -796,14 +800,11 @@ async function approveSupplier(btn) {
         if (approvedSet.has(card.dataset.item) && !card.classList.contains('approved')) {
           card.classList.add('approved');
           _setBadge(card, 'approve');
-          _showOutcomePrompt(parseInt(card.id.replace('rec-', ''), 10));
         }
       });
-      // Bump the overall approved counter in the sidebar
-      const counter = document.getElementById('approved-counter');
-      if (counter) {
-        counter.textContent = document.querySelectorAll('.rec-card.approved').length;
-      }
+      // Every chip count moves on a bulk approve, not just Approved — Pending
+      // and All go stale if only the counter element is written.
+      initChipCounts();
       applyFilters();   // recalc per-group counts and button states
     } catch (e) {
       showToast('Network error. Please try again.');
@@ -876,15 +877,14 @@ function approveAll() {
         if (!card.classList.contains('approved') && approvedSet.has(card.dataset.item)) {
           card.classList.add('approved');
           _setBadge(card, 'approve');
-          _showOutcomePrompt(parseInt(card.id.replace('rec-', ''), 10));
         }
       });
 
-      // Update approved counter
+      // Refresh every chip count, not just Approved — a bulk approve empties
+      // Pending too, and a stale Pending number is worse than none.
+      initChipCounts();
       const counter = document.getElementById('approved-counter');
       if (counter) {
-        const approvedNow = document.querySelectorAll('.rec-card.approved').length;
-        counter.textContent = approvedNow;
         counter.style.animation = 'none';
         counter.offsetHeight;
         counter.style.animation = 'numberFlash 600ms ease-out';
@@ -934,18 +934,9 @@ async function undoApproveAll() {
         if (itemSet.has(card.dataset.item)) {
           card.classList.remove('approved');
           _setBadge(card, null);
-          // Line 2 back to the reason snippet
-          const cardIdx = parseInt(card.id.replace('rec-', ''), 10);
-          const outcome = document.getElementById('outcome-' + cardIdx);
-          const snippet = document.getElementById('snippet-' + cardIdx);
-          if (outcome) outcome.style.display = 'none';
-          if (snippet) snippet.style.display = '';
-          const counter = document.getElementById('approved-counter');
-          if (counter) {
-            counter.textContent = document.querySelectorAll('.rec-card.approved').length;
-          }
         }
       });
+      initChipCounts();
       applyFilters();
       _lastBulkApprovedItems = [];
       if (_undoTimer) clearTimeout(_undoTimer);
@@ -1169,31 +1160,8 @@ document.querySelectorAll('.rec-note').forEach(input => {
   });
 });
 
-// Show the outcome question on a row's line 2, hiding the reason snippet.
-// Skips rows whose outcome already progressed (server-rendered data-progressed).
-// The injected markup is STATIC — buttons carry only data attrs and the
-// delegated listener supplies idx/item from the card, so untrusted item names
-// never reach innerHTML or an inline handler (XSS-safe by construction).
-function _showOutcomePrompt(idx) {
-  const snippet = document.getElementById('snippet-' + idx);
-  const outcome = document.getElementById('outcome-' + idx);
-  if (!outcome) return;
-  if (snippet) snippet.style.display = 'none';
-  outcome.style.display = '';
-  if (!outcome.dataset.progressed) {
-    outcome.innerHTML = `
-      <span class="outcome-q">Did you place this order?</span>
-      <button class="btn btn-outline btn-sm outcome-btn"
-              data-rec-action="outcome" data-field="order_placed" data-value="true">Yes, ordered</button>
-      <button class="btn btn-ghost btn-sm outcome-btn"
-              data-rec-action="outcome" data-field="order_placed" data-value="false">Not yet</button>
-      <span class="outcome-why no-print">One tap — it's how berthcast proves it's saving you money.</span>`;
-  }
-}
-
-// One delegated listener for every approve/dismiss/outcome button — covers both
-// server-rendered rows and buttons injected later by _showOutcomePrompt or
-// recordOutcome. Reads idx/item from the row's own attributes.
+// One delegated listener for every row button. Reads idx/item from the row's
+// own attributes, so an untrusted item name never reaches an inline handler.
 document.getElementById('recs-container')?.addEventListener('click', e => {
   const btn = e.target.closest('[data-rec-action]');
   if (!btn) return;
@@ -1204,15 +1172,20 @@ document.getElementById('recs-container')?.addEventListener('click', e => {
   const act  = btn.dataset.recAction;
   if (act === 'approve' || act === 'dismiss') {
     takeAction(idx, item, act);
-  } else if (act === 'outcome') {
-    const field = btn.dataset.field;
-    const value = field === 'order_placed' ? (btn.dataset.value === 'true') : btn.dataset.value;
-    recordOutcome(idx, item, field, value);
+  } else if (act === 'note') {
+    openRowNote(idx);
   }
 });
 
+// The `note` button expands the row (if collapsed) and drops the cursor in.
+function openRowNote(idx) {
+  const panel = document.getElementById('panel-' + idx);
+  if (panel && panel.hidden) toggleRow(idx);
+  document.getElementById('note-' + idx)?.focus();
+}
+
 // Swap the state badge on a row's line 1 (kind: 'approve' | 'dismiss' | null to clear).
-// Badge sits before the qty so line 1 reads name → badge → qty → date.
+// Badge lands inside the name cell — the grid has no spare column for it.
 function _setBadge(card, kind) {
   card.querySelectorAll('.rec-card-header .badge').forEach(b => {
     if (b.textContent.includes('Approved') || b.textContent.includes('Dismissed')) b.remove();
@@ -1223,8 +1196,9 @@ function _setBadge(card, kind) {
   const nb = document.createElement('span');
   nb.className = kind === 'approve' ? 'badge badge-healthy' : 'badge badge-dead';
   nb.textContent = kind === 'approve' ? '✓ Approved' : 'Dismissed';
-  const qty = header.querySelector('.rec-row-qty');
-  if (qty) header.insertBefore(nb, qty); else header.appendChild(nb);
+  // Badge belongs in the name cell — the grid has no spare column for it.
+  const cell = header.querySelector('.rec-row-namecell');
+  (cell || header).appendChild(nb);
 }
 
 // ── Approve / dismiss single ──
@@ -1256,28 +1230,15 @@ async function takeAction(idx, item, action) {
     card.classList.add(action === 'approve' ? 'approved' : 'dismissed');
     _setBadge(card, action);
     const counter = document.getElementById('approved-counter');
-    if (counter) {
-      const approvedNow = document.querySelectorAll('.rec-card.approved').length;
-      const old = parseInt(counter.textContent, 10) || 0;
-      if (approvedNow !== old) {
-        counter.textContent = approvedNow;
-        counter.style.animation = 'none';
-        counter.offsetHeight;
-        counter.style.animation = 'numberFlash 600ms ease-out';
-      }
+    const approvedNow = document.querySelectorAll('.rec-card.approved').length;
+    const old = parseInt(counter?.textContent, 10) || 0;
+    initChipCounts();
+    if (counter && approvedNow !== old) {
+      counter.style.animation = 'none';
+      counter.offsetHeight;
+      counter.style.animation = 'numberFlash 600ms ease-out';
     }
     applyFilters();
-
-    // Approve → show the outcome prompt on line 2 (replacing the snippet).
-    // Dismiss → restore the snippet.
-    if (action === 'approve') {
-      _showOutcomePrompt(idx);
-    } else {
-      const snippet = document.getElementById('snippet-' + idx);
-      const outcome = document.getElementById('outcome-' + idx);
-      if (outcome) outcome.style.display = 'none';
-      if (snippet) snippet.style.display = '';
-    }
   } else {
     showToast('Could not save that change: ' + (data.error || 'please try again.'));
   }
@@ -1301,32 +1262,10 @@ async function recordOutcome(idx, item, field, value) {
     showToast('Could not save that update: ' + (data.error || 'please try again.'));
     return;
   }
-
-  const strip = document.getElementById('outcome-' + idx);
-  if (!strip) return;
-
-  if (field === 'order_placed' && value) {
-    strip.dataset.progressed = "1";
-    // Static markup only — data attrs, no user text (see delegated listener).
-    strip.innerHTML = `
-        <span class="outcome-check">Order placed</span>
-        <span class="outcome-q outcome-q-secondary">Was the stockout avoided?</span>
-        <button class="btn btn-success btn-sm outcome-btn"
-                data-rec-action="outcome" data-field="outcome_status" data-value="stockout_avoided">Yes, avoided</button>
-        <button class="btn btn-muted btn-sm outcome-btn"
-                data-rec-action="outcome" data-field="outcome_status" data-value="stockout_happened">No, stockout</button>`;
-  } else if (field === 'order_placed' && !value) {
-    strip.dataset.progressed = "1";
-    strip.innerHTML = `<span style="font-size:12px;color:var(--muted);">Not ordered</span>`;
-  } else if (field === 'outcome_status') {
-    strip.dataset.progressed = "1";
-    const isGood = value === 'stockout_avoided';
-    strip.innerHTML = `
-        <span class="outcome-check">Order placed</span>
-        <span class="outcome-result ${isGood ? 'outcome-good' : 'outcome-bad'}">
-          ${isGood ? 'Stockout avoided' : 'Stockout occurred'}
-        </span>`;
-  }
+  // No `outcome-{idx}` element is rendered anymore (the prompt UI is gone), so
+  // there is nothing left to paint here. The fetch above — and the route,
+  // and the order_placed/outcome_status columns it writes — all stay live
+  // for a later automated feature to call this same path.
 }
 </script>
 {% endblock %}

@@ -458,6 +458,9 @@ textarea { resize: vertical; min-height: 96px; line-height: 1.55; }
 .rec-card[data-status="CRITICAL"] { border-left-color: #C0392B; background: rgba(192,57,43,0.10); }
 .rec-card[data-status="LOW"]      { border-left-color: var(--warning); background: rgba(230,180,80,0.07); }
 .rec-card:hover { border-color: var(--brass); }
+/* A line under every row — asked for explicitly: at 50+ rows the eye needs a
+   rail to track along. Last row keeps it too so the group reads as closed. */
+.rec-supplier-cards .rec-card { border-bottom: 1px solid var(--border); }
 .rec-card[data-status="CRITICAL"]:hover,
 .rec-card[data-status="LOW"]:hover { border-left-color: inherit; }
 .rec-card.approved .rec-row-main { opacity: 0.92; }
@@ -468,23 +471,49 @@ textarea { resize: vertical; min-height: 96px; line-height: 1.55; }
   outline: none;
 }
 
-/* Line 1 */
+/* Ledger row. Fixed columns, name column takes the slack.
+   NEVER give .rec-row-item ellipsis/nowrap again: in a flex row it was the only
+   shrinkable child, so every badge stole from the name and live rows rendered
+   as "AMM…" (21 Jul 2026). The grid makes that structurally impossible. */
+.rec-ledger-head,
 .rec-row-main {
-  display: flex;
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) 82px 92px 74px 124px;
+  gap: 14px;
   align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
+}
+.rec-ledger-head {
+  font-family: var(--font-display);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.13em;
+  color: var(--muted);
+  padding: 9px 12px 7px;
+}
+.rec-ledger-head span:nth-child(3),
+.rec-ledger-head span:nth-child(4) { text-align: right; }
+.rec-row-main {
+  padding: 11px 12px;
   cursor: pointer;
 }
-.rec-row-num { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
-.rec-row-item {
-  flex: 1;
+.rec-row-num { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; }
+.rec-row-namecell {
   min-width: 0;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+.rec-row-item {
   font-weight: 600;
   font-size: 14px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.rec-row-type {
+  font-size: 11.5px;
+  color: var(--muted);
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 .rec-row-lowconf {
   font-size: 10px;
@@ -501,23 +530,41 @@ textarea { resize: vertical; min-height: 96px; line-height: 1.55; }
   color: var(--brass-2, var(--brass));
   font-size: 14px;
   white-space: nowrap;
+  text-align: right;
 }
-.rec-row-date { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.rec-row-date { font-size: 12px; color: var(--muted); white-space: nowrap; text-align: right; }
 .rec-row-date-overdue, .rec-row-date-urgent { color: var(--danger); font-weight: 600; }
-.rec-row-act { display: flex; gap: 5px; }
+/* Actions rest at reduced contrast so the numbers stay loud, and come up on
+   hover or keyboard focus. 0.55 is a floor, not a preference — below it a
+   control reads as disabled, and hiding them entirely means a non-power user
+   never finds the only action on the page. */
+.rec-row-act {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  justify-content: flex-end;
+  opacity: 0.55;
+  transition: opacity 140ms var(--ease-out);
+}
+.rec-card:hover .rec-row-act,
+.rec-card.kb-active .rec-row-act,
+.rec-row-act:focus-within { opacity: 1; }
 .rec-row-btn {
-  width: 26px;
-  height: 26px;
+  height: 24px;
+  min-width: 24px;
+  padding: 0 6px;
   border-radius: 7px;
   cursor: pointer;
   border: 1px solid var(--border);
   background: transparent;
   color: var(--text);
-  font-size: 13px;
+  font-size: 12.5px;
   line-height: 1;
 }
 .rec-row-btn:hover { border-color: var(--brass); }
+.rec-row-btn:focus-visible { outline: 2px solid var(--brass); outline-offset: 1px; }
 .rec-row-btn-ok { border-color: rgba(143,188,143,0.5); color: var(--success); }
+.rec-row-btn-note { font-size: 11px; color: var(--muted); }
 .rec-row-chev { color: var(--muted); font-size: 15px; width: 16px; text-align: center; line-height: 1; }
 
 /* Line 2 */
@@ -538,8 +585,6 @@ textarea { resize: vertical; min-height: 96px; line-height: 1.55; }
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.rec-row-outcome { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; flex: 1; }
-.rec-row-outcome .outcome-why { font-size: 11.5px; }
 
 /* Expanded panel */
 .rec-row-panel {
@@ -591,12 +636,28 @@ textarea { resize: vertical; min-height: 96px; line-height: 1.55; }
   font-weight: 500;
   line-height: 1;
 }
-/* Inline note on a row's second line: quiet dashed underline, no box */
+/* Note now lives in the expanded panel, so it can be a real labelled field
+   instead of a 190px sliver squeezed onto a row. */
+.rec-panel-note {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding-bottom: 11px;
+  border-bottom: 1px dashed var(--border);
+}
+.rec-panel-note label {
+  font-family: var(--font-display);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+}
 .rec-note {
-  width: 190px;
+  flex: 1;
   margin: 0;
-  padding: 3px 2px !important;
-  font-size: 12px !important;
+  padding: 5px 2px !important;
+  font-size: 13px !important;
   background: transparent !important;
   border: none !important;
   border-bottom: 1px dashed rgba(243,239,223,0.28) !important;
@@ -1045,60 +1106,30 @@ tbody tr:hover td { background: var(--paper); }
 
 /* ─────────────────── Mission control results page ─────────────────── */
 .mc-layout {
-  display: grid;
-  grid-template-columns: 280px 1fr;
-  gap: 28px;
-  align-items: start;
   margin-top: 24px;
 }
-.mc-sidebar {
-  position: sticky;
-  top: 92px;
+.mc-filterbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 26px;
+  align-items: flex-start;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 22px 20px;
+  padding: 14px 18px;
+  margin-bottom: 18px;
+  position: sticky;
+  top: 78px;
+  z-index: 5;
   box-shadow: var(--shadow);
 }
-.mc-side-title {
-  font-family: var(--font-display);
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
-  color: var(--brass-3);
-  margin-bottom: 14px;
-}
-.mc-side-stats {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  margin-bottom: 22px;
-  padding-bottom: 18px;
-  border-bottom: 1px dashed var(--border);
-}
-.mc-side-stat {
-  background: var(--paper);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 10px 12px;
-}
-.mc-side-stat .v {
-  font-family: var(--font-display);
-  font-size: 28px;
-  line-height: 1;
-  color: var(--navy-800);
-  letter-spacing: -0.02em;
+.mc-chip-count {
   font-variant-numeric: tabular-nums;
+  color: var(--text);
+  font-weight: 700;
+  margin-left: 3px;
 }
-.mc-side-stat .l {
-  font-family: var(--font-display);
-  font-size: 9px;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--muted);
-  margin-top: 3px;
-}
-.mc-side-stat.is-warn .v { color: var(--danger); }
+.mc-chip.is-active .mc-chip-count { color: #fff; }
 .mc-filter-group { margin-bottom: 18px; }
 .mc-filter-group:last-child { margin-bottom: 0; }
 .mc-filter-heading {
@@ -1175,13 +1206,18 @@ tbody tr:hover td { background: var(--paper); }
   margin-bottom: 6px;
 }
 
-@media (max-width: 960px) {
-  .mc-layout {
-    grid-template-columns: 1fr;
+/* Below ~900px the fixed ledger columns stop fitting, so rows fall back to a
+   wrapping flex line. Pilot staff are desktop-only; this is for the public site. */
+@media (max-width: 900px) {
+  .mc-filterbar { position: static; gap: 16px; }
+  .rec-ledger-head { display: none; }
+  .rec-row-main {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 10px;
   }
-  .mc-sidebar {
-    position: static;
-  }
+  .rec-row-namecell { flex: 1 1 100%; }
+  .rec-row-act { margin-left: auto; }
 }
 
 @keyframes numberFlash {
@@ -1556,3 +1592,17 @@ tbody tr:hover td { background: rgba(255,255,255,0.03); }
 /* surfaces that were translucent white */
 .ai-byline { background: rgba(13,40,24,0.7); }
 .site-footer .powered { background: rgba(13,40,24,0.5); }
+
+.rec-supplier-approve-link {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 11.5px;
+  color: var(--muted);
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+.rec-supplier-approve-link:hover:not(:disabled) { color: var(--brass); }
+.rec-supplier-approve-link:disabled { cursor: not-allowed; text-decoration: none; }

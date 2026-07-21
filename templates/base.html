@@ -133,11 +133,20 @@
 
 <script>
 // ── Toast ──────────────────────────────────────────────────────────────────
+// msg regularly carries item and supplier names, which are echoed from a
+// client's uploaded spreadsheet via the model — untrusted. It goes in as a
+// text node, never innerHTML, or an uploaded cell can become script.
 function showToast(msg, type = 'error') {
   const el = document.createElement('div');
   el.className = 'toast toast-' + type;
-  el.innerHTML = '<span>' + msg + '</span><button class="toast-close" aria-label="Dismiss">×</button>';
-  el.querySelector('.toast-close').addEventListener('click', () => el.remove());
+  const span = document.createElement('span');
+  span.textContent = msg;
+  const close = document.createElement('button');
+  close.className = 'toast-close';
+  close.setAttribute('aria-label', 'Dismiss');
+  close.textContent = '×';
+  el.append(span, close);
+  close.addEventListener('click', () => el.remove());
   document.getElementById('toast-container').appendChild(el);
   setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 300); }, 4500);
 }
@@ -146,16 +155,21 @@ function showToast(msg, type = 'error') {
 function showConfirm(msg, onConfirm, opts = {}) {
   const overlay = document.createElement('div');
   overlay.className = 'confirm-overlay';
+  // Structure only — msg often names a supplier or item taken from a client's
+  // upload, so it is set as text below rather than concatenated in here.
   overlay.innerHTML =
     '<div class="confirm-dialog" role="dialog" aria-modal="true">' +
-      '<p class="confirm-message">' + msg + '</p>' +
+      '<p class="confirm-message"></p>' +
       '<div class="confirm-actions">' +
         '<button class="btn btn-sm btn-outline">Cancel</button>' +
-        '<button class="btn btn-sm ' + (opts.danger ? 'btn-danger' : 'btn-primary') + '">' + (opts.label || 'Confirm') + '</button>' +
+        '<button class="btn btn-sm ' + (opts.danger ? 'btn-danger' : 'btn-primary') + '"></button>' +
       '</div>' +
     '</div>';
+  overlay.querySelector('.confirm-message').textContent = msg;
   document.body.appendChild(overlay);
   const [cancelBtn, okBtn] = overlay.querySelectorAll('button');
+  cancelBtn.textContent = 'Cancel';
+  okBtn.textContent = opts.label || 'Confirm';
   cancelBtn.addEventListener('click', () => overlay.remove());
   okBtn.addEventListener('click', () => { overlay.remove(); onConfirm(); });
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });

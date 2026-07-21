@@ -118,8 +118,10 @@ _check("'stock runway' relabelled to 'Current stock lasts'", "Current stock last
 # Confidence wording
 _check("low-data confidence says 'Need more data'", "Need more data to be sure" in html)
 
-# Outcome nudge
-_check("outcome nudge explains why it matters", "proves it's saving you money" in html)
+# Outcome nudge — removed 21 Jul 2026. The self-reported "did you order this?"
+# prompt moved to a pen checkbox on the print sheet, so the sales line that
+# justified it must be gone from the page.
+_check("outcome nudge no longer on the page", "proves it's saving you money" not in html)
 
 
 if _FAILED:

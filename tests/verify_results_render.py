@@ -125,16 +125,16 @@ checks = {
     "exactly one quantity-basis line": html.count('class="rec-qty-basis"') == 1,
     "exactly one mitigation strip": html.count('class="rec-mitigation"') == 1,
 
-    # ── compact-row markup (2026-07 redesign) ──
+    # ── ledger markup (2026-07-21 redesign) ──
     "three row containers": html.count('rec-row-main') == 3,
     "three hidden panels": html.count('class="rec-row-panel"') == 3,
-    "note inputs on rows": html.count('class="rec-note"') == 3,
+    "note inputs in panels": html.count('class="rec-note"') == 3,
     "saved note rendered": 'told team already' in html,
     "critical row colour hook present": 'data-status="CRITICAL"' in html,
     "low-confidence tag shown": 'rec-row-lowconf' in html,
     "reason snippet on line 2": 'Tight stock with a slow import supplier.' in html,
-    "approved row shows outcome question": 'Was the stockout avoided?' in html,
-    "qty on line 1": '160 CTN' in html,
+    "outcome question is gone": 'Was the stockout avoided?' not in html,
+    "qty in the order column": '160 CTN' in html,
     "confidence ring is gone": 'confidence-ring' not in html,
     "popover is gone": 'conf-popover' not in html,
 }
