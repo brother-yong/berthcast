@@ -124,6 +124,10 @@
   .sr-dot.crit{ background:var(--crit); }
   .sr-dot.warn{ background:var(--amber); }
   .sr-name{ flex:1; font-size:14.5px; color:var(--ivory-dim); }
+  /* on-hand sits quieter than days of cover — the ranking is the point, this is context */
+  .sr-qty{ font-family:var(--serif); font-weight:600; font-size:17px; color:var(--ivory-dim);
+           font-variant-numeric:tabular-nums; min-width:5.6em; text-align:right; padding-right:20px; }
+  .sr-qty span{ font-family:var(--sans); font-size:10.5px; font-weight:500; color:var(--ivory-faint); margin-left:5px; }
   .sr-days{ font-family:var(--serif); font-weight:600; font-size:22px; color:var(--ivory);
             font-variant-numeric:tabular-nums; min-width:3.4em; text-align:right; }
   .sr-days span{ font-family:var(--sans); font-size:11px; font-weight:500; color:var(--ivory-faint); margin-left:5px; }
@@ -174,12 +178,15 @@
   @media (max-width:900px){
     .how-steps,.demo-grid{ grid-template-columns:1fr; gap:36px; }
     .sr-name{ font-size:13px; } .sr-days{ font-size:19px; }
+    .sr-qty{ font-size:15px; min-width:4.8em; }
     nav,.wrap,.foot{ padding-left:22px; padding-right:22px; }
     .hero{ padding:0 22px 34px; min-height:calc(100svh - 120px); }
     .nav-link{ display:none; }
     .foot{ flex-direction:column; align-items:flex-start; gap:14px; }
     .foot .colophon{ text-align:left; margin-top:0; }
   }
+  /* three columns crush on a phone — on-hand is the one that can go */
+  @media (max-width:560px){ .sr-qty{ display:none; } }
   @media (prefers-reduced-motion: reduce){ html{ scroll-behavior:auto; } }
   </style>
 </head>
@@ -242,12 +249,12 @@
     <h2 class="sec-title">Every line, ranked by how close it is to <em>zero</em></h2>
   </div>
   <ol class="srlist" id="srlist">
-    <li class="sr" data-from="3"><span class="sr-dot crit"></span><span class="sr-name">Brookvale UHT Milk Full Cream 1L</span><span class="sr-days crit">0<span>days</span></span></li>
-    <li class="sr" data-from="1"><span class="sr-dot crit"></span><span class="sr-name">Nordvik Salmon Portions 180g</span><span class="sr-days crit">3<span>days</span></span></li>
-    <li class="sr" data-from="5"><span class="sr-dot warn"></span><span class="sr-name">Padimas Jasmine Rice 5kg</span><span class="sr-days">9<span>days</span></span></li>
-    <li class="sr" data-from="4"><span class="sr-dot"></span><span class="sr-name">Kestrel Extra Virgin Olive Oil 1L</span><span class="sr-days">22<span>days</span></span></li>
-    <li class="sr" data-from="0"><span class="sr-dot"></span><span class="sr-name">Aldermoor Salted Butter 250g</span><span class="sr-days">41<span>days</span></span></li>
-    <li class="sr" data-from="2"><span class="sr-dot"></span><span class="sr-name">Vanmark Frozen Garden Peas 1kg</span><span class="sr-days">88<span>days</span></span></li>
+    <li class="sr" data-from="3"><span class="sr-dot crit"></span><span class="sr-name">Brookvale UHT Milk Full Cream 1L</span><span class="sr-qty">0<span>CTN</span></span><span class="sr-days crit">0<span>days</span></span></li>
+    <li class="sr" data-from="1"><span class="sr-dot crit"></span><span class="sr-name">Nordvik Salmon Portions 180g</span><span class="sr-qty">18<span>CTN</span></span><span class="sr-days crit">3<span>days</span></span></li>
+    <li class="sr" data-from="5"><span class="sr-dot warn"></span><span class="sr-name">Padimas Jasmine Rice 5kg</span><span class="sr-qty">64<span>CTN</span></span><span class="sr-days">9<span>days</span></span></li>
+    <li class="sr" data-from="4"><span class="sr-dot"></span><span class="sr-name">Kestrel Extra Virgin Olive Oil 1L</span><span class="sr-qty">120<span>CTN</span></span><span class="sr-days">22<span>days</span></span></li>
+    <li class="sr" data-from="0"><span class="sr-dot"></span><span class="sr-name">Aldermoor Salted Butter 250g</span><span class="sr-qty">310<span>CTN</span></span><span class="sr-days">41<span>days</span></span></li>
+    <li class="sr" data-from="2"><span class="sr-dot"></span><span class="sr-name">Vanmark Frozen Garden Peas 1kg</span><span class="sr-qty">940<span>CTN</span></span><span class="sr-days">88<span>days</span></span></li>
   </ol>
 </div></section>
 <script>
