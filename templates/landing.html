@@ -27,7 +27,7 @@
     --green-deep:#05140A; --green-900:#081C0F; --green-800:#0D2818; --green-700:#12351F;
     --gold:#C9A227; --gold-light:#DcBE63;
     --ivory:#F3EFDF; --ivory-dim:rgba(243,239,223,.66); --ivory-faint:rgba(243,239,223,.42);
-    --moss:#8FBC8F; --crit:#E89A92;
+    --moss:#8FBC8F; --crit:#E89A92; --amber:#E6B450;
     --gold-line:rgba(201,162,39,.22); --hair:rgba(243,239,223,.12);
     --serif:'Cormorant Garamond', Georgia, serif;
     --sans:'Inter', system-ui, sans-serif;
@@ -113,6 +113,22 @@
   .step p{ font-size:14px; color:var(--ivory-dim); line-height:1.6; }
   .step__rule{ width:40px; height:1px; background:var(--gold-line); margin:18px 0; }
 
+  /* the sort — the page's one piece of motion. rows sit scrambled, then snap into rank
+     when scrolled to. plays once, ~280ms, then still. the markup order IS the sorted
+     order, so no-JS and reduced-motion land straight on the honest end state. */
+  .sortband{ padding:84px 0; border-top:1px solid var(--hair); }
+  .srlist{ list-style:none; max-width:660px; margin:0 auto; border-top:1px solid var(--hair); }
+  .sr{ display:flex; align-items:center; gap:16px; padding:13px 4px; border-bottom:1px solid var(--hair); }
+  .srlist.go .sr{ transition:transform 280ms cubic-bezier(.2,.7,.2,1); }
+  .sr-dot{ width:7px; height:7px; border-radius:50%; flex:none; background:var(--moss); }
+  .sr-dot.crit{ background:var(--crit); }
+  .sr-dot.warn{ background:var(--amber); }
+  .sr-name{ flex:1; font-size:14.5px; color:var(--ivory-dim); }
+  .sr-days{ font-family:var(--serif); font-weight:600; font-size:22px; color:var(--ivory);
+            font-variant-numeric:tabular-nums; min-width:3.4em; text-align:right; }
+  .sr-days span{ font-family:var(--sans); font-size:11px; font-weight:500; color:var(--ivory-faint); margin-left:5px; }
+  .sr-days.crit{ color:var(--crit); }
+
   /* worked example */
   .demo{ padding:90px 0; border-top:1px solid var(--hair); }
   .demo-grid{ display:grid; grid-template-columns:1fr 1fr; gap:24px; align-items:stretch; }
@@ -157,6 +173,7 @@
 
   @media (max-width:900px){
     .how-steps,.demo-grid{ grid-template-columns:1fr; gap:36px; }
+    .sr-name{ font-size:13px; } .sr-days{ font-size:19px; }
     nav,.wrap,.foot{ padding-left:22px; padding-right:22px; }
     .hero{ padding:0 22px 34px; min-height:calc(100svh - 120px); }
     .nav-link{ display:none; }
@@ -217,6 +234,43 @@
     <a class="btn btn-secondary" href="#demo">See a real decision</a>
   </div>
 </section>
+
+<!-- THE SORT -->
+<section class="sortband"><div class="wrap">
+  <div class="section-head">
+    <div class="eyebrow center">What it does first</div>
+    <h2 class="sec-title">Every line, ranked by how close it is to <em>zero</em></h2>
+  </div>
+  <ol class="srlist" id="srlist">
+    <li class="sr" data-from="3"><span class="sr-dot crit"></span><span class="sr-name">Brookvale UHT Milk Full Cream 1L</span><span class="sr-days crit">0<span>days</span></span></li>
+    <li class="sr" data-from="1"><span class="sr-dot crit"></span><span class="sr-name">Nordvik Salmon Portions 180g</span><span class="sr-days crit">3<span>days</span></span></li>
+    <li class="sr" data-from="5"><span class="sr-dot warn"></span><span class="sr-name">Padimas Jasmine Rice 5kg</span><span class="sr-days">9<span>days</span></span></li>
+    <li class="sr" data-from="4"><span class="sr-dot"></span><span class="sr-name">Kestrel Extra Virgin Olive Oil 1L</span><span class="sr-days">22<span>days</span></span></li>
+    <li class="sr" data-from="0"><span class="sr-dot"></span><span class="sr-name">Aldermoor Salted Butter 250g</span><span class="sr-days">41<span>days</span></span></li>
+    <li class="sr" data-from="2"><span class="sr-dot"></span><span class="sr-name">Vanmark Frozen Garden Peas 1kg</span><span class="sr-days">88<span>days</span></span></li>
+  </ol>
+</div></section>
+<script>
+(function(){
+  var list = document.getElementById('srlist');
+  // no observer or reduced motion: leave the list in its sorted markup order
+  if (!list || !window.IntersectionObserver) return;
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  var rows = Array.prototype.slice.call(list.querySelectorAll('.sr'));
+  var tops = rows.map(function(r){ return r.offsetTop; });
+  rows.forEach(function(r){
+    r.style.transform = 'translateY(' + (tops[+r.dataset.from] - r.offsetTop) + 'px)';
+  });
+  // transitions go on only after the scrambled positions have painted
+  requestAnimationFrame(function(){ list.classList.add('go'); });
+  var io = new IntersectionObserver(function(entries){
+    if (!entries[0].isIntersecting) return;
+    rows.forEach(function(r){ r.style.transform = ''; });
+    io.disconnect();
+  }, { threshold: .55 });
+  io.observe(list);
+})();
+</script>
 
 <!-- HOW -->
 <section class="how" id="how"><div class="wrap">
