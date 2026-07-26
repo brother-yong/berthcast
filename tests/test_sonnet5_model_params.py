@@ -46,6 +46,9 @@ _check("sonnet-4-6 still sends temperature=0",
        detail=str(sampling_kwargs("claude-sonnet-4-6")))
 _check("opus-4-8 omits temperature (unchanged)",
        sampling_kwargs("claude-opus-4-8") == {})
+_check("opus-5 omits temperature (400 otherwise)",
+       sampling_kwargs("claude-opus-5") == {},
+       detail=str(sampling_kwargs("claude-opus-5")))
 _check("haiku-4-5 still sends temperature=0 (unchanged)",
        sampling_kwargs("claude-haiku-4-5-20251001") == {"temperature": 0})
 
@@ -57,6 +60,9 @@ _check("sonnet-4-6 leaves thinking untouched",
        thinking_kwargs("claude-sonnet-4-6") == {})
 _check("opus-4-8 leaves thinking untouched",
        thinking_kwargs("claude-opus-4-8") == {})
+_check("opus-5 pins thinking disabled",
+       thinking_kwargs("claude-opus-5") == {"thinking": {"type": "disabled"}},
+       detail=str(thinking_kwargs("claude-opus-5")))
 _check("haiku-4-5 leaves thinking untouched",
        thinking_kwargs("claude-haiku-4-5-20251001") == {})
 
@@ -67,6 +73,10 @@ _ids = [mid for mid, _label in AVAILABLE_MODELS]
 _check("sonnet-5 is offered in the model list", "claude-sonnet-5" in _ids,
        detail=str(_ids))
 _check("stale sonnet-4-6 no longer offered", "claude-sonnet-4-6" not in _ids,
+       detail=str(_ids))
+_check("opus-5 is offered in the model list", "claude-opus-5" in _ids,
+       detail=str(_ids))
+_check("stale opus-4-8 no longer offered in dropdown", "claude-opus-4-8" not in _ids,
        detail=str(_ids))
 
 sys.exit(1 if _FAILED else 0)

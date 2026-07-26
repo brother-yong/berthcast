@@ -15,5 +15,5 @@ FILE_SLOTS = ("inventory", "purchase_orders", "sales", "suppliers", "customers")
 AVAILABLE_MODELS = [
     ("claude-haiku-4-5-20251001", "Haiku — fast, lower cost (testing)"),
     ("claude-sonnet-5",           "Sonnet — balanced (recommended)"),
-    ("claude-opus-4-8",           "Opus — most thorough (production reports)"),
+    ("claude-opus-5",             "Opus — most thorough (production reports)"),
 ]

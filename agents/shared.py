@@ -888,17 +888,19 @@ def _resolve_item_suppliers(session_id: int, org_name: str, config: dict,
 # Consequence engine — pure Python, no LLM involvement
 # ---------------------------------------------------------------------------
 
-# Opus 4.7+, Sonnet 5 and Fable removed the temperature parameter — sending it is
-# a hard 400 error on those models. Older models keep temperature=0 so the same
-# file produces the same report run after run.
-_NO_TEMPERATURE_PREFIXES = ("claude-opus-4-7", "claude-opus-4-8", "claude-sonnet-5", "claude-fable")
+# Opus 4.7+, Opus 5, Sonnet 5 and Fable removed the temperature parameter — sending
+# it is a hard 400 error on those models. Older models keep temperature=0 so the same
+# file produces the same report run after run. (opus-4-8 stays listed for any user
+# whose stored model predates the Opus 5 swap.)
+_NO_TEMPERATURE_PREFIXES = ("claude-opus-4-7", "claude-opus-4-8", "claude-opus-5", "claude-sonnet-5", "claude-fable")
 
-# Sonnet 5 turns "adaptive" thinking on whenever the thinking parameter is omitted;
-# every other model this app uses defaults to no thinking. Left on, it spends part
-# of max_tokens on reasoning tokens — which truncates the small JSON calls (the
-# 400-token column proposal especially) and adds a latency pause. Pin it off so
-# Sonnet 5 behaves like the rest of the line-up.
-_THINKING_OFF_PREFIXES = ("claude-sonnet-5",)
+# Sonnet 5 and Opus 5 turn "adaptive" thinking on whenever the thinking parameter is
+# omitted; every other model this app uses defaults to no thinking. Left on, it spends
+# part of max_tokens on reasoning tokens — which truncates the small JSON calls (the
+# 400-token column proposal especially) and adds a latency pause. Pin it off so they
+# behave like the rest of the line-up. (Disabling thinking is accepted at the default
+# effort; only xhigh/max would 400, and this app sets no effort.)
+_THINKING_OFF_PREFIXES = ("claude-sonnet-5", "claude-opus-5")
 
 
 def sampling_kwargs(model: str) -> dict:
