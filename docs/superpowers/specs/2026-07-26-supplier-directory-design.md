@@ -58,10 +58,12 @@ Session ids come from `SELECT id FROM upload_sessions WHERE org_name=? AND statu
 
 Called from two places:
 
-- After each analysis run, beside the existing `db.update_supplier_scores(org_name)` call at `app.py:3477-3482`, in the same non-blocking try/except.
+- At the end of an analysis run, right after `app.py:2659` marks the session `status='complete'`, wrapped in its own non-blocking try/except so a directory failure can never fail a run. (Not next to the `update_supplier_scores` call at `app.py:3477-3482` — that one sits on the outcome-recording route, which no new upload passes through.)
 - On `/suppliers` load when the org's directory is empty — a lazy backfill so existing clients see their suppliers without waiting for a new upload.
 
 The page then reads one indexed table. It must not scan per-session tables on every view.
+
+Per the repo convention that **all SQL lives in `database.py`**, the rebuild's reads and writes go there. `supplier_directory.py` holds only pure key/grouping functions and takes a list of names as input.
 
 ### 2. `/suppliers` becomes the only supplier page
 
@@ -95,9 +97,42 @@ Two distinct problems:
 
 **Judgment** — `NORDVIK` / `NORDVIK TRADING` / `NORDVIK TRADING PTE LTD`. Normalised keys still differ. Suggest only, never auto-merge: any rule loose enough to join these also joins `PADIMAS TRADING` and `PADIMAS ENTERPRISE`, which are two different companies.
 
-Detection is pure Python, no Claude call. Strip a suffix list (`PTE LTD`, `LTD`, `LLP`, `SDN BHD`, `CO`, `TRADING`, `ENTERPRISE`, `IMPORT`, `EXPORT`, `INTL`, `& SONS`) from the normalised key, bucket every name by the stripped key, and treat any bucket holding 2+ raw names as a suggestion group. O(n) over the directory, cheap enough to run on page load, nothing stored. An API call here would add cost per page view and a nondeterministic answer to a question the user settles by reading two names — Claude judges, Python does the arithmetic.
+Detection is pure Python, no Claude call, and runs in **two complementary passes**. Neither pass works without the other — measured on 431 synthetic supplier names:
+
+| Pair | `difflib` ratio | Caught by |
+|---|---|---|
+| `nordvik` / `nordvic` | 0.857 | fuzzy only |
+| `nordvik` / `norvik` | 0.923 | fuzzy only |
+| `brookvale` / `brokvale` | 0.941 | fuzzy only |
+| `padimastrading` / `padimas` | 0.667 | suffix-strip only |
+
+**Pass 1 — suffix strip.** Remove a suffix list (`PTE LTD`, `LTD`, `LLP`, `SDN BHD`, `CO`, `TRADING`, `ENTERPRISE`, `IMPORT`, `EXPORT`, `INTL`, `& SONS`) from the normalised key, bucket by the stripped key, and treat any bucket holding 2+ raw names as a group. O(n).
+
+**Pass 2 — fuzzy.** `difflib.SequenceMatcher` on the normalised keys, threshold 0.85, `quick_ratio()` as a pre-filter. Stdlib, no new dependency. Catches the typo class pass 1 is blind to.
+
+Groups from both passes are unioned; groups sharing any member collapse into one. `group_key` is the normalised key of the alphabetically-first member, so it is stable across rebuilds.
+
+**Both passes run at rebuild time, not page load.** Measured: 431 names is 92,665 pairs at **0.74s** — free once per analysis run alongside a ~3-minute pipeline, unacceptable on every page view of a single-worker box. Results are stored:
+
+```sql
+CREATE TABLE IF NOT EXISTS supplier_merge_suggestions (
+    org_name TEXT NOT NULL,
+    group_key TEXT NOT NULL,
+    supplier_name TEXT NOT NULL,
+    reason TEXT,
+    UNIQUE(org_name, group_key, supplier_name)
+);
+```
+
+A rebuild deletes and rewrites that org's rows. Page load is one `SELECT` minus the ignored groups.
+
+**Pass 1 will produce some wrong suggestions on purpose.** `PADIMAS TRADING` and `PADIMAS ENTERPRISE` both strip to `padimas` and will be offered as a group even though they are two different companies. That is the accepted cost of catching `NORDVIK` / `NORDVIK TRADING`, and it is exactly why merging is never automatic.
 
 UI: a banner — "3 possible duplicates — review" — expanding to each group with a radio to choose the canonical name (default: most PO rows behind it) and two buttons, **Merge** and **Not the same**.
+
+**Every suggestion shows its reason** — "same after removing PTE LTD", "1 character different" — stored in `reason`. A grouping the user can verify at a glance is trustworthy; one that only asserts a match is not. This carries more of the trust than any improvement to match quality.
+
+**Manual merge is the guarantee.** Independently of what detection finds, the user can tick two or more rows in the list and merge them directly, choosing the canonical name. The existing search box makes finding the pair trivial. This is what makes detection quality a convenience rather than a dependency: anything the automatic passes miss is a two-click fix that stays fixed. Manual merge is not optional — without it, recall failures become permanent.
 
 **Merge must reach the pipeline, or it is decoration.** On merge, every variant row gets `merged_into = <canonical>`. Then:
 
@@ -132,12 +167,14 @@ Cases:
 1. Rebuild discovers names from all three sources with correct `source` values.
 2. A non-blocky sales supplier column is rejected (plan-008 gate).
 3. Drift variants collapse to one directory row.
-4. `NORDVIK` / `NORDVIK TRADING PTE LTD` are suggested as a group; `PADIMAS TRADING` / `PADIMAS ENTERPRISE` are not.
-5. A dismissed group does not reappear after rebuild.
-6. After merge, `get_supplier_profile("NORDVIK")` returns the canonical profile.
-7. The unreliable checkbox writes `0.50`, and a rec for that supplier is sized on a 2.5-month buffer.
-8. Archived suppliers are hidden from the list; their items still receive recommendations.
-9. Cross-org isolation on every new route.
+4. Pass 1 groups `NORDVIK` / `NORDVIK TRADING PTE LTD`; pass 2 groups `BROOKVALE` / `BROKVALE`; a group found by both passes appears once, not twice.
+5. Every suggestion row carries a non-empty `reason`.
+6. A dismissed group does not reappear after rebuild.
+7. Manual merge of two arbitrary rows works even when no suggestion links them, and survives a rebuild.
+8. After merge, `get_supplier_profile("NORDVIK")` returns the canonical profile, and `update_supplier_scores` aggregates the variants into one score.
+9. The unreliable checkbox writes `0.50`, and a rec for that supplier is sized on a 2.5-month buffer.
+10. Archived suppliers are hidden from the list; their items still receive recommendations.
+11. Cross-org isolation on every new route, including merge and dismiss.
 
 ## Gates before merge
 
@@ -151,7 +188,7 @@ Touches `app.py`, `database.py` and two templates:
 
 ## Explicitly out of scope
 
-- Any Claude call for duplicate detection.
+- **A Claude call for duplicate detection.** `agents/normalization.py` already does exactly this for item names, so the pattern is proven and would catch pairs no rule can see (`NORDVIK` vs `NV Foods`). Deferred, not rejected: it is a fourth API call and a new failure mode on a live pilot. Ship the deterministic passes, measure what they miss against the real supplier list, then decide with evidence.
 - Auto-merging judgment-class duplicates.
 - Archiving suppressing recommendations.
 - Cross-client supplier reliability ("unreliable across N importers") — parked until a second paying client exists.

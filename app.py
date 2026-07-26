@@ -1457,30 +1457,7 @@ def user_settings():
     org = session.get("org_name", "")
     if request.method == "POST":
         action = request.form.get("action")
-        if action == "save_supplier":
-            sup_name = request.form.get("supplier_name", "").strip()
-            if sup_name:
-                try:
-                    db.upsert_supplier_profile(
-                        org, sup_name,
-                        supplier_type      = request.form.get("supplier_type", "other"),
-                        avg_lead_time_days = int(request.form.get("avg_lead_time_days", 56)),
-                        delay_probability  = float(request.form.get("delay_probability", 0.2)),
-                        data_quality_score = 0.8,   # user-entered = high confidence
-                        notes              = request.form.get("notes", ""),
-                    )
-                    flash(f"Supplier '{sup_name}' saved.", "success")
-                except Exception as e:
-                    flash(f"Could not save supplier: {e}", "error")
-        elif action == "delete_supplier":
-            sup_name = request.form.get("supplier_name", "").strip()
-            if sup_name:
-                db.execute(
-                    "DELETE FROM supplier_profiles WHERE org_name=? AND supplier_name=?",
-                    (org, sup_name)
-                )
-                flash(f"Supplier '{sup_name}' deleted.", "success")
-        elif action == "change_password":
+        if action == "change_password":
             current_pw  = request.form.get("current_password", "")
             new_pw      = request.form.get("new_password", "")
             confirm_pw  = request.form.get("confirm_password", "")
@@ -1633,7 +1610,6 @@ def user_settings():
 
         return redirect(url_for("user_settings"))
 
-    profiles = db.get_supplier_profiles(org)
     company_cfg = db.get_company_config(org)
 
     # Team members (only loaded for admin role, but harmless otherwise)
@@ -1644,7 +1620,7 @@ def user_settings():
             (org,)
         )
 
-    return render_template("settings.html", profiles=profiles, company_cfg=company_cfg,
+    return render_template("settings.html", company_cfg=company_cfg,
                            team_members=team_members)
 
 
@@ -2658,6 +2634,17 @@ def run_analysis(upload_session_id):
             )
             db.execute("UPDATE upload_sessions SET status='complete' WHERE id=?", (upload_session_id,))
 
+            # Refresh the supplier list from what was just ingested. Its own
+            # try/except: a directory failure must never fail a completed run.
+            try:
+                _sess_org = db.query(
+                    "SELECT org_name FROM upload_sessions WHERE id=?", (upload_session_id,))
+                if _sess_org:
+                    db.rebuild_supplier_directory(_sess_org[0]["org_name"])
+            except Exception:
+                logger.warning("Supplier-directory rebuild failed for session %s",
+                               upload_session_id, exc_info=True)
+
             # Name the true outcome of this "complete" run and page the operator
             # on the bad ones. classify_complete_run distinguishes a genuinely
             # healthy zero-rec run from one that FAILED to produce recs — so a
@@ -3499,15 +3486,204 @@ def outcome_stats_api():
 # Supplier scores page
 # ---------------------------------------------------------------------------
 
+_BACKFILLED_ORGS = set()
+
+
 @app.route("/suppliers")
 @login_required
 def suppliers_page():
-    scores = db.get_supplier_scores(session["org_name"])
-    outcome_stats = db.get_outcome_stats(session["org_name"])
-    return render_template("suppliers.html",
-                           suppliers=scores,
-                           outcome_stats=outcome_stats,
-                           org_name=session["org_name"])
+    org = session["org_name"]
+    # Lazy backfill: an org that has not run an analysis since this shipped has
+    # an empty directory. Rebuild once, here, rather than on every page view —
+    # the fuzzy pass is O(n^2) and this reads up to 25 sessions' worth of
+    # per-session tables.
+    #
+    # "Directory is empty" alone is NOT a sufficient guard: an org whose files
+    # carry no recognisable supplier column finds nothing, so the directory
+    # stays empty and every single page view would rescan. _BACKFILLED_ORGS
+    # remembers the attempt. In-memory on purpose — there is one gunicorn
+    # worker (see the in-memory progress dict), and the worst case on restart
+    # is one extra scan per org.
+    if org not in _BACKFILLED_ORGS and not db.get_supplier_directory(org):
+        _BACKFILLED_ORGS.add(org)
+        try:
+            db.rebuild_supplier_directory(org)
+        except Exception:
+            logger.warning("Supplier-directory backfill failed for org %s", org, exc_info=True)
+
+    show_hidden = request.args.get("hidden") == "1"
+    scores = {r["supplier_name"]: r for r in db.get_supplier_scores(org, include_archived=True)}
+    directory = db.get_supplier_directory(org)
+
+    # Names folded into a canonical row, so that row can list them and offer undo.
+    merged_by_canonical = {}
+    for d in directory:
+        if d["merged_into"]:
+            merged_by_canonical.setdefault(d["merged_into"], []).append(d["supplier_name"])
+
+    rows, hidden_count = [], 0
+    seen = set()
+    for d in directory:
+        if d["merged_into"]:
+            continue  # folded into its canonical row
+        name = d["supplier_name"]
+        seen.add(name)
+        prof = scores.get(name, {})
+        if prof.get("archived"):
+            hidden_count += 1
+            if not show_hidden:
+                continue
+        rows.append(_supplier_row(name, d["source"], prof,
+                                  merged_by_canonical.get(name, [])))
+
+    # Profiles with no directory entry: typed by hand and matching nothing in
+    # any upload, so they have been doing nothing. Surface them instead of
+    # hiding them — this is the silent failure the directory exists to end.
+    for name, prof in scores.items():
+        if name in seen or name == "Unknown":
+            continue
+        if prof.get("archived"):
+            hidden_count += 1
+            if not show_hidden:
+                continue
+        rows.append(_supplier_row(name, None, prof, merged_by_canonical.get(name, [])))
+
+    # Most-used first: the handful that matter sit above the long tail.
+    rows.sort(key=lambda r: (-(r["total_recs"] or 0), r["supplier_name"].lower()))
+
+    return render_template(
+        "suppliers.html",
+        suppliers=rows,
+        suggestions=db.get_merge_suggestions(org),
+        outcome_stats=db.get_outcome_stats(org),
+        hidden_count=hidden_count,
+        show_hidden=show_hidden,
+        org_name=org,
+    )
+
+
+def _supplier_row(name, source, prof, merged_names=()):
+    """One render-ready supplier row. `source` is None for a profile that no
+    upload has ever mentioned."""
+    delay = prof.get("delay_probability")
+    return {
+        "supplier_name":      name,
+        "source":             source,
+        "merged_names":       list(merged_names),
+        "reliability_score":  prof.get("reliability_score"),
+        "total_recs":         prof.get("total_recs") or 0,
+        "orders_placed":      prof.get("orders_placed") or 0,
+        "stockouts_avoided":  prof.get("stockouts_avoided") or 0,
+        "stockouts_happened": prof.get("stockouts_happened") or 0,
+        "avg_lead_time_days": prof.get("avg_lead_time_days"),
+        "supplier_type":      prof.get("supplier_type"),
+        "notes":              prof.get("notes"),
+        "delay_probability":  delay,
+        # Same threshold that selects the 2.5-month safety buffer, so a raw
+        # value set by hand always displays consistently with what it does.
+        "unreliable":         float(delay) > 0.35 if delay is not None else False,
+        "archived":           bool(prof.get("archived")),
+    }
+
+
+@app.route("/suppliers/flag", methods=["POST"])
+@login_required
+@analyst_required
+def suppliers_flag():
+    org = session["org_name"]
+    name = request.form.get("supplier_name", "").strip()
+    if name:
+        unreliable = request.form.get("unreliable") == "1"
+        db.upsert_supplier_profile(org, name,
+                                   delay_probability=0.5 if unreliable else 0.2,
+                                   data_quality_score=0.8)  # user-stated = high confidence
+    return redirect(url_for("suppliers_page"))
+
+
+@app.route("/suppliers/save", methods=["POST"])
+@login_required
+@analyst_required
+def suppliers_save():
+    org = session["org_name"]
+    name = request.form.get("supplier_name", "").strip()
+    if name:
+        try:
+            db.upsert_supplier_profile(
+                org, name,
+                supplier_type      = request.form.get("supplier_type", "other"),
+                avg_lead_time_days = int(request.form.get("avg_lead_time_days", 56)),
+                delay_probability  = float(request.form.get("delay_probability", 0.2)),
+                data_quality_score = 0.8,
+                notes              = request.form.get("notes", ""),
+            )
+            flash(f"Saved {name}.", "success")
+        except (ValueError, TypeError):
+            flash("Lead time must be a whole number and delay rate a number between 0 and 1.", "error")
+    return redirect(url_for("suppliers_page"))
+
+
+@app.route("/suppliers/archive", methods=["POST"])
+@login_required
+@analyst_required
+def suppliers_archive():
+    org = session["org_name"]
+    name = request.form.get("supplier_name", "").strip()
+    archived = request.form.get("archived", "1") == "1"
+    if name:
+        db.archive_supplier(org, name, archived)
+        flash(f"{'Hid' if archived else 'Restored'} {name}. "
+              "Items from this supplier are still recommended.", "success")
+    # After restoring, stay on the hidden view — the user is working through it.
+    return redirect(url_for("suppliers_page", hidden=None if archived else "1"))
+
+
+@app.route("/suppliers/merge", methods=["POST"])
+@login_required
+@analyst_required
+def suppliers_merge():
+    """Serves both the suggestion banner and manual selection from the list.
+
+    Both post the same two fields, so there is one code path: `canonical` picks
+    the name to keep, `variants` lists every name in the merge (the canonical
+    included — merge_suppliers skips it).
+    """
+    org = session["org_name"]
+    canonical = request.form.get("canonical", "").strip()
+    variants = [v.strip() for v in request.form.getlist("variants") if v.strip()]
+    others = [v for v in variants if v != canonical]
+    if not canonical or not others:
+        flash("Pick at least two suppliers and choose which name to keep.", "error")
+        return redirect(url_for("suppliers_page"))
+    db.merge_suppliers(org, canonical, others)
+    flash(f"Merged {len(others)} name(s) into {canonical}. Undo from the row's Details panel.",
+          "success")
+    return redirect(url_for("suppliers_page"))
+
+
+@app.route("/suppliers/unmerge", methods=["POST"])
+@login_required
+@analyst_required
+def suppliers_unmerge():
+    """Undo one merge. A wrong merge is a real risk — the suffix pass groups
+    same-first-word companies on purpose — so this must be reachable from the UI,
+    not only the database."""
+    org = session["org_name"]
+    name = request.form.get("supplier_name", "").strip()
+    if name:
+        db.unmerge_supplier(org, name)
+        flash(f"{name} is a separate supplier again.", "success")
+    return redirect(url_for("suppliers_page"))
+
+
+@app.route("/suppliers/ignore_group", methods=["POST"])
+@login_required
+@analyst_required
+def suppliers_ignore_group():
+    org = session["org_name"]
+    key = request.form.get("group_key", "").strip()
+    if key:
+        db.ignore_merge_group(org, key)
+    return redirect(url_for("suppliers_page"))
 
 
 if __name__ == "__main__":

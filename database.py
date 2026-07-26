@@ -256,6 +256,48 @@ def init_db():
         # was for — get_supplier_accuracy used to LIKE-match item names against
         # supplier names and always returned zero. Old rows stay NULL (unknown).
         "ALTER TABLE recommendation_outcomes ADD COLUMN supplier TEXT",
+        # ── Supplier directory ────────────────────────────────────────────
+        # The list of supplier names the client has actually uploaded. The
+        # profile machinery (delay rate → high-risk → safety buffer) shipped
+        # long ago but sat unused, because the list started empty and had to be
+        # typed by hand — and get_supplier_profile matches names EXACTLY, so a
+        # hand-typed name silently missed the spelling used in the files.
+        # Building the list from the uploads makes the names match by
+        # construction. merged_into points at the canonical name after the user
+        # confirms two spellings are one supplier.
+        """CREATE TABLE IF NOT EXISTS supplier_directory (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            org_name TEXT NOT NULL,
+            supplier_name TEXT NOT NULL,
+            source TEXT,
+            merged_into TEXT,
+            first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(org_name, supplier_name)
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_supplier_directory_org ON supplier_directory(org_name)",
+        # Duplicate suggestions are recomputed at rebuild time and stored, never
+        # derived on page load: 431 names is 92,665 pairs, measured at 0.74s —
+        # free once per run, unacceptable on every view of a single-worker box.
+        """CREATE TABLE IF NOT EXISTS supplier_merge_suggestions (
+            org_name TEXT NOT NULL,
+            group_key TEXT NOT NULL,
+            supplier_name TEXT NOT NULL,
+            reason TEXT,
+            UNIQUE(org_name, group_key, supplier_name)
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_supplier_merge_sugg_org ON supplier_merge_suggestions(org_name)",
+        # "Not the same" has to stick, or the rejected group returns on every
+        # page load and the user learns to ignore the banner.
+        """CREATE TABLE IF NOT EXISTS supplier_merge_ignored (
+            org_name TEXT NOT NULL,
+            group_key TEXT NOT NULL,
+            UNIQUE(org_name, group_key)
+        )""",
+        # Delete = hide. Archiving must NOT suppress recommendations: a delete
+        # button that silently stops reorder advice is how a client stops
+        # trusting the product.
+        "ALTER TABLE supplier_profiles ADD COLUMN archived INTEGER DEFAULT 0",
     ]:
         try:
             conn.execute(migration)
@@ -970,9 +1012,18 @@ def get_supplier_profiles(org_name: str) -> list:
 
 
 def get_supplier_profile(org_name: str, supplier_name: str) -> dict:
+    # One statement, not two: resolve the name through supplier_directory's
+    # merged_into if the user merged it, else match the name as given. This
+    # lookup used to be a raw exact-string match, so a profile spelled even
+    # slightly differently from the client's file silently fell back to
+    # defaults with no error anywhere.
     rows = query(
-        "SELECT * FROM supplier_profiles WHERE org_name=? AND supplier_name=?",
-        (org_name, supplier_name)
+        "SELECT p.* FROM supplier_profiles p "
+        "WHERE p.org_name=? AND p.supplier_name = COALESCE(("
+        "    SELECT d.merged_into FROM supplier_directory d "
+        "    WHERE d.org_name=? AND d.supplier_name=? AND d.merged_into IS NOT NULL"
+        "), ?)",
+        (org_name, org_name, supplier_name, supplier_name)
     )
     if rows:
         return dict(rows[0])
@@ -998,13 +1049,18 @@ def upsert_supplier_profile(org_name: str, supplier_name: str, **kwargs):
     allowed = {"delay_probability", "avg_lead_time_days", "data_quality_score", "notes", "supplier_type"}
     fields = {k: v for k, v in kwargs.items() if k in allowed}
     if existing:
-        sets = ", ".join(f"{k}=?" for k in fields) + ", updated_at=CURRENT_TIMESTAMP"
+        # fields can be empty (archive_supplier calls this purely to ensure the
+        # row exists) — an empty SET list is a syntax error.
+        sets = "".join(f"{k}=?, " for k in fields) + "updated_at=CURRENT_TIMESTAMP"
         execute(
             f"UPDATE supplier_profiles SET {sets} WHERE org_name=? AND supplier_name=?",
             tuple(fields.values()) + (org_name, supplier_name)
         )
     else:
-        cols = "org_name, supplier_name, " + ", ".join(fields.keys())
+        # Same empty-fields hazard as above: ", ".join over an empty dict still
+        # left a trailing ", " from the "org_name, supplier_name, " prefix,
+        # which is a syntax error when fields is empty.
+        cols = "org_name, supplier_name" + "".join(f", {k}" for k in fields)
         placeholders = ", ".join("?" * (len(fields) + 2))
         execute(
             f"INSERT INTO supplier_profiles ({cols}) VALUES ({placeholders})",
@@ -1169,6 +1225,11 @@ def update_supplier_scores(org_name: str):
         (org_name,)
     )
     supplier_stats = {}
+    # Merged spellings score as one supplier. Loaded once — this loop runs over
+    # every rec in every session.
+    aliases = {r["supplier_name"]: r["merged_into"] for r in query(
+        "SELECT supplier_name, merged_into FROM supplier_directory "
+        "WHERE org_name=? AND merged_into IS NOT NULL", (org_name,))}
     for row in rows:
         try:
             recs = json.loads(row["recommendations_json"] or "[]")
@@ -1178,6 +1239,7 @@ def update_supplier_scores(org_name: str):
             if not isinstance(r, dict) or r.get("error"):
                 continue
             sup = (r.get("edited_supplier") or r.get("supplier") or "Unknown").strip()
+            sup = aliases.get(sup, sup)
             if sup not in supplier_stats:
                 supplier_stats[sup] = {"recs": 0, "approved": 0, "placed": 0, "avoided": 0, "happened": 0}
             s = supplier_stats[sup]
@@ -1222,14 +1284,323 @@ def update_supplier_scores(org_name: str):
         )
 
 
-def get_supplier_scores(org_name: str) -> list:
-    """Return all supplier profiles with scores for an org, sorted by score descending."""
-    return query(
+def get_supplier_scores(org_name: str, include_archived: bool = False) -> list:
+    """Return supplier profiles with scores for an org, best score first.
+
+    Archived suppliers are hidden from the list but keep their profile — the
+    pipeline still reads their lead time and delay rate. Hiding is list
+    cleanup; it must never silently change what gets recommended.
+    """
+    sql = (
         "SELECT supplier_name, supplier_type, reliability_score, "
         "       total_recs, orders_placed, stockouts_avoided, stockouts_happened, "
-        "       delay_probability, avg_lead_time_days, last_scored_at, notes "
-        "FROM supplier_profiles "
-        "WHERE org_name=? "
-        "ORDER BY reliability_score DESC, supplier_name ASC",
-        (org_name,)
+        "       delay_probability, avg_lead_time_days, last_scored_at, notes, "
+        "       COALESCE(archived, 0) AS archived "
+        "FROM supplier_profiles WHERE org_name=? "
     )
+    if not include_archived:
+        sql += "AND COALESCE(archived, 0) = 0 "
+    sql += "ORDER BY reliability_score DESC, supplier_name ASC"
+    return query(sql, (org_name,))
+
+
+# ---------------------------------------------------------------------------
+# Supplier directory — the supplier list built from the client's own uploads
+# ---------------------------------------------------------------------------
+
+# A name confirmed by a better source is upgraded, never downgraded: a supplier
+# first seen on the sales sheet and later found on a real PO becomes "po".
+_SUPPLIER_SOURCE_RANK = {"sales": 0, "po": 1, "listing": 2}
+
+_DIRECTORY_MAX_SESSIONS = 25      # bounds the scan on a long-lived org
+_DIRECTORY_MAX_ROWS     = 5000    # per table, per session — 512 MB worker
+
+
+def _sales_supplier_names(session_id: int) -> set:
+    """Supplier names off the sales sheet, but only when the column is a
+    merged-cell export (plan 008).
+
+    A blocky column has each name in ONE contiguous run and the first name
+    within the first two rows — the shape a grouped report has. A column where
+    names recur in scattered runs is a transaction dump whose supplier field
+    means something else, and reading it paints stray names across the file.
+    (This repeats ~6 lines of the check in agents/recommendation.py:233-237 on
+    purpose: that guard is live on a real client and extracting it would put a
+    shipped safety net at risk for no functional gain.)
+    """
+    table = f"sales_{session_id}"
+    try:
+        sample = query(f"SELECT * FROM {table} LIMIT 1")
+        if not sample:
+            return set()
+        cols = list(sample[0].keys())
+        sup_col = next((c for c in cols if "supplier" in c), None)
+        if not sup_col:
+            return set()
+        rows = query(f'SELECT "{sup_col}" AS s FROM {table} LIMIT ?',
+                     (_DIRECTORY_MAX_ROWS,))
+        raw = [str(r["s"]).strip() if r["s"] is not None else "" for r in rows]
+        seq = [v for v in raw if v]
+        if not seq:
+            return set()
+        first_idx = next((i for i, v in enumerate(raw) if v), None)
+        runs = 1 + sum(1 for a, b in zip(seq, seq[1:]) if a != b)
+        is_blocky = runs == len(set(seq)) and first_idx is not None and first_idx <= 1
+        return set(seq) if is_blocky else set()
+    except Exception:
+        return set()
+
+
+def _po_supplier_names(session_id: int) -> set:
+    table = f"purchase_orders_{session_id}"
+    try:
+        sample = query(f"SELECT * FROM {table} LIMIT 1")
+        if not sample:
+            return set()
+        cols = list(sample[0].keys())
+        sup_col = (next((c for c in cols if "supplier" in c and "name" in c), None)
+                   or next((c for c in cols if "supplier" in c), None))
+        if not sup_col:
+            return set()
+        rows = query(
+            f'SELECT DISTINCT "{sup_col}" AS s FROM {table} '
+            f'WHERE "{sup_col}" IS NOT NULL LIMIT ?', (_DIRECTORY_MAX_ROWS,))
+        return {str(r["s"]).strip() for r in rows if str(r["s"] or "").strip()}
+    except Exception:
+        return set()
+
+
+def _listing_supplier_names(session_id: int) -> set:
+    table = f"suppliers_{session_id}"
+    try:
+        sample = query(f"SELECT * FROM {table} LIMIT 1")
+        if not sample:
+            return set()
+        cols = list(sample[0].keys())
+        name_col = next((c for c in cols if "name" in c or "supplier" in c), None)
+        if not name_col:
+            return set()
+        rows = query(
+            f'SELECT DISTINCT "{name_col}" AS s FROM {table} '
+            f'WHERE "{name_col}" IS NOT NULL LIMIT ?', (_DIRECTORY_MAX_ROWS,))
+        return {str(r["s"]).strip() for r in rows if str(r["s"] or "").strip()}
+    except Exception:
+        return set()
+
+
+def rebuild_supplier_directory(org_name: str):
+    """Refresh an org's supplier directory and duplicate suggestions.
+
+    Called at the end of an analysis run, and lazily on first view of an org
+    with an empty directory. Never called on every page load — the fuzzy pass
+    is O(n^2) and this reads per-session tables.
+    """
+    from agents.shared import normalise_match_key
+
+    sessions = query(
+        "SELECT id FROM upload_sessions WHERE org_name=? AND status='complete' "
+        "ORDER BY created_at DESC LIMIT ?",
+        (org_name, _DIRECTORY_MAX_SESSIONS)
+    )
+
+    listing, po, sales = set(), set(), set()
+    for row in sessions:
+        # int() straight off the DB — the only interpolation into a table name
+        # the conventions allow, and never request-supplied.
+        sid = int(row["id"])
+        listing |= _listing_supplier_names(sid)
+        po      |= _po_supplier_names(sid)
+        sales   |= _sales_supplier_names(sid)
+
+    # Highest-trust source written last so it wins.
+    found = {}
+    for name in sales:
+        found[name] = "sales"
+    for name in po:
+        found[name] = "po"
+    for name in listing:
+        found[name] = "listing"
+
+    existing_rows = query(
+        "SELECT supplier_name, source FROM supplier_directory WHERE org_name=?",
+        (org_name,))
+    existing = {r["supplier_name"]: r["source"] for r in existing_rows}
+    existing_by_key = {normalise_match_key(r["supplier_name"]): r["supplier_name"]
+                        for r in existing_rows}
+
+    # Collapse pure spelling drift ("NORDVIK" / "nordvik " / "Nord-vik") to one
+    # row. Candidates sharing a normalised key are grouped up front so the pick
+    # is independent of iteration order — `found` was built by walking sets,
+    # and Python's per-process hash-seed randomisation means a set of strings
+    # does not iterate in the same order on every run. Length is compared with
+    # whitespace collapsed first, or a stray double space (a typo, not a
+    # longer name) would out-rank a properly formatted one. When a spelling is
+    # already on record its exact text is kept unless a candidate is
+    # genuinely more complete, so a rebuild doesn't silently rename a
+    # supplier the user has already seen.
+    by_key_candidates = {}
+    for name, source in found.items():
+        by_key_candidates.setdefault(normalise_match_key(name), []).append((name, source))
+
+    def _clean_len(name):
+        return len(re.sub(r"\s+", " ", name.strip()))
+
+    resolved = {}   # key -> (winning name, winning source)
+    for key, candidates in by_key_candidates.items():
+        names_seen = {n for n, _ in candidates}
+        kept_name = existing_by_key.get(key)
+        if kept_name not in names_seen:
+            kept_name = max(names_seen, key=_clean_len)
+        else:
+            longest = max(names_seen, key=_clean_len)
+            if _clean_len(longest) > _clean_len(kept_name):
+                kept_name = longest
+        best_source = max((s for _, s in candidates),
+                          key=lambda s: _SUPPLIER_SOURCE_RANK.get(s, 0))
+        resolved[key] = (kept_name, best_source)
+
+    # One connection for the whole write — `execute()` opens and closes a
+    # connection per call, and an org can have hundreds of suppliers.
+    conn = get_db()
+    try:
+        c = conn.cursor()
+        for key, (name, source) in resolved.items():
+            old_name = existing_by_key.get(key)
+            if old_name is None:
+                c.execute(
+                    "INSERT OR IGNORE INTO supplier_directory "
+                    "(org_name, supplier_name, source) VALUES (?,?,?)",
+                    (org_name, name, source))
+            elif old_name != name:
+                # a more complete spelling replaced the one on record — rename
+                # the existing row so a duplicate isn't left behind under the
+                # old spelling
+                c.execute(
+                    "UPDATE supplier_directory SET supplier_name=?, source=?, "
+                    "last_seen=CURRENT_TIMESTAMP WHERE org_name=? AND supplier_name=?",
+                    (name, source, org_name, old_name))
+                # Anything merged INTO the old spelling has to follow it, or
+                # those rows point at a name that no longer exists: they vanish
+                # from the page (merged rows are hidden under their canonical)
+                # with no row left to undo them from.
+                c.execute(
+                    "UPDATE supplier_directory SET merged_into=? "
+                    "WHERE org_name=? AND merged_into=?",
+                    (name, org_name, old_name))
+            elif _SUPPLIER_SOURCE_RANK.get(source, 0) > _SUPPLIER_SOURCE_RANK.get(existing.get(old_name), 0):
+                c.execute(
+                    "UPDATE supplier_directory SET source=?, last_seen=CURRENT_TIMESTAMP "
+                    "WHERE org_name=? AND supplier_name=?", (source, org_name, name))
+            else:
+                c.execute(
+                    "UPDATE supplier_directory SET last_seen=CURRENT_TIMESTAMP "
+                    "WHERE org_name=? AND supplier_name=?", (org_name, name))
+        conn.commit()
+    finally:
+        conn.close()
+
+    _rebuild_merge_suggestions(org_name)
+
+
+def _rebuild_merge_suggestions(org_name: str):
+    """Recompute and store duplicate suggestions for an org.
+
+    Already-merged names are excluded (the question is settled) and so are
+    groups the user dismissed.
+    """
+    from supplier_directory import detect_duplicate_groups
+
+    names = [r["supplier_name"] for r in query(
+        "SELECT supplier_name FROM supplier_directory "
+        "WHERE org_name=? AND merged_into IS NULL", (org_name,))]
+    ignored = {r["group_key"] for r in query(
+        "SELECT group_key FROM supplier_merge_ignored WHERE org_name=?", (org_name,))}
+
+    groups = [g for g in detect_duplicate_groups(names)
+              if g["group_key"] not in ignored]
+
+    conn = get_db()
+    try:
+        c = conn.cursor()
+        c.execute("DELETE FROM supplier_merge_suggestions WHERE org_name=?", (org_name,))
+        for g in groups:
+            for name, reason in g["members"].items():
+                c.execute(
+                    "INSERT OR IGNORE INTO supplier_merge_suggestions "
+                    "(org_name, group_key, supplier_name, reason) VALUES (?,?,?,?)",
+                    (org_name, g["group_key"], name, reason))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_supplier_directory(org_name: str) -> list:
+    return query(
+        "SELECT supplier_name, source, merged_into, first_seen, last_seen "
+        "FROM supplier_directory WHERE org_name=? ORDER BY supplier_name",
+        (org_name,))
+
+
+def get_merge_suggestions(org_name: str) -> list:
+    """[{"group_key": str, "members": {name: reason}}] — page-load cheap."""
+    rows = query(
+        "SELECT group_key, supplier_name, reason FROM supplier_merge_suggestions "
+        "WHERE org_name=? ORDER BY group_key, supplier_name", (org_name,))
+    groups = {}
+    for r in rows:
+        groups.setdefault(r["group_key"], {})[r["supplier_name"]] = r["reason"]
+    return [{"group_key": k, "members": v} for k, v in groups.items()]
+
+
+def ignore_merge_group(org_name: str, group_key: str):
+    execute("INSERT OR IGNORE INTO supplier_merge_ignored (org_name, group_key) "
+            "VALUES (?,?)", (org_name, group_key))
+    execute("DELETE FROM supplier_merge_suggestions WHERE org_name=? AND group_key=?",
+            (org_name, group_key))
+
+
+def merge_suppliers(org_name: str, canonical: str, variants: list):
+    """Point each variant at `canonical` so every lookup resolves to one profile.
+
+    Reversible — nothing in the client's uploaded files is touched, only how
+    names resolve. A variant with no directory row yet gets one, so a merge
+    initiated by hand from the list works on a name that has not been rebuilt.
+    """
+    conn = get_db()
+    try:
+        c = conn.cursor()
+        for v in variants:
+            if not v or v == canonical:
+                continue
+            c.execute(
+                "INSERT OR IGNORE INTO supplier_directory (org_name, supplier_name, source) "
+                "VALUES (?,?,?)", (org_name, v, "manual"))
+            c.execute(
+                "UPDATE supplier_directory SET merged_into=? "
+                "WHERE org_name=? AND supplier_name=?", (canonical, org_name, v))
+            # A canonical name must never itself be merged away, or lookups
+            # would need to follow a chain. Collapse one level instead.
+            c.execute(
+                "UPDATE supplier_directory SET merged_into=? "
+                "WHERE org_name=? AND merged_into=?", (canonical, org_name, v))
+        c.execute(
+            "UPDATE supplier_directory SET merged_into=NULL "
+            "WHERE org_name=? AND supplier_name=?", (org_name, canonical))
+        conn.commit()
+    finally:
+        conn.close()
+    _rebuild_merge_suggestions(org_name)
+
+
+def unmerge_supplier(org_name: str, supplier_name: str):
+    execute("UPDATE supplier_directory SET merged_into=NULL "
+            "WHERE org_name=? AND supplier_name=?", (org_name, supplier_name))
+    _rebuild_merge_suggestions(org_name)
+
+
+def archive_supplier(org_name: str, supplier_name: str, archived: bool = True):
+    """Hide (or restore) a supplier row. Creates the profile if absent, so a
+    supplier discovered from an upload can be hidden before it is ever edited."""
+    upsert_supplier_profile(org_name, supplier_name)
+    execute("UPDATE supplier_profiles SET archived=? WHERE org_name=? AND supplier_name=?",
+            (1 if archived else 0, org_name, supplier_name))
