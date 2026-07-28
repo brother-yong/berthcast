@@ -15,6 +15,10 @@
     </div>
   </section>
 
+  <div style="margin-top:10px;">
+    <button type="button" id="addSupplierBtn" class="btn btn-sm">+ Add supplier</button>
+  </div>
+
   {% if suggestions %}
   <div class="card" style="margin-top:14px; border-color:var(--brass);">
     <div class="card-title" style="font-size:14px;">
@@ -165,12 +169,12 @@
   </div>
   {% endif %}
 
-  <div class="card" style="margin-top:20px;">
+  <dialog id="supplierDialog" class="sup-dialog">
     <form method="POST" action="{{ url_for('suppliers_save') }}" id="supplierForm">
       <div style="font-size:12px; font-weight:600; color:var(--muted); text-transform:uppercase;
-                  letter-spacing:0.07em; margin-bottom:14px;" id="formLabel">Add supplier</div>
-      <div style="display:grid; grid-template-columns:2fr 1fr 1fr 1fr 3fr auto; gap:12px; align-items:end;">
-        <div class="form-group" style="margin:0;">
+                  letter-spacing:0.07em; margin-bottom:16px;" id="formLabel">Add supplier</div>
+      <div class="sup-form-grid">
+        <div class="form-group span-2" style="margin:0;">
           <label style="font-size:13px;">Supplier name</label>
           <input type="text" name="supplier_name" id="inp-name" required placeholder="e.g. Nordvik Trading">
         </div>
@@ -192,14 +196,17 @@
           </label>
           <input type="number" name="delay_probability" id="inp-delay" step="0.05" min="0" max="1" value="0.2">
         </div>
-        <div class="form-group" style="margin:0;">
+        <div class="form-group span-2" style="margin:0;">
           <label style="font-size:13px;">Notes</label>
           <input type="text" name="notes" id="inp-notes" placeholder="e.g. slow on chilled lines">
         </div>
+      </div>
+      <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:20px;">
+        <button type="button" class="btn btn-muted btn-sm" id="supplierCancel">Cancel</button>
         <button type="submit" class="btn btn-sm">Save</button>
       </div>
     </form>
-  </div>
+  </dialog>
 </div>
 
 <style>
@@ -256,6 +263,19 @@
 .dup-group { border-left: 2px solid var(--border); padding-left: 12px; margin-bottom: 6px; }
 .dup-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; cursor: pointer; }
 .dup-name { font-weight: 500; }
+.sup-dialog {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--text);
+  padding: 26px 26px 22px;
+  max-width: 540px;
+  width: calc(100% - 40px);
+  box-shadow: 0 8px 40px rgba(0,0,0,0.35);
+}
+.sup-dialog::backdrop { background: rgba(0,0,0,0.6); }
+.sup-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 16px; align-items: end; }
+.sup-form-grid .span-2 { grid-column: 1 / -1; }
 </style>
 
 <script>
@@ -283,6 +303,8 @@
 // autoescape) rather than built into a JS string literal via inline onclick,
 // which a name containing a quote or backslash could break out of. Only
 // .value/.textContent are used here, never .innerHTML.
+const supplierDialog = document.getElementById('supplierDialog');
+
 function prefillEdit(name, type, lead, delay, notes) {
   document.getElementById('inp-name').value = name;
   document.getElementById('inp-type').value = type || 'other';
@@ -290,13 +312,33 @@ function prefillEdit(name, type, lead, delay, notes) {
   document.getElementById('inp-delay').value = delay;
   document.getElementById('inp-notes').value = notes || '';
   document.getElementById('formLabel').textContent = 'Edit ' + name;
-  document.getElementById('supplierForm').scrollIntoView({behavior: 'smooth', block: 'center'});
+  // showModal() centres the form in the viewport and gives us a backdrop,
+  // focus trap and Esc-to-close for free — replaces scrolling the whole page
+  // down to a form pinned at the bottom, which was the irritation.
+  supplierDialog.showModal();
 }
 
 document.querySelectorAll('.js-edit-supplier').forEach(function (btn) {
   btn.addEventListener('click', function () {
     prefillEdit(btn.dataset.name, btn.dataset.type, btn.dataset.lead, btn.dataset.delay, btn.dataset.notes);
   });
+});
+
+// "+ Add supplier": clear the form back to its blank defaults, then open.
+document.getElementById('addSupplierBtn').addEventListener('click', function () {
+  document.getElementById('supplierForm').reset();
+  document.getElementById('formLabel').textContent = 'Add supplier';
+  supplierDialog.showModal();
+});
+
+// Cancel button and backdrop click both close without saving. A click lands on
+// the <dialog> element itself only when it hits the backdrop; clicks inside the
+// form report a child element as the target.
+document.getElementById('supplierCancel').addEventListener('click', function () {
+  supplierDialog.close();
+});
+supplierDialog.addEventListener('click', function (e) {
+  if (e.target === supplierDialog) supplierDialog.close();
 });
 </script>
 {% endblock %}
