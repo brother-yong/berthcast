@@ -92,15 +92,32 @@
   .menu-panel a:hover{ color:var(--gold); background:rgba(201,162,39,.08); }
   .menu-panel hr{ border:none; border-top:1px solid var(--hair); margin:6px 4px; }
 
-  /* hero — pure text, fills the first screen (Minds-level minimal) */
-  .hero{ position:relative; z-index:2; max-width:1180px; margin:0 auto; padding:0 40px 40px;
-         min-height:calc(100vh - 150px); display:flex; flex-direction:column; justify-content:center; }
+  /* hero — full-bleed warehouse aisle, headline in the dark left third.
+     negative top margin bleeds the image up behind the frosted nav;
+     ponytail: -76px tracks the topbar height (14px*2 padding + 44px logo) */
+  .hero{ position:relative; z-index:2; margin-top:-76px; min-height:100vh; background:var(--green-deep);
+         display:flex; align-items:center; overflow:hidden; }
+  .hero-bg{ position:absolute; inset:0; width:100%; height:100%; object-fit:cover; object-position:center; z-index:0; }
+  /* left-dark fade keeps the headline legible; bottom fade blends into the page */
+  .hero-veil{ position:absolute; inset:0; z-index:1; pointer-events:none; background:
+      linear-gradient(to right, var(--green-deep) 0%, rgba(5,20,10,.95) 22%, rgba(5,20,10,.72) 42%, rgba(5,20,10,.30) 62%, rgba(5,20,10,.20) 100%),
+      linear-gradient(to bottom, rgba(5,20,10,.55) 0%, rgba(5,20,10,0) 26%, rgba(5,20,10,0) 60%, rgba(5,20,10,.88) 90%, var(--green-deep) 100%); }
+  .hero-inner{ position:relative; z-index:3; max-width:1180px; width:100%; margin:0 auto; padding:150px 40px 120px; }
+  .hero-copy{ max-width:600px; }
   .hero .eyebrow{ margin-bottom:26px; }
-  h1.hero-title{ font-family:var(--serif); font-weight:600; font-size:clamp(38px,4.6vw,60px); line-height:1.04;
-                 letter-spacing:-.008em; color:var(--ivory); max-width:14em; }
+  h1.hero-title{ font-family:var(--serif); font-weight:600; font-size:clamp(40px,5.4vw,80px); line-height:1.0;
+                 letter-spacing:-.012em; color:var(--ivory); max-width:14em; }
   h1.hero-title em{ font-style:normal; font-weight:600; color:var(--gold); }
-  .hero-sub{ font-size:18px; color:var(--ivory-dim); line-height:1.6; margin-top:24px; max-width:32em; }
-  .hero-ctas{ display:flex; gap:14px; flex-wrap:wrap; margin-top:34px; }
+  .hero-sub{ font-size:18.5px; color:var(--ivory-dim); line-height:1.58; margin-top:26px; max-width:32em; }
+  .hero-ctas{ display:flex; gap:14px; flex-wrap:wrap; margin-top:36px; align-items:center; }
+
+  /* the scan line — one gold sweep down the aisle on load (JS-driven), then still */
+  .hero-scan{ position:absolute; left:0; right:0; top:0; height:64px; z-index:2; opacity:0;
+              transform:translateY(-80px) skewY(-2.2deg); will-change:transform,opacity; pointer-events:none; }
+  .hero-scan::before{ content:''; position:absolute; left:0; right:0; bottom:0; height:64px;
+              background:linear-gradient(to bottom, rgba(201,162,39,0) 0%, rgba(201,162,39,.06) 100%); }
+  .hero-scan::after{ content:''; position:absolute; left:0; right:0; bottom:0; height:1.5px;
+              background:linear-gradient(to right, rgba(201,162,39,0) 26%, rgba(201,162,39,.18) 36%, rgba(201,162,39,.92) 62%, rgba(201,162,39,.45) 88%, rgba(201,162,39,0) 100%); }
 
   /* how it works */
   .section-head{ text-align:center; max-width:640px; margin:0 auto 56px; }
@@ -180,7 +197,8 @@
     .sr-name{ font-size:13px; } .sr-days{ font-size:19px; }
     .sr-qty{ font-size:15px; min-width:4.8em; }
     nav,.wrap,.foot{ padding-left:22px; padding-right:22px; }
-    .hero{ padding:0 22px 34px; min-height:calc(100svh - 120px); }
+    .hero{ min-height:100svh; }
+    .hero-inner{ padding:120px 22px 80px; }
     .nav-link{ display:none; }
     .foot{ flex-direction:column; align-items:flex-start; gap:14px; }
     .foot .colophon{ text-align:left; margin-top:0; }
@@ -233,14 +251,38 @@
 
 <!-- HERO -->
 <section class="hero">
-  <div class="eyebrow">AI inventory operations for food distributors</div>
-  <h1 class="hero-title">Stop losing revenue to <em>stockouts</em> you could have seen coming.</h1>
-  <p class="hero-sub">berthcast reads your ERP exports and writes the order you should place.</p>
-  <div class="hero-ctas">
-    <a class="btn btn-primary" href="{{ url_for('contact') }}">Get in touch →</a>
-    <a class="btn btn-secondary" href="#demo">See a real decision</a>
+  <!-- onerror hides the img so a missing file leaves a clean dark hero, not a broken icon -->
+  <img class="hero-bg" src="{{ url_for('static', filename='hero-warehouse.jpg') }}" alt="Warehouse aisle stacked with cased goods" onerror="this.style.display='none'">
+  <div class="hero-veil"></div>
+  <div class="hero-scan" id="heroScan"></div>
+  <div class="hero-inner">
+    <div class="hero-copy">
+      <div class="eyebrow">AI inventory operations for food distributors</div>
+      <h1 class="hero-title">Know what's about to <em>run out</em> — before it does.</h1>
+      <p class="hero-sub">berthcast reads your inventory, sales and purchase-order exports, flags what's about to stock out, and writes the order you should place.</p>
+      <div class="hero-ctas">
+        <a class="btn btn-primary" href="{{ url_for('contact') }}">Get in touch →</a>
+        <a class="btn btn-secondary" href="#demo">See a real decision</a>
+      </div>
+    </div>
   </div>
 </section>
+<script>
+(function(){
+  var scan = document.getElementById('heroScan');
+  var hero = scan && scan.closest('.hero');
+  if (!scan || !hero || !scan.animate) return;
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  var h = hero.offsetHeight;
+  // one gold sweep down the aisle, then the page is still
+  scan.animate([
+    { transform:'translateY(-80px) skewY(-2.2deg)', opacity:0 },
+    { transform:'translateY(' + (h*0.10) + 'px) skewY(-2.2deg)', opacity:1, offset:0.12 },
+    { transform:'translateY(' + (h*0.86) + 'px) skewY(-2.2deg)', opacity:1, offset:0.8 },
+    { transform:'translateY(' + (h+40) + 'px) skewY(-2.2deg)', opacity:0 }
+  ], { duration:800, delay:140, easing:'cubic-bezier(0.33,0.9,0.2,1)', fill:'both' });
+})();
+</script>
 
 <!-- THE SORT -->
 <section class="sortband"><div class="wrap">

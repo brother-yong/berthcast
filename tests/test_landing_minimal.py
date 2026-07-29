@@ -1,6 +1,7 @@
-"""The landing page is the minimal version: pure-text hero + 3 trimmed
-sections. Locks in what was deleted (features grid, screenshots, stats strip,
-problem section, hero report card + animation scripts) so it can't creep back.
+"""The landing page: warehouse-photo hero with one gold scan-line sweep, plus
+the trimmed sections. Locks in what stays deleted (features grid, screenshots,
+stats strip, problem pull-quotes, the old count-up report card) so it can't
+creep back.
 
 Run: python tests/test_landing_minimal.py
 """
@@ -40,9 +41,11 @@ html = r.get_data(as_text=True)
 _check(r.status_code == 200, "landing returns 200")
 
 # what stays
-_check("Stop losing revenue" in html, "hero headline kept")
-_check("berthcast reads your ERP exports and writes the order you should place." in html,
-       "one-line hero sub")
+_check("Know what's about to" in html, "hero headline kept")
+_check("flags what's about to stock out, and writes the order you should place." in html,
+       "hero sub kept")
+_check('class="hero-bg"' in html, "warehouse hero image present")
+_check('id="heroScan"' in html, "gold scan-line present")
 _check("How it works" in html, "how-it-works section kept")
 _check("1,570" in html, "worked example number kept")
 _check("Get in touch" in html, "primary CTA kept")
