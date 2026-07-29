@@ -21,7 +21,7 @@
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
   <style>
   :root{
     --green-deep:#05140A; --green-900:#081C0F; --green-800:#0D2818; --green-700:#12351F;
@@ -29,7 +29,7 @@
     --ivory:#F3EFDF; --ivory-dim:rgba(243,239,223,.66); --ivory-faint:rgba(243,239,223,.42);
     --moss:#8FBC8F; --crit:#E89A92; --amber:#E6B450;
     --gold-line:rgba(201,162,39,.22); --hair:rgba(243,239,223,.12);
-    --serif:'Cormorant Garamond', Georgia, serif;
+    --serif:'Instrument Serif', Georgia, serif;
     --sans:'Inter', system-ui, sans-serif;
   }
   *{margin:0;padding:0;box-sizing:border-box}
@@ -37,25 +37,17 @@
   body{ background:var(--green-deep); color:var(--ivory); font-family:var(--sans); font-weight:400;
         line-height:1.6; -webkit-font-smoothing:antialiased; position:relative; overflow-x:hidden; font-size:16px; }
   img{max-width:100%;display:block}
-  /* the page's only decoration now: one warm dawn-glow behind the hero text,
-     one cool counterweight low-left, and the grain */
-  body::before{ content:''; position:fixed; inset:0; pointer-events:none; z-index:0;
-    background:
-      radial-gradient(ellipse at 76% 14%, rgba(201,162,39,.18), transparent 52%),
-      radial-gradient(ellipse at 42% 68%, rgba(201,162,39,.07), transparent 45%),
-      radial-gradient(ellipse at 8% 90%, rgba(26,77,46,.32), transparent 55%); }
-  body::after{ content:''; position:fixed; inset:0; pointer-events:none; z-index:0; opacity:.018;
-    background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
+  a{ color:var(--gold); text-decoration:none; }
 
   .wrap{ position:relative; z-index:2; max-width:1180px; margin:0 auto; padding-left:40px; padding-right:40px; }
 
-  .eyebrow{ font-family:var(--sans); font-size:11.5px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
+  /* section eyebrow — plain uppercase gold, Design-style (no leading rule) */
+  .kicker{ font-family:var(--sans); font-size:11px; font-weight:600; letter-spacing:.17em;
+           text-transform:uppercase; color:var(--gold); }
+  /* hero eyebrow keeps the short gold rule before it */
+  .eyebrow{ font-family:var(--sans); font-size:11.5px; font-weight:600; letter-spacing:.14em; text-transform:uppercase;
             color:var(--gold); display:flex; align-items:center; gap:14px; }
-  .eyebrow::before{ content:''; width:30px; height:1px; background:var(--gold); }
-  .eyebrow.center{ justify-content:center; } .eyebrow.center::before{ display:none; }
-  h2.sec-title{ font-family:var(--serif); font-weight:600; font-size:clamp(34px,4.4vw,52px); line-height:1.04;
-                letter-spacing:-.005em; color:var(--ivory); margin-top:16px; }
-  h2.sec-title em{ font-style:normal; color:var(--gold); }
+  .eyebrow::before{ content:''; width:28px; height:1px; background:var(--gold); }
 
   /* nav — frosted glass bar, stays put while the page scrolls under it */
   .topbar{ position:sticky; top:0; z-index:10; background:rgba(5,20,10,.55);
@@ -74,8 +66,6 @@
   .btn-nav:hover{ border-color:var(--gold); color:var(--gold); }
   .btn-primary{ background:var(--gold); color:var(--green-deep); font-size:15px; padding:14px 26px; }
   .btn-primary:hover{ background:var(--gold-light); }
-  .btn-secondary{ background:transparent; color:var(--ivory); font-size:15px; padding:14px 22px; border-color:var(--gold-line); }
-  .btn-secondary:hover{ border-color:var(--gold); }
 
   /* hamburger — every page reachable from the corner, no scrolling to the footer */
   .menu{ position:relative; }
@@ -105,11 +95,12 @@
   .hero-inner{ position:relative; z-index:3; max-width:1180px; width:100%; margin:0 auto; padding:150px 40px 120px; }
   .hero-copy{ max-width:600px; }
   .hero .eyebrow{ margin-bottom:26px; }
-  h1.hero-title{ font-family:var(--serif); font-weight:600; font-size:clamp(40px,5.4vw,80px); line-height:1.0;
-                 letter-spacing:-.012em; color:var(--ivory); max-width:14em; }
-  h1.hero-title em{ font-style:normal; font-weight:600; color:var(--gold); }
-  .hero-sub{ font-size:18.5px; color:var(--ivory-dim); line-height:1.58; margin-top:26px; max-width:32em; }
-  .hero-ctas{ display:flex; gap:14px; flex-wrap:wrap; margin-top:36px; align-items:center; }
+  h1.hero-title{ font-family:var(--serif); font-weight:400; font-size:clamp(40px,5.6vw,84px); line-height:.99;
+                 letter-spacing:-.018em; color:var(--ivory); }
+  h1.hero-title em{ font-style:normal; color:var(--gold); }
+  .hero-sub{ font-size:18.5px; color:var(--ivory-dim); line-height:1.58; margin-top:26px; max-width:33em; }
+  .hero-ctas{ display:flex; gap:22px; flex-wrap:wrap; margin-top:38px; align-items:center; }
+  .hero-note{ font-size:13.5px; color:var(--ivory-faint); }
 
   /* the scan line — one gold sweep down the aisle on load (JS-driven), then still */
   .hero-scan{ position:absolute; left:0; right:0; top:0; height:64px; z-index:2; opacity:0;
@@ -119,83 +110,76 @@
   .hero-scan::after{ content:''; position:absolute; left:0; right:0; bottom:0; height:1.5px;
               background:linear-gradient(to right, rgba(201,162,39,0) 26%, rgba(201,162,39,.18) 36%, rgba(201,162,39,.92) 62%, rgba(201,162,39,.45) 88%, rgba(201,162,39,0) 100%); }
 
+  /* section headings shared by problem / how / what */
+  .sec-h2{ font-family:var(--serif); font-weight:400; font-size:clamp(32px,3.6vw,46px); line-height:1.05;
+           letter-spacing:-.012em; color:var(--ivory); }
+
+  /* problem — where the money leaks out */
+  .leak{ padding:clamp(64px,8vw,104px) 0; border-top:1px solid var(--gold-line); }
+  .leak-grid{ display:flex; flex-wrap:wrap; gap:clamp(40px,5vw,80px); }
+  .leak-head{ flex:0.72 1 260px; }
+  .leak-head .sec-h2{ margin-top:18px; }
+  .leak-body{ flex:1.28 1 420px; min-width:0; }
+  .leak-body p{ font-size:clamp(19px,1.6vw,23px); line-height:1.5; color:var(--ivory);
+                padding:28px 0; border-bottom:1px solid var(--hair); }
+  .leak-body p:first-child{ padding-top:0; }
+  .leak-body p:last-child{ border-bottom:none; padding-bottom:0; }
+
   /* how it works */
-  .section-head{ text-align:center; max-width:640px; margin:0 auto 56px; }
-  .section-head .eyebrow{ margin-bottom:14px; }
-  .section-head p{ font-size:16px; color:var(--ivory-dim); margin-top:14px; }
-  .how{ padding:90px 0; border-top:1px solid var(--hair); }
-  .how-steps{ display:grid; grid-template-columns:repeat(3,1fr); gap:36px; }
-  .step__n{ font-family:var(--serif); font-weight:600; font-size:54px; color:var(--gold); line-height:1; }
-  .step h3{ font-family:var(--serif); font-weight:600; font-size:24px; color:var(--ivory); margin:14px 0 8px; }
-  .step p{ font-size:14px; color:var(--ivory-dim); line-height:1.6; }
-  .step__rule{ width:40px; height:1px; background:var(--gold-line); margin:18px 0; }
+  .how{ padding:clamp(64px,8vw,104px) 0; border-top:1px solid var(--gold-line); }
+  .how .sec-h2{ max-width:20em; margin:18px 0 56px; }
+  .how-steps{ display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:clamp(36px,4vw,48px); }
+  .step{ padding-top:24px; border-top:1px solid rgba(201,162,39,.28); }
+  .step__n{ font-family:var(--serif); font-weight:400; font-size:44px; line-height:1; color:var(--gold); }
+  .step h3{ font-family:var(--serif); font-weight:400; font-size:26px; line-height:1.18; color:var(--ivory); margin:20px 0 12px; }
+  .step p{ font-size:15px; line-height:1.62; color:var(--ivory-dim); }
 
-  /* the sort — the page's one piece of motion. rows sit scrambled, then snap into rank
-     when scrolled to. plays once, ~280ms, then still. the markup order IS the sorted
-     order, so no-JS and reduced-motion land straight on the honest end state. */
-  .sortband{ padding:84px 0; border-top:1px solid var(--hair); }
-  .srlist{ list-style:none; max-width:660px; margin:0 auto; border-top:1px solid var(--hair); }
-  .sr{ display:flex; align-items:center; gap:16px; padding:13px 4px; border-bottom:1px solid var(--hair); }
-  .srlist.go .sr{ transition:transform 280ms cubic-bezier(.2,.7,.2,1); }
-  .sr-dot{ width:7px; height:7px; border-radius:50%; flex:none; background:var(--moss); }
-  .sr-dot.crit{ background:var(--crit); }
-  .sr-dot.warn{ background:var(--amber); }
-  .sr-name{ flex:1; font-size:14.5px; color:var(--ivory-dim); }
-  /* on-hand sits quieter than days of cover — the ranking is the point, this is context */
-  .sr-qty{ font-family:var(--serif); font-weight:600; font-size:17px; color:var(--ivory-dim);
-           font-variant-numeric:tabular-nums; min-width:5.6em; text-align:right; padding-right:20px; }
-  .sr-qty span{ font-family:var(--sans); font-size:10.5px; font-weight:500; color:var(--ivory-faint); margin-left:5px; }
-  .sr-days{ font-family:var(--serif); font-weight:600; font-size:22px; color:var(--ivory);
-            font-variant-numeric:tabular-nums; min-width:3.4em; text-align:right; }
-  .sr-days span{ font-family:var(--sans); font-size:11px; font-weight:500; color:var(--ivory-faint); margin-left:5px; }
-  .sr-days.crit{ color:var(--crit); }
+  /* what you get — three cards split by hairline gold gaps */
+  .what{ padding:clamp(64px,8vw,104px) 0; border-top:1px solid var(--gold-line); }
+  .what .sec-h2{ max-width:20em; margin:18px 0 56px; }
+  .what-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(270px,1fr)); gap:1px;
+              background:var(--gold-line); border:1px solid var(--gold-line); border-radius:4px; overflow:hidden; }
+  .wcard{ background:var(--green-800); padding:36px 32px 32px; display:flex; flex-direction:column; }
+  .wcard h3{ font-family:var(--serif); font-weight:400; font-size:29px; line-height:1.12; color:var(--ivory); }
+  .wcard p{ font-size:15px; line-height:1.62; color:var(--ivory-dim); margin-top:14px; flex:1; }
+  .wchips{ display:flex; flex-wrap:wrap; gap:8px; margin-top:28px; }
+  .chip{ font-size:11px; font-weight:500; letter-spacing:.05em; padding:5px 10px; border-radius:2px;
+         border:1px solid var(--gold-line); color:var(--ivory-dim); }
+  .chip.crit{ border-color:rgba(232,154,146,.4); color:var(--crit); }
+  .chip.low{ border-color:rgba(230,180,80,.4); color:var(--amber); }
+  .chip.ok{ border-color:rgba(143,188,143,.4); color:var(--moss); }
+  .chip.gold{ border-color:rgba(201,162,39,.4); color:var(--gold); }
 
-  /* worked example */
-  .demo{ padding:90px 0; border-top:1px solid var(--hair); }
-  .demo-grid{ display:grid; grid-template-columns:1fr 1fr; gap:24px; align-items:stretch; }
-  /* frosted glass panels — translucent over the glow behind them */
-  .panel{ background:rgba(13,40,24,.38); -webkit-backdrop-filter:blur(14px); backdrop-filter:blur(14px);
-          border:1px solid var(--gold-line); border-radius:10px; padding:28px; }
-  .panel.read{ background:rgba(8,28,15,.55); }
-  .panel-tag{ font-family:var(--sans); font-size:10px; font-weight:500; letter-spacing:.14em; text-transform:uppercase; color:var(--ivory-faint); margin-bottom:18px; }
-  .sku-name{ font-family:var(--serif); font-weight:600; font-size:24px; color:var(--ivory); }
-  .sku-meta{ font-family:var(--sans); font-size:12px; color:var(--ivory-faint); margin-top:4px; }
-  .sku-facts{ display:grid; grid-template-columns:1fr 1fr; gap:18px 30px; margin-top:24px; }
-  .sku-fact .l{ font-size:10px; letter-spacing:.06em; text-transform:uppercase; color:var(--ivory-faint); }
-  .sku-fact .v{ font-family:var(--serif); font-weight:600; font-size:26px; color:var(--ivory); margin-top:3px; font-variant-numeric:tabular-nums; }
-  .sku-fact .v span{ font-size:13px; color:var(--ivory-faint); }
-  .ex-num{ font-family:var(--serif); font-weight:700; font-size:56px; color:var(--gold); line-height:1; margin:16px 0 2px; font-variant-numeric:tabular-nums; }
-  .ex-num span{ font-size:18px; color:var(--ivory-faint); font-weight:600; }
-  .pill{ display:inline-flex; align-items:center; gap:6px; font-family:var(--sans); font-size:11px; font-weight:600; letter-spacing:.06em;
-         padding:5px 11px; border-radius:100px; background:rgba(232,154,146,.16); color:var(--crit); }
-  .read-line{ font-size:13.5px; color:var(--ivory-dim); margin-top:12px; max-width:24em; line-height:1.5; }
-  .read-line b{ color:var(--ivory); }
-  .read-out{ display:flex; gap:28px; margin-top:24px; padding-top:20px; border-top:1px solid var(--hair); }
-  .read-out .l{ font-family:var(--sans); font-size:10px; font-weight:500; letter-spacing:.08em; text-transform:uppercase; color:var(--ivory-faint); }
-  .read-out .v{ font-family:var(--serif); font-weight:600; font-size:28px; margin-top:5px; color:var(--gold); }
-  .read-out .v.crit{ color:var(--crit); }
+  /* who it's for */
+  .who{ background:var(--green-800); border-top:1px solid var(--gold-line); border-bottom:1px solid var(--gold-line); }
+  .who-grid{ display:flex; flex-wrap:wrap; gap:clamp(40px,5vw,80px); align-items:center; padding:clamp(64px,8vw,96px) 0; }
+  .who-head{ flex:1.15 1 400px; min-width:0; }
+  .who-head h2{ font-family:var(--serif); font-weight:400; font-size:clamp(34px,4vw,54px); line-height:1.04;
+                letter-spacing:-.014em; color:var(--ivory); margin-top:18px; }
+  .who-note{ font-size:17px; line-height:1.65; color:var(--ivory-dim); border-left:1px solid rgba(201,162,39,.35);
+             padding-left:32px; flex:0.85 1 300px; min-width:0; }
 
-  /* cta */
-  .cta{ padding:104px 0; border-top:1px solid var(--hair); text-align:center; }
-  .cta h2{ font-family:var(--serif); font-weight:600; font-size:clamp(38px,5vw,60px); line-height:1.05; color:var(--ivory); }
-  .cta h2 em{ font-style:normal; color:var(--gold); }
-  .cta p{ font-size:17px; color:var(--ivory-dim); margin:18px auto 32px; max-width:34em; }
-  .cta-btns{ display:flex; gap:14px; justify-content:center; flex-wrap:wrap; }
+  /* pilot cta */
+  .pilot{ padding:clamp(72px,9vw,120px) 0; }
+  .pilot-grid{ display:flex; flex-wrap:wrap; gap:clamp(40px,5vw,72px); align-items:flex-end; }
+  .pilot h2{ font-family:var(--serif); font-weight:400; font-size:clamp(40px,5.4vw,76px); line-height:.99;
+             letter-spacing:-.018em; color:var(--ivory); flex:1.05 1 320px; }
+  .pilot-side{ flex:0.95 1 340px; min-width:0; }
+  .pilot-side p{ font-size:18px; line-height:1.6; color:var(--ivory-dim); }
+  .pilot-side .btn{ margin-top:32px; }
 
   /* footer */
-  footer.site{ border-top:1px solid var(--hair); padding:40px 0; }
+  footer.site{ border-top:1px solid var(--gold-line); padding:40px 0; }
   .foot{ max-width:1180px; margin:0 auto; padding:0 40px; display:flex; align-items:center; justify-content:space-between; gap:20px; flex-wrap:wrap; }
   .foot img{ height:34px; }
   .foot .colophon{ order:3; flex-basis:100%; text-align:center; margin-top:8px; }
   .foot-links{ display:flex; gap:22px; flex-wrap:wrap; }
   .foot-links a{ font-size:13px; color:var(--ivory-dim); text-decoration:none; }
   .foot-links a:hover{ color:var(--gold); }
-  .colophon{ font-family:var(--serif); font-style:italic; color:var(--ivory-faint); font-size:14px; }
+  .colophon{ font-family:var(--serif); font-style:italic; color:var(--ivory-faint); font-size:15px; }
 
   @media (max-width:900px){
-    .how-steps,.demo-grid{ grid-template-columns:1fr; gap:36px; }
-    .sr-name{ font-size:13px; } .sr-days{ font-size:19px; }
-    .sr-qty{ font-size:15px; min-width:4.8em; }
+    .how-steps,.what-grid{ grid-template-columns:1fr; }
     nav,.wrap,.foot{ padding-left:22px; padding-right:22px; }
     .hero{ min-height:100svh; }
     .hero-inner{ padding:120px 22px 80px; }
@@ -203,8 +187,6 @@
     .foot{ flex-direction:column; align-items:flex-start; gap:14px; }
     .foot .colophon{ text-align:left; margin-top:0; }
   }
-  /* three columns crush on a phone — on-hand is the one that can go */
-  @media (max-width:560px){ .sr-qty{ display:none; } }
   @media (prefers-reduced-motion: reduce){ html{ scroll-behavior:auto; } }
   </style>
 </head>
@@ -214,6 +196,8 @@
   <a class="brand" href="{{ url_for('landing') }}"><img src="{{ url_for('static', filename='logo-dark.png') }}" alt="berthcast"></a>
   <div class="nav-right">
     <a class="nav-link" href="#how">How it works</a>
+    <a class="nav-link" href="#what">What you get</a>
+    <a class="nav-link" href="#who">Who it's for</a>
     <a class="nav-link" href="{{ url_for('pricing') }}">Pricing</a>
     <a class="btn btn-nav" href="{{ url_for('login') }}">Sign in →</a>
     <details class="menu">
@@ -222,6 +206,8 @@
       </summary>
       <div class="menu-panel">
         <a href="#how">How it works</a>
+        <a href="#what">What you get</a>
+        <a href="#who">Who it's for</a>
         <a href="{{ url_for('pricing') }}">Pricing</a>
         <a href="{{ url_for('about') }}">About</a>
         <a href="{{ url_for('data_promise') }}">Your data</a>
@@ -250,7 +236,7 @@
 </script>
 
 <!-- HERO -->
-<section class="hero">
+<section class="hero" id="top">
   <!-- onerror hides the img so a missing file leaves a clean dark hero, not a broken icon -->
   <img class="hero-bg" src="{{ url_for('static', filename='hero-warehouse.jpg') }}" alt="Warehouse aisle stacked with cased goods" onerror="this.style.display='none'">
   <div class="hero-veil"></div>
@@ -259,10 +245,10 @@
     <div class="hero-copy">
       <div class="eyebrow">AI inventory operations for food distributors</div>
       <h1 class="hero-title">Know what's about to <em>run out</em> — before it does.</h1>
-      <p class="hero-sub">berthcast reads your inventory, sales and purchase-order exports, flags what's about to stock out, and writes the order you should place.</p>
+      <p class="hero-sub">Upload your inventory, sales and purchase-order files. berthcast flags what's about to stock out and tells you exactly what to reorder.</p>
       <div class="hero-ctas">
-        <a class="btn btn-primary" href="{{ url_for('contact') }}">Get in touch →</a>
-        <a class="btn btn-secondary" href="#demo">See a real decision</a>
+        <a class="btn btn-primary" href="{{ url_for('contact') }}">Book a pilot →</a>
+        <span class="hero-note">Runs on your own exports. Nothing to install.</span>
       </div>
     </div>
   </div>
@@ -284,86 +270,69 @@
 })();
 </script>
 
-<!-- THE SORT -->
-<section class="sortband"><div class="wrap">
-  <div class="section-head">
-    <div class="eyebrow center">What it does first</div>
-    <h2 class="sec-title">Every line, ranked by how close it is to <em>zero</em></h2>
+<!-- PROBLEM -->
+<section class="leak"><div class="wrap leak-grid">
+  <div class="leak-head">
+    <div class="kicker">The problem</div>
+    <h2 class="sec-h2">Where the money leaks out.</h2>
   </div>
-  <ol class="srlist" id="srlist">
-    <li class="sr" data-from="3"><span class="sr-dot crit"></span><span class="sr-name">Brookvale UHT Milk Full Cream 1L</span><span class="sr-qty">0<span>CTN</span></span><span class="sr-days crit">0<span>days</span></span></li>
-    <li class="sr" data-from="1"><span class="sr-dot crit"></span><span class="sr-name">Nordvik Salmon Portions 180g</span><span class="sr-qty">18<span>CTN</span></span><span class="sr-days crit">3<span>days</span></span></li>
-    <li class="sr" data-from="5"><span class="sr-dot warn"></span><span class="sr-name">Padimas Jasmine Rice 5kg</span><span class="sr-qty">64<span>CTN</span></span><span class="sr-days">9<span>days</span></span></li>
-    <li class="sr" data-from="4"><span class="sr-dot"></span><span class="sr-name">Kestrel Extra Virgin Olive Oil 1L</span><span class="sr-qty">120<span>CTN</span></span><span class="sr-days">22<span>days</span></span></li>
-    <li class="sr" data-from="0"><span class="sr-dot"></span><span class="sr-name">Aldermoor Salted Butter 250g</span><span class="sr-qty">310<span>CTN</span></span><span class="sr-days">41<span>days</span></span></li>
-    <li class="sr" data-from="2"><span class="sr-dot"></span><span class="sr-name">Vanmark Frozen Garden Peas 1kg</span><span class="sr-qty">940<span>CTN</span></span><span class="sr-days">88<span>days</span></span></li>
-  </ol>
+  <div class="leak-body">
+    <p>A stockout costs the sale, and often the customer with it — the line was ordered a week too late.</p>
+    <p>Overstock does the opposite: cash sits in the warehouse, and on chilled and frozen lines it walks out as waste.</p>
+    <p>Both happen for the same reason. The reorder logic lives in one person's head and one spreadsheet, and neither scales with the catalogue.</p>
+  </div>
 </div></section>
-<script>
-(function(){
-  var list = document.getElementById('srlist');
-  // no observer or reduced motion: leave the list in its sorted markup order
-  if (!list || !window.IntersectionObserver) return;
-  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-  var rows = Array.prototype.slice.call(list.querySelectorAll('.sr'));
-  var tops = rows.map(function(r){ return r.offsetTop; });
-  rows.forEach(function(r){
-    r.style.transform = 'translateY(' + (tops[+r.dataset.from] - r.offsetTop) + 'px)';
-  });
-  // transitions go on only after the scrambled positions have painted
-  requestAnimationFrame(function(){ list.classList.add('go'); });
-  var io = new IntersectionObserver(function(entries){
-    if (!entries[0].isIntersecting) return;
-    rows.forEach(function(r){ r.style.transform = ''; });
-    io.disconnect();
-  }, { threshold: .55 });
-  io.observe(list);
-})();
-</script>
 
 <!-- HOW -->
 <section class="how" id="how"><div class="wrap">
-  <div class="section-head"><div class="eyebrow center">How it works</div><h2 class="sec-title">From your exports to a written order</h2></div>
+  <div class="kicker">How it works</div>
+  <h2 class="sec-h2">Three steps, from your files to a decision.</h2>
   <div class="how-steps">
-    <div class="step"><div class="step__n">01</div><div class="step__rule"></div><h3>Upload your files</h3><p>Drop in your inventory, purchase, and sales exports.</p></div>
-    <div class="step"><div class="step__n">02</div><div class="step__rule"></div><h3>It reads and scores</h3><p>Every SKU scored against demand and real lead times.</p></div>
-    <div class="step"><div class="step__n">03</div><div class="step__rule"></div><h3>Approve and order</h3><p>Review, adjust, and send the order it writes.</p></div>
+    <div class="step"><div class="step__n">01</div><h3>Upload your files</h3><p>Inventory, sales and purchase orders, exactly as they come out of your system. No column mapping, no template to fill in.</p></div>
+    <div class="step"><div class="step__n">02</div><h3>An AI pipeline reads them</h3><p>Messy sheets are normalised, then every line is scored on stock health against its demand and its supplier's real lead time.</p></div>
+    <div class="step"><div class="step__n">03</div><h3>Get the report and the order</h3><p>A stock-health report plus exact purchase recommendations — quantities you can review, adjust, approve and print.</p></div>
   </div>
 </div></section>
 
-<!-- WORKED EXAMPLE -->
-<section class="demo" id="demo"><div class="wrap">
-  <div class="section-head"><div class="eyebrow center">A worked example</div><h2 class="sec-title">Why berthcast says order <em>1,570</em></h2><p>One real line from a live run. The same logic runs on every SKU.</p></div>
-  <div class="demo-grid">
-    <div class="panel">
-      <div class="panel-tag">The line · as berthcast reads it</div>
-      <div class="sku-name">Brookvale UHT Milk Full Cream 1L</div>
-      <div class="sku-meta">UHT-CH-1L · case of 12 · import supplier</div>
-      <div class="sku-facts">
-        <div class="sku-fact"><div class="l">On hand</div><div class="v">0</div></div>
-        <div class="sku-fact"><div class="l">Days of cover</div><div class="v">0</div></div>
-        <div class="sku-fact"><div class="l">Sells</div><div class="v">~300<span> /mo</span></div></div>
-        <div class="sku-fact"><div class="l">Lead time</div><div class="v">16<span> wks</span></div></div>
-      </div>
+<!-- WHAT YOU GET -->
+<section class="what" id="what"><div class="wrap">
+  <div class="kicker">What you get</div>
+  <h2 class="sec-h2">Three outputs, every run.</h2>
+  <div class="what-grid">
+    <div class="wcard">
+      <h3>Stock-health report</h3>
+      <p>What is critical, what is running low, what is healthy, and what is sitting overstocked or dead — with the reasoning attached to each line.</p>
+      <div class="wchips"><span class="chip crit">Critical</span><span class="chip low">Low</span><span class="chip ok">Healthy</span><span class="chip">Dead</span></div>
     </div>
-    <div class="panel read">
-      <div class="panel-tag">berthcast's read</div>
-      <span class="pill">● Critical</span>
-      <div class="read-line" style="margin-top:14px">Nothing on the shelf, next shipment <b>~16 weeks</b> out. Sized to cover demand until stock lands:</div>
-      <div class="ex-num">1,570 <span>CTN</span></div>
-      <div class="read-out">
-        <div><div class="l">Decision</div><div class="v">Order now</div></div>
-        <div><div class="l">Wait one week and</div><div class="v crit">~70 CTN walk out</div></div>
-      </div>
+    <div class="wcard">
+      <h3>Purchase recommendations</h3>
+      <p>What to order and how much, sized to cover demand until the stock actually lands — factoring the supplier's lead time and what is already in transit.</p>
+      <div class="wchips"><span class="chip gold">Quantity</span><span class="chip gold">Lead time</span><span class="chip gold">In transit</span></div>
+    </div>
+    <div class="wcard">
+      <h3>Supplier reliability</h3>
+      <p>Promised lead times measured against what was actually delivered, so the quantities reflect the suppliers who turn up — not the ones who say they will.</p>
+      <div class="wchips"><span class="chip ok">Promised vs delivered</span></div>
     </div>
   </div>
 </div></section>
 
-<!-- CTA -->
-<section class="cta"><div class="wrap">
-  <h2>Ready to stop <em>guessing</em> your reorders?</h2>
-  <p>Get in touch and we'll run it on your own data.</p>
-  <div class="cta-btns"><a class="btn btn-primary" href="{{ url_for('contact') }}">Get in touch →</a></div>
+<!-- WHO IT'S FOR -->
+<section class="who" id="who"><div class="wrap who-grid">
+  <div class="who-head">
+    <div class="kicker">Who it's for</div>
+    <h2>Mid-market food &amp; beverage distributors in Southeast Asia.</h2>
+  </div>
+  <p class="who-note">If your catalogue has outgrown the spreadsheet it is managed in, your exports never line up, and the reorder call still rests on one person's judgement — that is the shape of the problem berthcast was built for.</p>
+</div></section>
+
+<!-- PILOT CTA -->
+<section class="pilot" id="pilot"><div class="wrap pilot-grid">
+  <h2>Book a pilot.</h2>
+  <div class="pilot-side">
+    <p>Send us your inventory, sales and purchase-order exports. We'll run berthcast on your own data and walk you through what it finds, line by line.</p>
+    <a class="btn btn-primary" href="{{ url_for('contact') }}">Book a pilot →</a>
+  </div>
 </div></section>
 
 <!-- FOOTER -->

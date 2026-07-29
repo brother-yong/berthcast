@@ -42,22 +42,25 @@ _check(r.status_code == 200, "landing returns 200")
 
 # what stays
 _check("Know what's about to" in html, "hero headline kept")
-_check("flags what's about to stock out, and writes the order you should place." in html,
-       "hero sub kept")
+_check("tells you exactly what to reorder" in html, "hero sub kept")
 _check('class="hero-bg"' in html, "warehouse hero image present")
 _check('id="heroScan"' in html, "gold scan-line present")
+_check("Where the money leaks out" in html, "problem section present")
 _check("How it works" in html, "how-it-works section kept")
-_check("1,570" in html, "worked example number kept")
-_check("Get in touch" in html, "primary CTA kept")
+_check("Three outputs, every run" in html, "what-you-get section present")
+_check("Who it's for" in html, "who-it's-for section present")
+_check("Book a pilot" in html, "pilot CTA present")
 
 # what must be GONE
 _check("feat-grid" not in html, "features grid deleted")
 _check("screenshot-inventory" not in html, "screenshots section deleted")
 _check("strip-inner" not in html, "stats strip deleted")
-_check("running-head" not in html, "running head deleted")
-_check("pullquote" not in html, "problem section deleted")
-_check("snapQty" not in html, "hero report card + count-up script deleted")
-_check("stampIn" not in html, "card animations deleted")
+_check("running-head" not in html, "old running head gone")
+_check("pullquote" not in html, "old pull-quote layout gone")
+_check("snapQty" not in html, "hero report card + count-up script gone")
+_check("stampIn" not in html, "card animations gone")
+_check("srlist" not in html, "old ranked-sort list gone")
+_check("ex-num" not in html, "old worked-example panel gone")
 
 # nav: exactly the kept links
 _check('href="#how"' in html, "nav links to #how")
