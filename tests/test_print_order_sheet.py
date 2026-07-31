@@ -93,7 +93,9 @@ checks = {
     "approved item printed": "BROOKVALE PRAWN MEAT 400G 12X" in html,
     "UNapproved item printed too": "PADIMAS JASMINE RICE 5KG" in html,
     "failed rec never printed": "recommendation agent failed" not in html,
-    "approved rows are marked": html.count("approved-tag") == 1,
+    # Staff judge on paper now — no on-screen "approved" state leaks onto the print.
+    "no approved tag on print": html.count("approved-tag") == 0,
+    "no 'approved on screen' header text": "approved on screen" not in html,
     "tick-box column header": "Ordered" in html,
     "one tick box per item": html.count('class="tickbox"') == 2,
     "write-in column header": "PO no. / ETA" in html,

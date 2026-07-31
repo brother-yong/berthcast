@@ -31,7 +31,7 @@
   <div class="sub">
     {{ org_name }} &nbsp;|&nbsp;
     Prepared: <script>document.write(new Date().toLocaleDateString('en-SG', {day:'2-digit',month:'short',year:'numeric'}))</script>
-    &nbsp;|&nbsp; {{ total }} item(s), {{ approved_count }} approved on screen
+    &nbsp;|&nbsp; {{ total }} item(s)
     &nbsp;|&nbsp; {{ groups | length }} supplier(s)
   </div>
 
@@ -68,7 +68,6 @@
         <td><span class="tickbox"></span></td>
         <td>
           <strong>{{ r.item }}</strong>
-          {% if r.approved %}<span class="approved-tag" style="background:#dcfce7; color:#166534; padding:1px 7px; border-radius:10px; font-size:11px; margin-left:6px;">approved</span>{% endif %}
         </td>
         <td>{{ r._current_stock if r._current_stock not in (None, '') else '—' }}</td>
         <td>
