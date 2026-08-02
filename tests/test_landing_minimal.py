@@ -41,8 +41,8 @@ html = r.get_data(as_text=True)
 _check(r.status_code == 200, "landing returns 200")
 
 # what stays
-_check("Know what's about to" in html, "hero headline kept")
-_check("tells you exactly what to reorder" in html, "hero sub kept")
+_check("Every stockout is a" in html, "hero headline kept")
+_check("from the files you already export" in html, "hero sub kept")
 _check('class="hero-bg"' in html, "warehouse hero image present")
 _check('id="heroScan"' in html, "gold scan-line present")
 _check("Where the money leaks out" in html, "problem section present")
