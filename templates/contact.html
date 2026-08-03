@@ -58,6 +58,10 @@
                     placeholder="We run a food distribution business with 1,200 SKUs and want to reduce stockouts...">{{ message or '' }}</textarea>
         </div>
         <button type="submit" class="btn btn-primary btn-full">Send message</button>
+        <p style="color:var(--muted); font-size:12.5px; margin-top:14px; line-height:1.5;">
+          We use the details you enter here only to reply to you and, if you ask, to set up your account.
+          See our <a href="{{ url_for('privacy') }}" style="color:var(--brass-3);">Privacy Policy</a>.
+        </p>
       </form>
     </div>
 

@@ -8,7 +8,9 @@ through this logger.
 Logs go to two places:
   - stdout — Render captures this in its dashboard log stream.
   - a rotating file on the persistent disk (so logs survive a deploy and can be
-    read back). Capped at 5 MB x 4 files = 20 MB so they can't fill the 1 GB disk.
+    read back). Rotated DAILY, keeping 90 days, so client IP addresses in the
+    logs are deleted within ~90 days — matching the retention promise in the
+    privacy policy (PDPA s25 Retention Limitation).
 
 Import and use:  `from logging_setup import logger`  then `logger.warning(...)`,
 `logger.exception(...)`, etc. Configuration is idempotent — importing from many
@@ -16,7 +18,7 @@ modules won't stack duplicate handlers.
 """
 import logging
 import os
-from logging.handlers import RotatingFileHandler
+from logging.handlers import TimedRotatingFileHandler
 
 _LOGGER_NAME = "berthcast"
 
@@ -50,8 +52,12 @@ def setup_logging():
     try:
         path = _log_file_path()
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        fileh = RotatingFileHandler(path, maxBytes=5 * 1024 * 1024, backupCount=3,
-                                    encoding="utf-8")
+        # Time-based (daily, keep 90) so IP addresses age out within ~90 days to
+        # honour the privacy policy's retention promise. ponytail: no per-file
+        # size cap now — low traffic keeps the total tiny; if a noisy day ever
+        # bloats the disk, add a size guard or lower backupCount.
+        fileh = TimedRotatingFileHandler(path, when="D", interval=1, backupCount=90,
+                                         encoding="utf-8")
         fileh.setFormatter(fmt)
         log.addHandler(fileh)
     except Exception:
