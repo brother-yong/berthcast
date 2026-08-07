@@ -55,6 +55,8 @@ _check("Book a pilot" in html, "pilot CTA present")
 _check('application/ld+json' in html, "JSON-LD structured data present")
 _check('"SoftwareApplication"' in html, "SoftwareApplication schema present")
 _check('"Organization"' in html, "Organization schema present")
+# Deleting this un-verifies the site in Google Search Console — lock it in.
+_check('google-site-verification' in html, "GSC verification tag present")
 
 # what must be GONE
 _check("feat-grid" not in html, "features grid deleted")
