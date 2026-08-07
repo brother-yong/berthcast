@@ -51,6 +51,11 @@ _check("Three outputs, every run" in html, "what-you-get section present")
 _check("Who it's for" in html, "who-it's-for section present")
 _check("Book a pilot" in html, "pilot CTA present")
 
+# AEO/GEO: machine-readable schema so answer engines describe berthcast right.
+_check('application/ld+json' in html, "JSON-LD structured data present")
+_check('"SoftwareApplication"' in html, "SoftwareApplication schema present")
+_check('"Organization"' in html, "Organization schema present")
+
 # what must be GONE
 _check("feat-grid" not in html, "features grid deleted")
 _check("screenshot-inventory" not in html, "screenshots section deleted")

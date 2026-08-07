@@ -4,20 +4,47 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>berthcast — Inventory intelligence for food distributors</title>
-  <meta name="description" content="berthcast reads your inventory, purchase, and sales exports, flags what's about to stock out, and writes the order you should place — before it costs you a sale.">
+  <meta name="description" content="berthcast flags what's about to stock out AND what you over-ordered, then writes the order you should place — from files you already export.">
   <link rel="canonical" href="https://berthcast.com/">
   <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicon.png') }}">
 
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="berthcast">
   <meta property="og:title" content="berthcast — Inventory intelligence for food distributors">
-  <meta property="og:description" content="Stop losing revenue to stockouts you could have seen coming. berthcast flags what's going critical and writes the order you should place.">
+  <meta property="og:description" content="Every stockout is a lost sale. Every over-order is cash with an expiry date. berthcast flags both — from the files you already export.">
   <meta property="og:url" content="https://berthcast.com/">
   <meta property="og:image" content="https://berthcast.com/static/logo.png">
   <meta name="twitter:card" content="summary">
   <meta name="twitter:title" content="berthcast — Inventory intelligence for food distributors">
-  <meta name="twitter:description" content="Stop losing revenue to stockouts you could have seen coming. berthcast flags what's going critical and writes the order you should place.">
+  <meta name="twitter:description" content="Every stockout is a lost sale. Every over-order is cash with an expiry date. berthcast flags both — from the files you already export.">
   <meta name="twitter:image" content="https://berthcast.com/static/logo.png">
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Organization",
+        "@id": "https://berthcast.com/#org",
+        "name": "berthcast",
+        "url": "https://berthcast.com/",
+        "logo": "https://berthcast.com/static/logo.png",
+        "description": "berthcast is inventory intelligence software for food and SME distributors. It reads your existing inventory, sales and purchase-order exports, flags what is about to stock out and what has been over-ordered, and drafts the purchase order to place.",
+        "areaServed": "SG"
+      },
+      {
+        "@type": "SoftwareApplication",
+        "@id": "https://berthcast.com/#app",
+        "name": "berthcast",
+        "applicationCategory": "BusinessApplication",
+        "operatingSystem": "Web",
+        "url": "https://berthcast.com/",
+        "publisher": { "@id": "https://berthcast.com/#org" },
+        "description": "Upload your inventory, sales, purchase-order and supplier files (.xlsx or .csv). berthcast analyses them and returns a stock-health report plus purchase recommendations — flagging what is about to run out and what was over-ordered, then drafting the order to place."
+      }
+    ]
+  }
+  </script>
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
