@@ -1318,9 +1318,11 @@ tbody tr:hover td { background: var(--paper); }
 }
 .hero h1 {
   font-family: var(--font-display);
-  font-size: clamp(52px, 7.5vw, 96px);
-  font-weight: 400;
-  line-height: 1.0;
+  /* In-app page title. Kept at 30px so every tab's heading matches (Suppliers,
+     Results set the same inline); the old clamp blew Guide up to ~96px. */
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1.1;
   letter-spacing: -0.02em;
   color: var(--navy-800);
   margin-bottom: 0;
