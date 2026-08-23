@@ -19,6 +19,7 @@ import anthropic as _anthropic
 
 import database as db
 import rate_limit
+import tenders
 import validators
 import quantity
 import backup
@@ -554,6 +555,7 @@ def robots_txt():
         "Disallow: /admin\n"
         "Disallow: /settings\n"
         "Disallow: /suppliers\n"
+        "Disallow: /tenders\n"
         "Disallow: /analyse\n"
         "Disallow: /api/\n"
         "Allow: /\n",
@@ -3684,6 +3686,164 @@ def suppliers_ignore_group():
     if key:
         db.ignore_merge_group(org, key)
     return redirect(url_for("suppliers_page"))
+
+
+# ── Tenders ──────────────────────────────────────────────────────────────────
+# Committed volume the client has already sold under contract. Part 1 stores
+# and shows it; it does NOT yet feed the recommendation maths, because whether
+# a tender quantity is per-month or a total across the whole period changes the
+# arithmetic and the client has not answered that yet. Storing it wrong would
+# be silent, so the wiring waits.
+
+# A tender sheet is a contract summary, not a transaction export: hundreds of
+# rows, not hundreds of thousands. Anything larger is the wrong file.
+MAX_TENDER_ROWS = 20_000
+
+
+@app.route("/tenders")
+@login_required
+def tenders_page():
+    org = session["org_name"]
+    uploads = db.get_tender_uploads(org)
+    rows    = db.get_tender_commitments(org)
+
+    for u in uploads:
+        u["rejects"] = []
+        if u["rejects_json"]:
+            try:
+                u["rejects"] = json.loads(u["rejects_json"])
+            except (ValueError, TypeError):
+                pass
+
+    today = datetime.now().date().isoformat()
+    by_upload, active_count = {}, 0
+    for r in rows:
+        row = dict(r)
+        row["active"] = row["period_start"] <= today <= row["period_end"]
+        row["expired"] = row["period_end"] < today
+        active_count += 1 if row["active"] else 0
+        by_upload.setdefault(row["upload_id"], []).append(row)
+
+    return render_template(
+        "tenders.html",
+        uploads=uploads,
+        rows_by_upload=by_upload,
+        total_rows=len(rows),
+        active_count=active_count,
+        overlaps=tenders.find_overlaps([dict(r) for r in rows]),
+        org_name=org,
+    )
+
+
+@app.route("/tenders/upload", methods=["POST"])
+@login_required
+@analyst_required
+@trial_active_required
+def tenders_upload():
+    org  = session["org_name"]
+    file = request.files.get("file")
+    if not file or not file.filename:
+        flash("Choose a .xlsx or .csv file to upload.", "error")
+        return redirect(url_for("tenders_page"))
+    if not _allowed(file.filename):
+        flash("Please upload a .xlsx or .csv file.", "error")
+        return redirect(url_for("tenders_page"))
+    if not _disk_has_room():
+        flash("Server storage is full — the team has been notified.", "error")
+        return redirect(url_for("tenders_page"))
+
+    original_name = file.filename[:120]
+    upload_id = db.create_tender_upload(org, original_name, session.get("email", ""))
+    # Scratch table name is built from our own AUTOINCREMENT id, never from the
+    # filename — the only interpolation into SQL the repo allows is an int id.
+    scratch = f"tender_import_{int(upload_id)}"
+    # secure_filename() strips a fully non-ASCII stem to nothing ("訂單.csv" →
+    # "csv"), which would leave the path extensionless and send a CSV to the
+    # xlsx parser. Carry the already-validated extension explicitly instead.
+    # The tmp_ prefix is what _sweep_stale_chunks looks for, so a worker killed
+    # mid-upload leaves nothing permanent on the persistent disk.
+    # Extension comes off the FULL filename — the one _allowed() actually
+    # validated — not off the 120-char truncation, or a long name could pass the
+    # check as .csv and land on disk as something else entirely.
+    ext  = os.path.splitext(file.filename)[1].lower()
+    stem = os.path.splitext(secure_filename(original_name))[0] or "sheet"
+    filepath = os.path.join(UPLOAD_FOLDER, f"tmp_tender_{int(upload_id)}_{stem}{ext}")
+
+    try:
+        file.save(filepath)
+        result = db.excel_to_sqlite(filepath, "tender_import", int(upload_id))
+        if not result.get("ok"):
+            db.delete_tender_upload(org, upload_id)
+            # The parser's own error text can carry a server path; log that,
+            # show the user a message that tells them what to do instead.
+            logger.warning("Tender parse failed for org %s: %s", org, result.get("error"))
+            flash("Could not read that file. Please re-export it as .xlsx or .csv "
+                  "and try again.", "error")
+            return redirect(url_for("tenders_page"))
+        if result.get("rows", 0) > MAX_TENDER_ROWS:
+            db.delete_tender_upload(org, upload_id)
+            flash(f"That file has {result['rows']:,} rows. A tender sheet should be "
+                  f"under {MAX_TENDER_ROWS:,} — check it is the right file.", "error")
+            return redirect(url_for("tenders_page"))
+
+        # Resolve the five columns from the headers alone, so only those five
+        # are ever read into memory — a wide export must not be materialised.
+        mapping, missing = tenders.detect_columns(db.scratch_table_headers(scratch))
+        if missing:
+            db.delete_tender_upload(org, upload_id)
+            flash(f"Couldn't find a column for: {', '.join(missing)}. Rename those "
+                  f"columns in your sheet (e.g. Customer, Item, Quantity, "
+                  f"Start Date, End Date) and upload again.", "error")
+            return redirect(url_for("tenders_page"))
+
+        records = db.read_scratch_table(scratch, list(mapping.values()), MAX_TENDER_ROWS)
+        rows, rejects, _ = tenders.build_rows(records, mapping=mapping)
+
+        db.save_tender_rows(org, upload_id, rows)
+        db.finalise_tender_upload(org, upload_id, len(rows), len(rejects),
+                                  json.dumps(rejects))
+    except Exception:
+        logger.exception("Tender upload failed for org %s", org)
+        db.delete_tender_upload(org, upload_id)
+        flash("Something went wrong reading that file. Please try again.", "error")
+        return redirect(url_for("tenders_page"))
+    finally:
+        # The sheet's numbers are now rows in the database; the file itself is
+        # not kept. Less on a 1 GB disk, and no signed contract sitting on it.
+        # Each cleanup is guarded separately: a locked DB failing the DROP must
+        # not skip deleting the client's file, which is the half that matters.
+        try:
+            db.drop_scratch_table(scratch)
+        except Exception:
+            logger.warning("Could not drop scratch table %s", scratch, exc_info=True)
+        try:
+            os.remove(filepath)
+        except OSError:
+            pass
+
+    if rows:
+        msg = f"Imported {len(rows)} tender row{'' if len(rows) == 1 else 's'}."
+        if rejects:
+            msg += f" {len(rejects)} row{'' if len(rejects) == 1 else 's'} skipped — see below."
+        flash(msg, "success")
+    else:
+        flash("No usable rows in that file — every row was skipped. See the reasons below.",
+              "error")
+    return redirect(url_for("tenders_page"))
+
+
+@app.route("/tenders/delete", methods=["POST"])
+@login_required
+@analyst_required
+def tenders_delete():
+    org = session["org_name"]
+    try:
+        upload_id = int(request.form.get("upload_id", ""))
+    except (TypeError, ValueError):
+        return redirect(url_for("tenders_page"))
+    db.delete_tender_upload(org, upload_id)
+    flash("Tender sheet removed.", "success")
+    return redirect(url_for("tenders_page"))
 
 
 if __name__ == "__main__":

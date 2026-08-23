@@ -28,6 +28,7 @@
     {% endif %}
     <a href="{{ url_for('chat') }}" {% if ep == 'chat' %}aria-current="page"{% endif %}>Chat</a>
     <a href="{{ url_for('suppliers_page') }}" {% if ep == 'suppliers_page' %}aria-current="page"{% endif %}>Suppliers</a>
+    <a href="{{ url_for('tenders_page') }}" {% if ep == 'tenders_page' %}aria-current="page"{% endif %}>Tenders</a>
     <a href="{{ url_for('guide') }}" {% if ep == 'guide' %}aria-current="page"{% endif %}>Guide</a>
     <a href="{{ url_for('user_settings') }}" {% if ep == 'user_settings' %}aria-current="page"{% endif %}>Settings</a>
     {% if session.is_admin %}

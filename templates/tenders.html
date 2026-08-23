@@ -1,0 +1,184 @@
+{% extends "base.html" %}
+{% block title %}Tenders — berthcast{% endblock %}
+
+{% block head %}
+<style>
+  /* One collapsed row per uploaded sheet. Files stack up month after month, so
+     the page has to stay the same height at ten sheets as at one. */
+  .tender-file {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    margin-top: 8px;
+  }
+  .tender-file > summary {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 11px 14px; cursor: pointer; list-style: none;
+    font-size: 14px;
+  }
+  .tender-file > summary::-webkit-details-marker { display: none; }
+  .tender-file > summary::before {
+    content: "›"; color: var(--brass); font-size: 16px; line-height: 1;
+    transition: transform 160ms var(--ease-out);
+  }
+  .tender-file[open] > summary::before { transform: rotate(90deg); }
+  .tender-file[open] > summary { border-bottom: 1px solid var(--border); }
+  .tender-name { font-weight: 600; color: var(--text); }
+  .tender-body { padding: 4px 14px 14px; }
+  .t-tag {
+    font-size: 11px; letter-spacing: 0.02em; padding: 2px 7px;
+    border-radius: 999px; border: 1px solid var(--border); color: var(--muted);
+    white-space: nowrap;
+  }
+  .t-tag.is-live    { color: var(--success); border-color: rgba(143,188,143,0.4); }
+  .t-tag.is-expired { color: var(--muted); }
+  .t-tag.is-soon    { color: var(--warning); border-color: rgba(230,180,80,0.4); }
+  .t-tag.is-bad     { color: var(--danger); border-color: rgba(232,154,146,0.4); }
+  .tender-meta { color: var(--muted); font-size: 13px; margin-left: auto; }
+  .tender-upload-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-wrap">
+  <section class="hero" style="padding: 20px 0 8px;">
+    <div class="hero-eyebrow">Contracted volume · {{ org_name }}</div>
+    <h1 style="font-size: 30px; font-weight: 700; letter-spacing: -0.02em;">Tender <em>commitments</em></h1>
+    <div class="hero-byline">
+      <span>{{ total_rows }} row{{ '' if total_rows == 1 else 's' }} across {{ uploads | length }} sheet{{ '' if uploads | length == 1 else 's' }}</span>
+      <span class="hero-byline-sep">/</span>
+      <span>{{ active_count }} live today</span>
+    </div>
+  </section>
+
+  <div class="alert alert-info" style="margin-top:14px;">
+    Stored, not yet applied. These numbers are held against your account and shown here so
+    you can check them, but they do not change your reorder quantities yet.
+  </div>
+
+  <div class="card" style="margin-top:14px;">
+    <div class="card-title" style="font-size:14px;">Upload a tender sheet</div>
+    <p style="color:var(--muted); font-size:13px; margin-bottom:12px;">
+      A .xlsx or .csv with one row per commitment. It needs five columns, named however
+      you already name them: customer, item, quantity, start date, end date.
+      Dates are read day first, so 03/04/2026 is 3 April 2026.
+      Upload numbers only, not the signed contract.
+    </p>
+    <form method="POST" action="{{ url_for('tenders_upload') }}"
+          enctype="multipart/form-data" class="tender-upload-row">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="file" name="file" accept=".xlsx,.csv" required
+             aria-label="Tender sheet file">
+      <button type="submit" class="btn btn-sm btn-primary">Upload</button>
+    </form>
+  </div>
+
+  {% if overlaps %}
+  <div class="card" style="margin-top:14px; border-color:rgba(230,180,80,0.42);">
+    <div class="card-title" style="font-size:14px;">
+      {{ overlaps | length }} overlapping period{{ '' if overlaps | length == 1 else 's' }}
+    </div>
+    <p style="color:var(--muted); font-size:13px; margin-bottom:12px;">
+      The same customer has two commitments on the same item covering some of the same days.
+      That reserves the stock twice. Check whether one has been replaced, then re-upload a
+      corrected sheet.
+    </p>
+    <div style="overflow-x:auto;">
+      <table class="data-table">
+        <thead><tr><th>Customer</th><th>Item</th><th>Period</th><th>Also</th></tr></thead>
+        <tbody>
+          {% for o in overlaps %}
+          <tr>
+            <td>{{ o.customer }}</td>
+            <td>{{ o.item }}</td>
+            <td>{{ o.a }}</td>
+            <td>{{ o.b }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if uploads %}
+  <h2 style="font-size:16px; margin-top:26px;">Uploaded sheets</h2>
+  {% for u in uploads %}
+  {% set rows = rows_by_upload.get(u.id, []) %}
+  <details class="tender-file">
+    <summary>
+      <span class="tender-name">{{ u.filename }}</span>
+      <span class="t-tag">{{ u.rows_imported }} row{{ '' if u.rows_imported == 1 else 's' }}</span>
+      {% if u.rows_rejected %}
+      <span class="t-tag is-bad">{{ u.rows_rejected }} skipped</span>
+      {% endif %}
+      <span class="tender-meta">{{ u.uploaded_at }}</span>
+    </summary>
+    <div class="tender-body">
+      {% if u.rejects %}
+      <p style="color:var(--danger); font-size:13px; margin:12px 0 6px;">
+        Rows that could not be read. Fix them in your sheet and upload it again.
+      </p>
+      <div style="overflow-x:auto;">
+        <table class="data-table">
+          <thead><tr><th>Row</th><th>Customer</th><th>Item</th><th>Why it was skipped</th></tr></thead>
+          <tbody>
+            {% for rj in u.rejects %}
+            <tr>
+              <td>{{ rj.row }}</td>
+              <td>{{ rj.customer }}</td>
+              <td>{{ rj.item }}</td>
+              <td>{{ rj.reason }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+
+      {% if rows %}
+      <div style="overflow-x:auto; margin-top:12px;">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Customer</th><th>Item</th><th>Quantity</th>
+              <th>From</th><th>To</th><th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in rows %}
+            <tr>
+              <td>{{ r.customer }}</td>
+              <td>{{ r.item_name }}</td>
+              <td>{{ "{:,.0f}".format(r.quantity) }}</td>
+              <td>{{ r.period_start }}</td>
+              <td>{{ r.period_end }}</td>
+              <td>
+                {% if r.active %}<span class="t-tag is-live">Live</span>
+                {% elif r.expired %}<span class="t-tag is-expired">Ended</span>
+                {% else %}<span class="t-tag is-soon">Not started</span>{% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+
+      {% if session.role != 'viewer' %}
+      <form method="POST" action="{{ url_for('tenders_delete') }}" style="margin-top:12px;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="upload_id" value="{{ u.id }}">
+        <button type="submit" class="link-btn">Remove this sheet</button>
+      </form>
+      {% endif %}
+    </div>
+  </details>
+  {% endfor %}
+  {% else %}
+  <p style="color:var(--muted); font-size:14px; margin-top:26px;">
+    No tender sheets uploaded yet.
+  </p>
+  {% endif %}
+</div>
+{% endblock %}

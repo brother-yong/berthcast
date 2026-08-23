@@ -298,6 +298,38 @@ def init_db():
         # button that silently stops reorder advice is how a client stops
         # trusting the product.
         "ALTER TABLE supplier_profiles ADD COLUMN archived INTEGER DEFAULT 0",
+        # One row per uploaded tender sheet. The file itself is NOT kept: the
+        # parsed numbers are all the product needs, and a signed tender carries
+        # a third party's commercial terms we have no reason to store. Keeping
+        # the record separate from the rows means a file that imported nothing
+        # still shows up with its rejection reasons instead of vanishing.
+        """CREATE TABLE IF NOT EXISTS tender_uploads (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            org_name TEXT NOT NULL,
+            filename TEXT NOT NULL,
+            uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            uploaded_by TEXT,
+            rows_imported INTEGER DEFAULT 0,
+            rows_rejected INTEGER DEFAULT 0,
+            rejects_json TEXT
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_tender_uploads_org ON tender_uploads(org_name)",
+        # Committed volume: quantity of item, sold to customer, between two
+        # dates. org_name is denormalised onto every row so ownership can be
+        # checked without a join -- the same rule the per-session tables follow.
+        """CREATE TABLE IF NOT EXISTS tender_commitments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            org_name TEXT NOT NULL,
+            upload_id INTEGER NOT NULL,
+            customer TEXT NOT NULL,
+            item_name TEXT NOT NULL,
+            match_key TEXT NOT NULL,
+            quantity REAL NOT NULL,
+            period_start TEXT NOT NULL,
+            period_end TEXT NOT NULL
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_tender_commit_org ON tender_commitments(org_name)",
+        "CREATE INDEX IF NOT EXISTS idx_tender_commit_upload ON tender_commitments(upload_id)",
     ]:
         try:
             conn.execute(migration)
@@ -1604,3 +1636,117 @@ def archive_supplier(org_name: str, supplier_name: str, archived: bool = True):
     upsert_supplier_profile(org_name, supplier_name)
     execute("UPDATE supplier_profiles SET archived=? WHERE org_name=? AND supplier_name=?",
             (1 if archived else 0, org_name, supplier_name))
+
+
+# ── Tender commitments ───────────────────────────────────────────────────────
+
+def scratch_table_headers(table_name: str) -> list:
+    """Column names of a scratch ingest table, without reading any rows.
+
+    Lets the caller decide which columns it needs BEFORE any data is
+    materialised. `table_name` is built from an int id, never from user input.
+    """
+    conn = get_db()
+    try:
+        cur = conn.execute(f'SELECT * FROM "{table_name}" LIMIT 0')
+        return [d[0] for d in (cur.description or []) if d[0] != "_session_id"]
+    finally:
+        conn.close()
+
+
+def read_scratch_table(table_name: str, columns: list, max_rows: int) -> list:
+    """Rows of a scratch ingest table as {header: value} dicts, narrow and bounded.
+
+    The tender sheet is parsed by the same excel_to_sqlite path the four main
+    uploads use, so it inherits the zip-bomb caps, header-row detection and
+    delimiter sniffing rather than growing a second parser to keep in step.
+
+    Only the named columns are selected and only max_rows are fetched. Reading
+    SELECT * unbounded is what makes this dangerous: a wrong file (a wide ERP
+    export, thousands of columns by tens of thousands of rows) would build tens
+    of millions of dict entries and OOM the single 512 MB worker, which takes
+    the site down for every org, not just the uploader.
+
+    `columns` is checked against the table's real headers rather than trusted:
+    they originate from a spreadsheet the client uploaded.
+    """
+    if not columns:
+        return []
+    valid = set(scratch_table_headers(table_name))
+    picked = [c for c in dict.fromkeys(columns) if c in valid]
+    if not picked:
+        return []
+    cols_sql = ", ".join(f'"{c}"' for c in picked)
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            f'SELECT {cols_sql} FROM "{table_name}" LIMIT ?', (int(max_rows),)
+        ).fetchall()
+        return [{k: r[k] for k in r.keys()} for r in rows]
+    finally:
+        conn.close()
+
+
+def drop_scratch_table(table_name: str) -> None:
+    conn = get_db()
+    try:
+        conn.execute(f'DROP TABLE IF EXISTS "{table_name}"')
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def create_tender_upload(org_name: str, filename: str, uploaded_by: str = "") -> int:
+    return execute(
+        "INSERT INTO tender_uploads (org_name, filename, uploaded_by) VALUES (?,?,?)",
+        (org_name, filename, uploaded_by))
+
+
+def save_tender_rows(org_name: str, upload_id: int, rows: list) -> None:
+    if not rows:
+        return
+    conn = get_db()
+    try:
+        conn.executemany(
+            "INSERT INTO tender_commitments "
+            "(org_name, upload_id, customer, item_name, match_key, quantity, "
+            " period_start, period_end) VALUES (?,?,?,?,?,?,?,?)",
+            [(org_name, upload_id, r["customer"], r["item_name"], r["match_key"],
+              r["quantity"], r["period_start"], r["period_end"]) for r in rows])
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def finalise_tender_upload(org_name: str, upload_id: int, imported: int,
+                           rejected: int, rejects_json: str) -> None:
+    execute("UPDATE tender_uploads SET rows_imported=?, rows_rejected=?, "
+            "rejects_json=? WHERE id=? AND org_name=?",
+            (imported, rejected, rejects_json, upload_id, org_name))
+
+
+def get_tender_uploads(org_name: str) -> list:
+    return query("SELECT * FROM tender_uploads WHERE org_name=? "
+                 "ORDER BY uploaded_at DESC, id DESC", (org_name,))
+
+
+def get_tender_commitments(org_name: str, upload_id: int = None) -> list:
+    """Commitment rows for an org, newest upload first.
+
+    org_name is in the WHERE clause even when upload_id is given: an id alone
+    would let one org read another org's rows by guessing a number.
+    """
+    if upload_id is None:
+        return query("SELECT * FROM tender_commitments WHERE org_name=? "
+                     "ORDER BY customer, item_name, period_start", (org_name,))
+    return query("SELECT * FROM tender_commitments WHERE org_name=? AND upload_id=? "
+                 "ORDER BY customer, item_name, period_start", (org_name, upload_id))
+
+
+def delete_tender_upload(org_name: str, upload_id: int) -> None:
+    """Remove one uploaded sheet and every row it created. Re-uploading a
+    corrected file is the fix for a bad row, so there is no per-row edit."""
+    execute("DELETE FROM tender_commitments WHERE org_name=? AND upload_id=?",
+            (org_name, upload_id))
+    execute("DELETE FROM tender_uploads WHERE org_name=? AND id=?",
+            (org_name, upload_id))
