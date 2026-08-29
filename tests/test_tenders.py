@@ -6,8 +6,8 @@ or one org seeing another's contracts. Every check here is aimed at that.
 
 The Excel-serial case has its own check because the ingest layer reads raw cell
 values and applies no number formats: a real date cell in an .xlsx arrives as
-"46082", and without conversion every .xlsx upload would reject all its rows
-while the same sheet saved as .csv imported cleanly.
+"46082". The period now comes off the upload form rather than the sheet, but
+the form's ISO dates go through that same parser, so it stays covered.
 
 Run: python tests/test_tenders.py
 """
@@ -56,28 +56,34 @@ def _check(name, cond, detail=""):
 
 
 # ── Column detection ─────────────────────────────────────────────────────────
+# The customer and the period now come off the upload form, so a sheet that
+# carries its own is REFUSED rather than overwritten: stamping one customer
+# over a sheet naming several would mislabel a contract with no warning.
 
-_mapping, _missing = tenders.detect_columns(
-    ["Customer Name", "Item Description", "Tender Qty", "Start Date", "End Date"])
-_check("all five fields detected from ordinary headers", not _missing, detail=str(_missing))
-_check("customer header claimed correctly",
-       _mapping.get("customer") == "Customer Name", detail=str(_mapping))
+_mapping, _missing, _conflicts = tenders.detect_columns(
+    ["Customer", "Item Description", "Tender Qty", "Start Date", "End Date"])
 _check("item header claimed correctly",
        _mapping.get("item") == "Item Description", detail=str(_mapping))
 _check("quantity header claimed correctly",
        _mapping.get("quantity") == "Tender Qty", detail=str(_mapping))
-_check("start and end are not the same header",
-       _mapping.get("start") != _mapping.get("end"), detail=str(_mapping))
+_check("the old five-column sheet is refused, naming all three columns",
+       _conflicts == [("customer", "Customer"), ("start", "Start Date"),
+                      ("end", "End Date")], detail=str(_conflicts))
 
-# "Date To" must be claimed by end, not swallowed by a looser net.
-_m2, _miss2 = tenders.detect_columns(["Buyer", "SKU", "Volume", "Date From", "Date To"])
-_check("alternative header wording still maps all five", not _miss2, detail=str(_miss2))
-_check("'Date To' maps to end", _m2.get("end") == "Date To", detail=str(_m2))
-_check("'Date From' maps to start", _m2.get("start") == "Date From", detail=str(_m2))
+_m2, _miss2, _conf2 = tenders.detect_columns(
+    ["Buyer", "SKU", "Volume", "Date From", "Date To"])
+_check("alternative wording for customer and dates is refused too",
+       _conf2 == [("customer", "Buyer"), ("start", "Date From"),
+                  ("end", "Date To")], detail=str(_conf2))
 
-_m3, _miss3 = tenders.detect_columns(["Customer", "Item", "Qty"])
-_check("missing date columns are reported, not guessed",
-       set(_miss3) == {"start", "end"}, detail=str(_miss3))
+_m3, _miss3, _conf3 = tenders.detect_columns(["Customer", "Item", "Qty"])
+_check("a customer column alone is enough to refuse the sheet",
+       _conf3 == [("customer", "Customer")], detail=str(_conf3))
+
+_m4, _miss4, _conf4 = tenders.detect_columns(["Item", "Qty"])
+_check("the two columns a tender sheet must supply are enough",
+       _m4 == {"item": "Item", "quantity": "Qty"} and not _miss4 and not _conf4,
+       detail=str((_m4, _miss4, _conf4)))
 
 
 # ── Date parsing ─────────────────────────────────────────────────────────────
@@ -109,44 +115,49 @@ _check("text rejected", tenders.parse_quantity("as agreed") is None)
 
 
 # ── Row building ─────────────────────────────────────────────────────────────
+# The sheet supplies the item and the quantity; the customer, the period and
+# the basis are the form's answers, applied to every row.
+
+_FORM_START = datetime.date(2026, 1, 1)
+_FORM_END   = datetime.date(2026, 12, 31)
 
 _records = [
-    {"Customer": "NORDVIK CATERING", "Item": "BROOKVALE UHT MILK 1L",
-     "Qty": "1,200", "Start Date": "01/01/2026", "End Date": "31/12/2026"},
-    # Excel-serial dates, the .xlsx case.
-    {"Customer": "PADIMAS HOTELS", "Item": "KESTREL ORANGE JUICE 1L",
-     "Qty": "800", "Start Date": "46023", "End Date": "46387"},
-    {"Customer": "", "Item": "ALDERMOOR RICE 5KG",
-     "Qty": "50", "Start Date": "01/01/2026", "End Date": "31/12/2026"},
-    {"Customer": "VANMARK FOODS", "Item": "VANMARK CHICKEN 2KG",
-     "Qty": "300", "Start Date": "01/06/2026", "End Date": "01/01/2026"},
-    {"Customer": "VANMARK FOODS", "Item": "VANMARK BEEF 2KG",
-     "Qty": "nil", "Start Date": "01/06/2026", "End Date": "31/12/2026"},
-    {"Customer": "", "Item": "", "Qty": ""},   # blank spacer, silently skipped
+    {"Item": "BROOKVALE UHT MILK 1L", "Qty": "1,200"},
+    {"Item": "KESTREL ORANGE JUICE 1L", "Qty": "800"},
+    {"Item": "", "Qty": "50"},                        # no item name
+    {"Item": "VANMARK BEEF 2KG", "Qty": "nil"},       # unreadable quantity
+    {"Item": "", "Qty": ""},   # blank spacer, silently skipped
 ]
-_rows, _rejects, _map = tenders.build_rows(_records)
+_rows, _rejects, _map = tenders.build_rows(
+    _records, "NORDVIK CATERING", _FORM_START, _FORM_END, tenders.BASIS_PER_MONTH)
 
 _check("good rows imported, bad rows held back", len(_rows) == 2, detail=str(len(_rows)))
-_check("three bad rows rejected (blank spacer not counted)",
-       len(_rejects) == 3, detail=str(len(_rejects)))
+_check("two bad rows rejected (blank spacer not counted)",
+       len(_rejects) == 2, detail=str(len(_rejects)))
 _reasons = {r["reason"] for r in _rejects}
-_check("missing customer reported", "no customer name" in _reasons, detail=str(_reasons))
-_check("end-before-start reported",
-       "end date is before the start date" in _reasons, detail=str(_reasons))
+_check("missing item name reported", "no item name" in _reasons, detail=str(_reasons))
 _check("unreadable quantity reported",
        any("quantity" in r for r in _reasons), detail=str(_reasons))
 _check("reject carries its source row number",
        all(isinstance(r["row"], int) for r in _rejects))
-_check("Excel-serial row survived and dated correctly (46023 is 1 Jan 2026)",
-       any(r["period_start"] == "2026-01-01" for r in _rows),
-       detail=str([r["period_start"] for r in _rows]))
+_check("the form's customer is stamped on every row",
+       all(r["customer"] == "NORDVIK CATERING" for r in _rows),
+       detail=str([r["customer"] for r in _rows]))
+_check("the form's period is stamped on every row, ISO",
+       all(r["period_start"] == "2026-01-01" and r["period_end"] == "2026-12-31"
+           for r in _rows),
+       detail=str([(r["period_start"], r["period_end"]) for r in _rows]))
+_check("the form's basis is stamped on every row",
+       all(r["qty_basis"] == "per_month" for r in _rows),
+       detail=str([r.get("qty_basis") for r in _rows]))
 _check("match_key normalises the item name",
        _rows[0]["match_key"] == "brookvaleuhtmilk1l", detail=_rows[0]["match_key"])
 
-_missing_map = tenders.build_rows([{"Customer": "X", "Item": "Y", "Qty": "1"}])[2]
-_check("a sheet with no date columns imports nothing and says which are missing",
-       set(_missing_map.get("__missing__", [])) == {"start", "end"},
-       detail=str(_missing_map))
+_missing_map = tenders.build_rows(
+    [{"Item": "Y", "Notes": "as agreed"}], "NORDVIK CATERING",
+    _FORM_START, _FORM_END, tenders.BASIS_PER_MONTH)[2]
+_check("a sheet with no quantity column imports nothing and says which is missing",
+       _missing_map.get("__missing__") == ["quantity"], detail=str(_missing_map))
 
 
 # ── Overlap detection ────────────────────────────────────────────────────────

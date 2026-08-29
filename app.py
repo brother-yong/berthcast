@@ -3619,7 +3619,9 @@ def suppliers_save():
                 notes              = request.form.get("notes", ""),
             )
             flash(f"Saved {name}.", "success")
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, OverflowError):
+            # OverflowError: Python ints are unbounded, SQLite's are 64-bit, so
+            # a wide enough lead time raises inside the driver and 500s.
             flash("Lead time must be a whole number and delay rate a number between 0 and 1.", "error")
     return redirect(url_for("suppliers_page"))
 
@@ -3690,14 +3692,22 @@ def suppliers_ignore_group():
 
 # ── Tenders ──────────────────────────────────────────────────────────────────
 # Committed volume the client has already sold under contract. Part 1 stores
-# and shows it; it does NOT yet feed the recommendation maths, because whether
-# a tender quantity is per-month or a total across the whole period changes the
-# arithmetic and the client has not answered that yet. Storing it wrong would
-# be silent, so the wiring waits.
+# and shows it; it does NOT yet feed the recommendation maths. Whether a tender
+# quantity is per-month or a total across the whole period changes the
+# arithmetic, so the uploader is asked on the form rather than guessed at, but
+# the wiring into recommendations still waits.
 
 # A tender sheet is a contract summary, not a transaction export: hundreds of
 # rows, not hundreds of thousands. Anything larger is the wrong file.
 MAX_TENDER_ROWS = 20_000
+
+# And a ceiling on everything one org has ever uploaded. MAX_TENDER_ROWS bounds
+# a single sheet; without this, ten max-size sheets put ~200,000 rows through a
+# page that copies them three times before rendering, which OOMs the single
+# 512 MB worker and takes every tenant down with it. Real tender sheets are
+# hundreds of rows, so this only ever catches the wrong file.
+MAX_TENDER_ROWS_PER_ORG = 20_000
+MAX_TENDER_CUSTOMER_CHARS = 120
 
 
 @app.route("/tenders")
@@ -3705,7 +3715,24 @@ MAX_TENDER_ROWS = 20_000
 def tenders_page():
     org = session["org_name"]
     uploads = db.get_tender_uploads(org)
-    rows    = db.get_tender_commitments(org)
+    rows    = db.get_tender_commitments(org, limit=MAX_TENDER_ROWS_PER_ORG)
+
+    today = datetime.now().date().isoformat()
+    by_upload, active_count = {}, 0
+    for r in rows:
+        row = dict(r)
+        row["active"] = row["period_start"] <= today <= row["period_end"]
+        row["expired"] = row["period_end"] < today
+        # Derived on read, never stored: quantity, basis and the two dates are
+        # the single source of truth, and a stored copy would drift from them.
+        row["monthly_qty"]     = tenders.monthly_rate(
+            row["quantity"], row.get("qty_basis"),
+            row["period_start"], row["period_end"])
+        row["basis_label"]     = tenders.BASIS_LABELS.get(row.get("qty_basis"), "Not stated")
+        row["qty_display"]     = tenders.format_qty(row["quantity"])
+        row["monthly_display"] = tenders.format_qty(row["monthly_qty"])   # "" when unknown
+        active_count += 1 if row["active"] else 0
+        by_upload.setdefault(row["upload_id"], []).append(row)
 
     for u in uploads:
         u["rejects"] = []
@@ -3714,15 +3741,11 @@ def tenders_page():
                 u["rejects"] = json.loads(u["rejects_json"])
             except (ValueError, TypeError):
                 pass
-
-    today = datetime.now().date().isoformat()
-    by_upload, active_count = {}, 0
-    for r in rows:
-        row = dict(r)
-        row["active"] = row["period_start"] <= today <= row["period_end"]
-        row["expired"] = row["period_end"] < today
-        active_count += 1 if row["active"] else 0
-        by_upload.setdefault(row["upload_id"], []).append(row)
+        if not u.get("customer"):
+            # Sheets uploaded before the customer moved onto the form: fall back
+            # to the rows, which have always carried it.
+            first = by_upload.get(u["id"]) or []
+            u["customer"] = first[0]["customer"] if first else ""
 
     return render_template(
         "tenders.html",
@@ -3731,6 +3754,7 @@ def tenders_page():
         total_rows=len(rows),
         active_count=active_count,
         overlaps=tenders.find_overlaps([dict(r) for r in rows]),
+        overlap_limit=tenders.MAX_OVERLAPS_REPORTED,
         org_name=org,
     )
 
@@ -3752,8 +3776,39 @@ def tenders_upload():
         flash("Server storage is full — the team has been notified.", "error")
         return redirect(url_for("tenders_page"))
 
+    # The customer, the period and the quantity basis come from the form, not
+    # the sheet — the client's real tender sheets carry only an item and a
+    # number. Validated BEFORE the upload row is created: a rejected form must
+    # leave no upload record, no scratch table and no file on disk.
+    customer = (request.form.get("customer") or "").strip()
+    if not customer:
+        flash("Enter the customer this sheet is for.", "error")
+        return redirect(url_for("tenders_page"))
+    if len(customer) > MAX_TENDER_CUSTOMER_CHARS:
+        # Refused, not truncated: silently shortening a contract label is the
+        # kind of quiet wrong this whole page exists to avoid.
+        flash(f"That customer name is too long (max {MAX_TENDER_CUSTOMER_CHARS} characters).",
+              "error")
+        return redirect(url_for("tenders_page"))
+
+    period_start = tenders.parse_date(request.form.get("period_start"))
+    period_end   = tenders.parse_date(request.form.get("period_end"))
+    if period_start is None or period_end is None:
+        flash("Enter the period this sheet covers: a start date and an end date.", "error")
+        return redirect(url_for("tenders_page"))
+    if period_end < period_start:
+        flash("The end date is before the start date.", "error")
+        return redirect(url_for("tenders_page"))
+
+    qty_basis = request.form.get("qty_basis", "")
+    if qty_basis not in tenders.QTY_BASES:
+        flash("Choose whether the sheet's quantity is per month or a total for "
+              "the whole period.", "error")
+        return redirect(url_for("tenders_page"))
+
     original_name = file.filename[:120]
-    upload_id = db.create_tender_upload(org, original_name, session.get("email", ""))
+    upload_id = db.create_tender_upload(org, original_name, session.get("email", ""),
+                                        customer)
     # Scratch table name is built from our own AUTOINCREMENT id, never from the
     # filename — the only interpolation into SQL the repo allows is an int id.
     scratch = f"tender_import_{int(upload_id)}"
@@ -3786,22 +3841,43 @@ def tenders_upload():
                   f"under {MAX_TENDER_ROWS:,} — check it is the right file.", "error")
             return redirect(url_for("tenders_page"))
 
-        # Resolve the five columns from the headers alone, so only those five
+        # Resolve the two columns from the headers alone, so only those two
         # are ever read into memory — a wide export must not be materialised.
-        mapping, missing = tenders.detect_columns(db.scratch_table_headers(scratch))
+        mapping, missing, conflicts = tenders.detect_columns(
+            db.scratch_table_headers(scratch))
+        if conflicts:
+            db.delete_tender_upload(org, upload_id)
+            # Header text comes from the client's own file: capped and capped
+            # in count, and it renders through Jinja's autoescape. Never |safe.
+            named = ", ".join(f'"{h[:40]}"' for _field, h in conflicts[:3])
+            flash("This sheet has its own customer or date column (" + named + "). "
+                  "Upload one customer and one period per file: remove those "
+                  "columns from the sheet and set them in the form above.", "error")
+            return redirect(url_for("tenders_page"))
         if missing:
             db.delete_tender_upload(org, upload_id)
             flash(f"Couldn't find a column for: {', '.join(missing)}. Rename those "
-                  f"columns in your sheet (e.g. Customer, Item, Quantity, "
-                  f"Start Date, End Date) and upload again.", "error")
+                  f"columns in your sheet (e.g. Item, Quantity) and upload again.",
+                  "error")
             return redirect(url_for("tenders_page"))
 
         records = db.read_scratch_table(scratch, list(mapping.values()), MAX_TENDER_ROWS)
-        rows, rejects, _ = tenders.build_rows(records, mapping=mapping)
+        rows, rejects, _ = tenders.build_rows(
+            records, customer, period_start, period_end, qty_basis, mapping=mapping)
+
+        if db.count_tender_commitments(org) + len(rows) > MAX_TENDER_ROWS_PER_ORG:
+            db.delete_tender_upload(org, upload_id)
+            flash(f"That sheet would take you past {MAX_TENDER_ROWS_PER_ORG:,} stored "
+                  f"tender rows. Remove a sheet you no longer need, or check this is "
+                  f"the right file.", "error")
+            return redirect(url_for("tenders_page"))
 
         db.save_tender_rows(org, upload_id, rows)
+        # The stored blob is capped so one bad file cannot bloat the row; the
+        # COUNT is the true one, so imported + skipped always accounts for
+        # every data row in the sheet.
         db.finalise_tender_upload(org, upload_id, len(rows), len(rejects),
-                                  json.dumps(rejects))
+                                  json.dumps(rejects[:tenders.MAX_REJECTS_STORED]))
     except Exception:
         logger.exception("Tender upload failed for org %s", org)
         db.delete_tender_upload(org, upload_id)
@@ -3840,6 +3916,12 @@ def tenders_delete():
     try:
         upload_id = int(request.form.get("upload_id", ""))
     except (TypeError, ValueError):
+        return redirect(url_for("tenders_page"))
+    # Python ints are unbounded but SQLite's are 64-bit, so a wider number
+    # raises OverflowError inside the driver -- past this try, and a 500. Our
+    # ids are AUTOINCREMENT, so anything outside the positive 64-bit range is
+    # not a row we could own.
+    if not 0 < upload_id <= 2 ** 63 - 1:
         return redirect(url_for("tenders_page"))
     db.delete_tender_upload(org, upload_id)
     flash("Tender sheet removed.", "success")

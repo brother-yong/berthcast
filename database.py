@@ -330,6 +330,19 @@ def init_db():
         )""",
         "CREATE INDEX IF NOT EXISTS idx_tender_commit_org ON tender_commitments(org_name)",
         "CREATE INDEX IF NOT EXISTS idx_tender_commit_upload ON tender_commitments(upload_id)",
+        # Which arithmetic the sheet's number is: a per-month rate, or a total
+        # for the whole period. The file never says -- one live sheet is a
+        # six-month total, another is a monthly rate -- so the uploader picks
+        # it. Stored per row, beside the quantity and dates it applies to, so
+        # the version that reserves stock reads one row and needs no join.
+        # NULL on rows imported before the question was asked: those show
+        # "Not stated" and no derived monthly figure, never a guess.
+        "ALTER TABLE tender_commitments ADD COLUMN qty_basis TEXT",
+        # One customer per sheet: the real sheets keep the customer in the
+        # filename or a WhatsApp message, never in a column. Also kept on the
+        # upload row so the collapsed summary line can name it without opening
+        # the sheet. tender_commitments.customer stays the source of truth.
+        "ALTER TABLE tender_uploads ADD COLUMN customer TEXT",
     ]:
         try:
             conn.execute(migration)
@@ -1696,10 +1709,11 @@ def drop_scratch_table(table_name: str) -> None:
         conn.close()
 
 
-def create_tender_upload(org_name: str, filename: str, uploaded_by: str = "") -> int:
+def create_tender_upload(org_name: str, filename: str, uploaded_by: str = "",
+                         customer: str = "") -> int:
     return execute(
-        "INSERT INTO tender_uploads (org_name, filename, uploaded_by) VALUES (?,?,?)",
-        (org_name, filename, uploaded_by))
+        "INSERT INTO tender_uploads (org_name, filename, uploaded_by, customer) "
+        "VALUES (?,?,?,?)", (org_name, filename, uploaded_by, customer))
 
 
 def save_tender_rows(org_name: str, upload_id: int, rows: list) -> None:
@@ -1707,12 +1721,16 @@ def save_tender_rows(org_name: str, upload_id: int, rows: list) -> None:
         return
     conn = get_db()
     try:
+        # qty_basis is read with .get: a row dict built before the basis
+        # existed writes NULL rather than raising, and NULL reads back as
+        # "Not stated" on the page.
         conn.executemany(
             "INSERT INTO tender_commitments "
             "(org_name, upload_id, customer, item_name, match_key, quantity, "
-            " period_start, period_end) VALUES (?,?,?,?,?,?,?,?)",
+            " period_start, period_end, qty_basis) VALUES (?,?,?,?,?,?,?,?,?)",
             [(org_name, upload_id, r["customer"], r["item_name"], r["match_key"],
-              r["quantity"], r["period_start"], r["period_end"]) for r in rows])
+              r["quantity"], r["period_start"], r["period_end"],
+              r.get("qty_basis")) for r in rows])
         conn.commit()
     finally:
         conn.close()
@@ -1730,17 +1748,36 @@ def get_tender_uploads(org_name: str) -> list:
                  "ORDER BY uploaded_at DESC, id DESC", (org_name,))
 
 
-def get_tender_commitments(org_name: str, upload_id: int = None) -> list:
+def count_tender_commitments(org_name: str) -> int:
+    """How many commitment rows this org already holds, across every sheet."""
+    got = query("SELECT COUNT(*) AS n FROM tender_commitments WHERE org_name=?",
+                (org_name,))
+    return got[0]["n"] if got else 0
+
+
+def get_tender_commitments(org_name: str, upload_id: int = None,
+                           limit: int = None) -> list:
     """Commitment rows for an org, newest upload first.
 
     org_name is in the WHERE clause even when upload_id is given: an id alone
     would let one org read another org's rows by guessing a number.
+
+    limit is a backstop, not a feature. The per-upload cap bounds one sheet but
+    nothing bounded an org's ACCUMULATED rows, and the page copies the whole
+    set three times before rendering it -- on one 512 MB worker that is how a
+    wrong ERP export uploaded twice takes every tenant's site down. The caller
+    passes the same ceiling the upload route enforces, so in normal use this
+    never truncates anything.
     """
+    tail = " LIMIT ?" if limit is not None else ""
     if upload_id is None:
+        args = (org_name,) if limit is None else (org_name, int(limit))
         return query("SELECT * FROM tender_commitments WHERE org_name=? "
-                     "ORDER BY customer, item_name, period_start", (org_name,))
+                     "ORDER BY customer, item_name, period_start" + tail, args)
+    args = ((org_name, upload_id) if limit is None
+            else (org_name, upload_id, int(limit)))
     return query("SELECT * FROM tender_commitments WHERE org_name=? AND upload_id=? "
-                 "ORDER BY customer, item_name, period_start", (org_name, upload_id))
+                 "ORDER BY customer, item_name, period_start" + tail, args)
 
 
 def delete_tender_upload(org_name: str, upload_id: int) -> None:

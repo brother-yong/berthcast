@@ -35,7 +35,12 @@
   .t-tag.is-soon    { color: var(--warning); border-color: rgba(230,180,80,0.4); }
   .t-tag.is-bad     { color: var(--danger); border-color: rgba(232,154,146,0.4); }
   .tender-meta { color: var(--muted); font-size: 13px; margin-left: auto; }
-  .tender-upload-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  /* Two columns: the customer and the basis sit above the two dates, so the
+     whole question fits above the fold without a second card. Desktop only. */
+  .tender-form {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px 18px; max-width: 720px;
+  }
 </style>
 {% endblock %}
 
@@ -59,24 +64,55 @@
   <div class="card" style="margin-top:14px;">
     <div class="card-title" style="font-size:14px;">Upload a tender sheet</div>
     <p style="color:var(--muted); font-size:13px; margin-bottom:12px;">
-      A .xlsx or .csv with one row per commitment. It needs five columns, named however
-      you already name them: customer, item, quantity, start date, end date.
-      Dates are read day first, so 03/04/2026 is 3 April 2026.
+      A .xlsx or .csv with one row per item. It needs just two columns, named however
+      you already name them: the item and the quantity. Tell us the customer and the
+      period here, once per sheet. If your sheet has its own customer or date columns,
+      upload one customer and one period per file instead.
       Upload numbers only, not the signed contract.
     </p>
     <form method="POST" action="{{ url_for('tenders_upload') }}"
-          enctype="multipart/form-data" class="tender-upload-row">
+          enctype="multipart/form-data" class="tender-form">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <input type="file" name="file" accept=".xlsx,.csv" required
-             aria-label="Tender sheet file">
-      <button type="submit" class="btn btn-sm btn-primary">Upload</button>
+      <div class="form-group" style="margin:0;">
+        <label style="font-size:13px;">Customer
+          <span class="hint">Who this sheet is contracted to</span>
+        </label>
+        <input type="text" name="customer" maxlength="120" required>
+      </div>
+      <div class="form-group" style="margin:0;">
+        <label style="font-size:13px;">The quantity on the sheet is
+          <span class="hint">We do not guess this from the column name</span>
+        </label>
+        <select name="qty_basis" required>
+          <option value="" disabled selected>Choose one</option>
+          <option value="per_month">Per month</option>
+          <option value="period_total">A total for the whole period</option>
+        </select>
+      </div>
+      <div class="form-group" style="margin:0;">
+        <label style="font-size:13px;">Period start</label>
+        <input type="date" name="period_start" required>
+      </div>
+      <div class="form-group" style="margin:0;">
+        <label style="font-size:13px;">Period end</label>
+        <input type="date" name="period_end" required>
+      </div>
+      <div class="form-group" style="margin:0; grid-column: 1 / -1;">
+        <label style="font-size:13px;">Tender sheet</label>
+        <input type="file" name="file" accept=".xlsx,.csv" required
+               aria-label="Tender sheet file">
+      </div>
+      <div style="grid-column: 1 / -1;">
+        <button type="submit" class="btn btn-sm btn-primary">Upload</button>
+      </div>
     </form>
   </div>
 
   {% if overlaps %}
   <div class="card" style="margin-top:14px; border-color:rgba(230,180,80,0.42);">
     <div class="card-title" style="font-size:14px;">
-      {{ overlaps | length }} overlapping period{{ '' if overlaps | length == 1 else 's' }}
+      {{ overlaps | length }}{{ '+' if overlaps | length >= overlap_limit else '' }}
+      overlapping period{{ '' if overlaps | length == 1 else 's' }}
     </div>
     <p style="color:var(--muted); font-size:13px; margin-bottom:12px;">
       The same customer has two commitments on the same item covering some of the same days.
@@ -108,6 +144,7 @@
   <details class="tender-file">
     <summary>
       <span class="tender-name">{{ u.filename }}</span>
+      {% if u.customer %}<span class="t-tag">{{ u.customer }}</span>{% endif %}
       <span class="t-tag">{{ u.rows_imported }} row{{ '' if u.rows_imported == 1 else 's' }}</span>
       {% if u.rows_rejected %}
       <span class="t-tag is-bad">{{ u.rows_rejected }} skipped</span>
@@ -118,6 +155,9 @@
       {% if u.rejects %}
       <p style="color:var(--danger); font-size:13px; margin:12px 0 6px;">
         Rows that could not be read. Fix them in your sheet and upload it again.
+        {% if u.rows_rejected > u.rejects | length %}
+        Showing the first {{ u.rejects | length }} of {{ u.rows_rejected }}.
+        {% endif %}
       </p>
       <div style="overflow-x:auto;">
         <table class="data-table">
@@ -141,16 +181,17 @@
         <table class="data-table">
           <thead>
             <tr>
-              <th>Customer</th><th>Item</th><th>Quantity</th>
+              <th>Item</th><th>Quantity</th><th>Basis</th><th>Per month</th>
               <th>From</th><th>To</th><th>Status</th>
             </tr>
           </thead>
           <tbody>
             {% for r in rows %}
             <tr>
-              <td>{{ r.customer }}</td>
               <td>{{ r.item_name }}</td>
-              <td>{{ "{:,.0f}".format(r.quantity) }}</td>
+              <td>{{ r.qty_display }}</td>
+              <td>{{ r.basis_label }}</td>
+              <td>{{ r.monthly_display }}</td>
               <td>{{ r.period_start }}</td>
               <td>{{ r.period_end }}</td>
               <td>

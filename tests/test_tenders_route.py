@@ -5,8 +5,9 @@ proves the things a parser test cannot:
   1. the page renders (a Jinja typo would otherwise ship silently)
   2. a real upload imports rows, drops its scratch table, and keeps no file
   3. a sheet missing a required column imports NOTHING and says which
-  4. one org's tender rows never render on another org's page
-  5. a viewer-role account cannot upload or delete
+  4. a sheet carrying its own customer or date columns is refused outright
+  5. one org's tender rows never render on another org's page
+  6. a viewer-role account cannot upload or delete
 
 Throwaway temp DB, stubbed anthropic client, no API calls. CSRF is disabled for
 the test client only. Run: python tests/test_tenders_route.py
@@ -78,12 +79,18 @@ def _client(user_id, email, org, role="admin"):
     return c
 
 
-def _upload(client, csv_text, filename="tenders.csv"):
-    return client.post(
-        "/tenders/upload",
-        data={"file": (io.BytesIO(csv_text.encode("utf-8")), filename)},
-        content_type="multipart/form-data",
-        follow_redirects=True)
+def _upload(client, csv_text, filename="tenders.csv", **form):
+    """Post a sheet plus the four form fields the route now requires.
+
+    The customer, the period and the quantity basis are answered on the form,
+    not read off the sheet, so every upload has to carry them.
+    """
+    data = {"customer": "NORDVIK CATERING", "period_start": "2026-07-01",
+            "period_end": "2026-12-31", "qty_basis": "per_month"}
+    data.update(form)
+    data["file"] = (io.BytesIO(csv_text.encode("utf-8")), filename)
+    return client.post("/tenders/upload", data=data,
+                       content_type="multipart/form-data", follow_redirects=True)
 
 
 ALPHA_ID = _make_user("alpha@example.com", "OrgAlpha")
@@ -106,10 +113,10 @@ _check("empty state is shown",
 # ── 2. A real upload imports ─────────────────────────────────────────────────
 
 GOOD_CSV = (
-    "Customer,Item Description,Tender Qty,Start Date,End Date\n"
-    "NORDVIK CATERING,BROOKVALE UHT MILK 1L,1200,01/01/2026,31/12/2026\n"
-    "PADIMAS HOTELS,KESTREL ORANGE JUICE 1L,800,01/03/2026,28/02/2027\n"
-    "BAD ROW CO,,50,01/01/2026,31/12/2026\n"
+    "Item Description,Tender Qty\n"
+    "BROOKVALE UHT MILK 1L,1200\n"
+    "KESTREL ORANGE JUICE 1L,800\n"
+    ",50\n"
 )
 r = _upload(alpha, GOOD_CSV, "alpha_tenders.csv")
 _check("upload returns the page", r.status_code == 200, detail=str(r.status_code))
@@ -118,9 +125,12 @@ _check("skipped row reported to the user", b"1 row skipped" in r.data)
 
 rows = db.get_tender_commitments("OrgAlpha")
 _check("two rows stored", len(rows) == 2, detail=str(len(rows)))
-_check("dates stored ISO and day-first",
-       any(x["period_start"] == "2026-01-01" and x["period_end"] == "2026-12-31"
+_check("the form's period is stored ISO on every row",
+       all(x["period_start"] == "2026-07-01" and x["period_end"] == "2026-12-31"
            for x in rows), detail=str([(x["period_start"], x["period_end"]) for x in rows]))
+_check("the form's customer and basis are stored on every row",
+       all(x["customer"] == "NORDVIK CATERING" and x["qty_basis"] == "per_month"
+           for x in rows), detail=str([(x["customer"], x["qty_basis"]) for x in rows]))
 _check("item names render on the page", b"BROOKVALE UHT MILK 1L" in r.data)
 _check("the filename is shown", b"alpha_tenders.csv" in r.data)
 _check("the reject reason is shown", b"no item name" in r.data)
@@ -139,9 +149,9 @@ _check("the uploaded file itself is not kept on disk",
 
 # ── 3. Missing column imports nothing ────────────────────────────────────────
 
-NO_DATES_CSV = ("Customer,Item,Qty\n"
-                "NORDVIK CATERING,BROOKVALE UHT MILK 1L,1200\n")
-r = _upload(alpha, NO_DATES_CSV, "no_dates.csv")
+NO_QTY_CSV = ("Item,Notes\n"
+              "BROOKVALE UHT MILK 1L,as agreed\n")
+r = _upload(alpha, NO_QTY_CSV, "no_qty.csv")
 _check("missing columns are named back to the user",
        b"Couldn&#39;t find a column for" in r.data or b"Couldn't find a column for" in r.data)
 _check("nothing extra was imported",
@@ -152,15 +162,37 @@ _check("the failed upload left no sheet record",
        detail=str(len(db.get_tender_uploads("OrgAlpha"))))
 
 
+# ── 3a. A sheet carrying its own customer and dates is refused ───────────────
+# One customer and one period per file. Stamping the form's customer over a
+# sheet that names several would mislabel a contract with no warning.
+
+OLD_FIVE_COL_CSV = (
+    "Customer,Item Description,Tender Qty,Start Date,End Date\n"
+    "NORDVIK CATERING,BROOKVALE UHT MILK 1L,1200,01/01/2026,31/12/2026\n"
+)
+r = _upload(alpha, OLD_FIVE_COL_CSV, "old_format.csv")
+_check("the old five-column sheet is refused",
+       b"has its own customer or date column" in r.data)
+# The header is quoted back as the ingest layer names it ("Start Date" arrives
+# as start_date), and it is autoescaped: it came out of the client's own file.
+_check("the refusal quotes the offending header back",
+       b"&#34;customer&#34;" in r.data.lower(), detail="header not echoed")
+_check("a refused sheet imports nothing",
+       len(db.get_tender_commitments("OrgAlpha")) == 2,
+       detail=str(len(db.get_tender_commitments("OrgAlpha"))))
+_check("a refused sheet leaves no upload row",
+       len(db.get_tender_uploads("OrgAlpha")) == 1,
+       detail=str(len(db.get_tender_uploads("OrgAlpha"))))
+
+
 # ── 3b. A wide sheet is read narrowly, and odd filenames still parse ─────────
 
-# The five real columns buried in a wide export: only those may be materialised.
+# The two real columns buried in a wide export: only those may be materialised.
 _wide_cols = [f"spare_col_{i}" for i in range(300)]
-WIDE_CSV = (",".join(["Customer", "Item", "Qty", "Start Date", "End Date"] + _wide_cols) + "\n"
-            + ",".join(["NORDVIK CATERING", "BROOKVALE UHT MILK 1L", "10",
-                        "01/01/2026", "31/12/2026"] + ["x"] * 300) + "\n")
+WIDE_CSV = (",".join(["Item", "Qty"] + _wide_cols) + "\n"
+            + ",".join(["BROOKVALE UHT MILK 1L", "10"] + ["x"] * 300) + "\n")
 r = _upload(alpha, WIDE_CSV, "wide.csv")
-_check("a 305-column sheet still imports its five real columns",
+_check("a 302-column sheet still imports its two real columns",
        b"Imported 1 tender row" in r.data)
 _wide_id = db.get_tender_uploads("OrgAlpha")[0]["id"]
 db.delete_tender_upload("OrgAlpha", _wide_id)

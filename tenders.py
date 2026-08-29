@@ -12,6 +12,7 @@ silently widens or shortens a commitment window, which moves stock the client
 has legally promised to somebody else.
 """
 import datetime
+import math
 import re
 
 from agents.shared import normalise_match_key
@@ -19,35 +20,58 @@ from agents.shared import normalise_match_key
 # Header keywords, most specific first within each field. A header satisfies a
 # field if it CONTAINS one of these once punctuation and case are stripped.
 # One header can only ever satisfy one field.
+#
+# Only two fields are read off the sheet. The customer and the period are asked
+# for on the upload form instead: the client's real tender sheets carry the
+# customer in the filename or a chat message, never in a column.
 _FIELD_KEYWORDS = {
-    "customer": ("customer", "cust", "buyer", "client", "account", "company"),
-    "item":     ("itemdescription", "itemname", "itemcode", "item", "product",
-                 "description", "desc", "sku", "material", "article"),
-    "quantity": ("tenderqty", "committedqty", "quantity", "qty", "carton",
-                 "units", "volume", "committed"),
-    # "expiry"/"valid till" here mean the CONTRACT's end, not a product's shelf
-    # life. A tender sheet has no product expiry column; an inventory export does.
-    "start":    ("startdate", "datefrom", "fromdate", "commence", "effective",
-                 "periodfrom"),
-    "end":      ("enddate", "dateto", "todate", "expiry", "expire", "until",
-                 "validtill", "validto", "periodto"),
+    "quantity": ("tenderqty", "committedqty", "monthlyconsumption", "consumption",
+                 "quantity", "qty", "volume", "carton", "units", "usage",
+                 "offtake", "committed"),
+    "item":     ("itemdescription", "itemname", "stkname", "stockname",
+                 "productname", "materialdescription", "itemcode", "item",
+                 "product", "description", "desc", "sku", "material", "article"),
 }
 
-# Words short enough to appear INSIDE an unrelated header, so they must match a
-# header exactly. Found the hard way: "customer" contains "to", "vendor"
-# contains "end" -- as substrings those silently stole the date columns and the
-# sheet imported with the wrong periods.
-_FIELD_EXACT = {
-    "customer": (),
-    "item":     (),
-    "quantity": (),
-    "start":    ("start", "from"),
-    "end":      ("end", "to"),
-}
+# quantity first: a "SIX MONTH VOLUME" or "Est. Monthly Consumption" column must
+# be claimed before item's looser nets ever see it.
+_FIELD_ORDER = ("quantity", "item")
 
-# Resolved in this order so a header like "date to" is claimed by "end" before
-# the looser "item"/"customer" nets ever see it.
-_FIELD_ORDER = ("start", "end", "quantity", "customer", "item")
+# A code column must lose to a name column. match_key is how a later version
+# joins these rows to inventory, and inventory is keyed on names, so a sheet
+# carrying both "Item number" and "Product name" has to store the name.
+# Checked against the whole normalised header. Substrings for the long ones;
+# EXACT for the short ones, or "no" and "id" would match half the sheet.
+_CODEISH_SUBSTR = ("code", "number", "barcode", "itemno", "stkno", "partno", "refno")
+_CODEISH_EXACT  = ("no", "id", "sn", "sku", "ref", "itemid", "stkid", "serialno")
+
+# Exact, not substring, and that is the whole point: the real sheets carry
+# headers like "<company> UPDATE" and "Business Entity", and a substring net on
+# "company" would refuse every genuine file. A miss here is harmless (the form
+# value is used, which is what the user asked for); a false hit blocks a real
+# upload, so this errs silent.
+_CONFLICT_EXACT = {
+    "customer": ("customer", "customers", "customername", "customercode",
+                 "cust", "custname", "buyer", "buyername", "client",
+                 "clientname", "soldto", "shipto", "company", "companyname",
+                 "account", "accountname"),
+    "start":    ("start", "startdate", "datestart", "from", "fromdate",
+                 "datefrom", "periodfrom", "periodstart", "validfrom",
+                 "effectivedate", "commencementdate", "contractstart"),
+    "end":      ("end", "enddate", "dateend", "to", "todate", "dateto",
+                 "periodto", "periodend", "validto", "validtill", "validuntil",
+                 "expiry", "expirydate", "expirationdate", "until", "contractend"),
+}
+_CONFLICT_ORDER = ("customer", "start", "end")
+
+# What the sheet's number means. The file never says -- one live sheet is a
+# six-month total, another is a monthly rate -- so the uploader picks it on the
+# form. The template hardcodes these two strings as <option value>s.
+BASIS_PER_MONTH    = "per_month"
+BASIS_PERIOD_TOTAL = "period_total"
+QTY_BASES          = (BASIS_PER_MONTH, BASIS_PERIOD_TOTAL)
+BASIS_LABELS       = {BASIS_PER_MONTH:    "Per month",
+                      BASIS_PERIOD_TOTAL: "Total for the period"}
 
 _NOT_ALNUM = re.compile(r"[^a-z0-9]+")
 
@@ -62,35 +86,117 @@ _XL_MAX_SER = 80000
 # Bound what a single bad file can write into the rejects blob.
 MAX_REJECTS_STORED = 50
 
+# Bound the overlap scan. Both a memory and a CPU guard: see find_overlaps.
+MAX_OVERLAPS_REPORTED = 50
+
 
 def _norm_header(name) -> str:
     return _NOT_ALNUM.sub("", str(name).casefold())
 
 
-def detect_columns(headers):
-    """Map field name -> header, for the five fields a tender row needs.
+def _is_codeish(normed_name) -> bool:
+    return (normed_name in _CODEISH_EXACT
+            or any(s in normed_name for s in _CODEISH_SUBSTR))
 
-    Returns (mapping, missing). `missing` is the list of fields no header
-    matched; the caller shows it to the user rather than importing a partial
-    row, because a tender row missing any one of the five cannot be applied.
+
+def _first_keyword_hit(normed, claimed, keywords):
+    """First unclaimed header containing the earliest keyword that hits."""
+    for keyword in keywords:
+        hit = next((h for h, n in normed
+                    if h not in claimed and keyword in n), None)
+        if hit is not None:
+            return hit
+    return None
+
+
+def detect_columns(headers):
+    """Map field -> header for the two columns a tender sheet must supply.
+
+    Returns (mapping, missing, conflicts).
+      mapping    {"item": <header>, "quantity": <header>}
+      missing    required fields no header matched -- import nothing, name them
+      conflicts  [(field, header), ...] in _CONFLICT_ORDER: the sheet carries
+                 its own per-row customer or period. Refused, never overwritten:
+                 stamping one customer over a sheet naming several would
+                 mislabel a contract with no warning.
     """
     normed = [(h, _norm_header(h)) for h in headers]
     mapping, claimed = {}, set()
     for field in _FIELD_ORDER:
-        # Exact first: "To" beats any substring guess for the same header.
-        hit = next((h for h, n in normed
-                    if h not in claimed and n in _FIELD_EXACT[field]), None)
-        if hit is None:
-            for keyword in _FIELD_KEYWORDS[field]:
-                hit = next((h for h, n in normed
-                            if h not in claimed and keyword in n), None)
-                if hit is not None:
-                    break
+        if field == "item":
+            # Two passes: name columns first, then everything, so a sheet with
+            # only a code column ("SKU", "Qty") still imports. Demoting the
+            # code column is a preference, not a ban.
+            hit = _first_keyword_hit(
+                [p for p in normed if not _is_codeish(p[1])],
+                claimed, _FIELD_KEYWORDS[field])
+            if hit is None:
+                hit = _first_keyword_hit(normed, claimed, _FIELD_KEYWORDS[field])
+        else:
+            hit = _first_keyword_hit(normed, claimed, _FIELD_KEYWORDS[field])
         if hit is not None:
             mapping[field] = hit
             claimed.add(hit)
-    missing = [f for f in _FIELD_KEYWORDS if f not in mapping]
-    return mapping, missing
+    missing = [f for f in _FIELD_ORDER if f not in mapping]
+
+    # Conflicts are read off every header, claimed or not: one offending column
+    # is enough to refuse the file, and the user sees the header from their own
+    # sheet rather than the normalised form.
+    conflicts = []
+    for field in _CONFLICT_ORDER:
+        hit = next((h for h, n in normed if n in _CONFLICT_EXACT[field]), None)
+        if hit is not None:
+            conflicts.append((field, hit))
+    return mapping, missing, conflicts
+
+
+def months_in_period(start, end) -> int:
+    """Whole calendar months a period covers, floored at 1.
+
+    Rule, stated once so nobody has to reverse it out of the code:
+    (year, month) difference, plus one when the end day reaches the start day.
+    1 Jul -> 31 Dec is 6. 1 Jul -> 14 Aug is 1, not 2. Floored at 1 so a
+    same-day period can never divide by zero or turn a period total into a
+    wildly inflated monthly rate.
+    """
+    months = (end.year - start.year) * 12 + (end.month - start.month)
+    if end.day >= start.day:
+        months += 1
+    return max(1, months)
+
+
+def monthly_rate(quantity, basis, period_start, period_end):
+    """Per-month figure for one row, or None when the basis was never stated.
+
+    Accepts datetime.date or ISO strings for the dates (rows come back from
+    SQLite as ISO text). Returns None -- never a guess -- for an unknown or
+    NULL basis, an unparseable date, or a missing quantity.
+    """
+    if basis not in QTY_BASES or quantity is None:
+        return None
+    try:
+        qty = float(quantity)
+    except (TypeError, ValueError):
+        return None
+    if basis == BASIS_PER_MONTH:
+        return qty
+    start = parse_date(period_start)
+    end   = parse_date(period_end)
+    if start is None or end is None:
+        return None
+    return qty / months_in_period(start, end)
+
+
+def format_qty(value) -> str:
+    """1800.0 -> '1,800'; 12.5 -> '12.5'; 0.08 -> '0.08'; None -> ''."""
+    if value is None:
+        return ""
+    try:
+        text = f"{float(value):,.2f}"
+    except (TypeError, ValueError):
+        return ""
+    # rstrip stops at the '.', so '1,800.00' -> '1,800' and never '1,8'.
+    return text.rstrip("0").rstrip(".")
 
 
 def parse_quantity(value):
@@ -106,7 +212,14 @@ def parse_quantity(value):
         return None
     # 0 is a real number but a zero-quantity tender commits nothing, so it can
     # only be a placeholder row. Negative is always an error.
-    if qty <= 0:
+    #
+    # NaN and Infinity have to be refused explicitly: float() accepts "nan",
+    # "inf" and any overflowing literal like "1e400", and neither survives a
+    # `<= 0` test -- NaN compares False against everything, Infinity really is
+    # greater than zero. Both reach real sheets. A NaN is the worse one: SQLite
+    # stores it as NULL, quantity is NOT NULL, so the whole executemany aborts
+    # and one junk cell throws away every good row beside it.
+    if not math.isfinite(qty) or qty <= 0:
         return None
     return qty
 
@@ -161,8 +274,14 @@ def parse_date(value, day_first=True):
         return None
 
 
-def build_rows(records, day_first=True, mapping=None):
+def build_rows(records, customer, period_start, period_end, qty_basis, mapping=None):
     """Turn raw {header: value} dicts into validated tender rows.
+
+    customer / period_start / period_end / qty_basis come from the upload form,
+    not from the sheet: none of the client's real tender sheets carry them.
+    They are applied to every row. period_start and period_end are
+    datetime.date and are validated by the caller; qty_basis is one of
+    QTY_BASES.
 
     Returns (rows, rejects, mapping). Each reject carries the source row number
     and a plain-English reason -- the user has to be able to fix the sheet
@@ -170,46 +289,43 @@ def build_rows(records, day_first=True, mapping=None):
     entirely, mapping is {"__missing__": [fields]} and nothing is imported.
 
     `mapping` may be passed in when the caller has already run detect_columns
-    against the headers alone -- that lets it fetch only the five columns it
+    against the headers alone -- that lets it fetch only the two columns it
     needs instead of every column in the sheet.
     """
     if not records:
         return [], [], (mapping or {})
 
     if mapping is None:
-        mapping, missing = detect_columns(list(records[0].keys()))
+        mapping, missing, _conflicts = detect_columns(list(records[0].keys()))
         if missing:
             return [], [], {"__missing__": missing}
 
+    start_iso, end_iso = period_start.isoformat(), period_end.isoformat()
     rows, rejects = [], []
     for i, rec in enumerate(records, start=1):
-        customer = str(rec.get(mapping["customer"]) or "").strip()
-        item     = str(rec.get(mapping["item"]) or "").strip()
-        qty      = parse_quantity(rec.get(mapping["quantity"]))
-        start    = parse_date(rec.get(mapping["start"]), day_first)
-        end      = parse_date(rec.get(mapping["end"]), day_first)
+        item = str(rec.get(mapping["item"]) or "").strip()
+        qty  = parse_quantity(rec.get(mapping["quantity"]))
 
-        if not customer and not item and qty is None:
+        # The customer is no longer a per-row value, so it cannot be part of
+        # the blank test any more: it is always present, and testing it would
+        # turn every trailing spacer row in a long sheet into a reject.
+        if not item and qty is None:
             continue          # blank spacer row, not an error worth reporting
 
         reason = None
-        if not customer:
-            reason = "no customer name"
-        elif not item:
+        if not item:
             reason = "no item name"
         elif qty is None:
             reason = "quantity is missing, zero or not a number"
-        elif start is None:
-            reason = "start date unreadable"
-        elif end is None:
-            reason = "end date unreadable"
-        elif end < start:
-            reason = "end date is before the start date"
 
         if reason:
-            if len(rejects) < MAX_REJECTS_STORED:
-                rejects.append({"row": i, "reason": reason,
-                                "customer": customer[:80], "item": item[:80]})
+            # Every reject is collected, and the caller trims the list before
+            # storing it. Capping HERE made len(rejects) stop at 50, so a sheet
+            # with 63 bad rows told the user "3 imported, 50 skipped" and ten
+            # rows vanished with no record. In a product whose whole job is
+            # arithmetic, a count that does not add up is worse than the file.
+            rejects.append({"row": i, "reason": reason,
+                            "customer": customer[:80], "item": item[:80]})
             continue
 
         rows.append({
@@ -217,22 +333,35 @@ def build_rows(records, day_first=True, mapping=None):
             "item_name":    item,
             "match_key":    normalise_match_key(item),
             "quantity":     qty,
-            "period_start": start.isoformat(),
-            "period_end":   end.isoformat(),
+            "period_start": start_iso,
+            "period_end":   end_iso,
+            "qty_basis":    qty_basis,
         })
     return rows, rejects, mapping
 
 
-def find_overlaps(rows):
+def find_overlaps(rows, limit=MAX_OVERLAPS_REPORTED):
     """Tender rows for the same customer AND item whose periods overlap.
 
     Two live commitments on one customer+item double-count: the same stock gets
     reserved twice, so what is left to sell reads lower than it is. Reported,
     never auto-resolved -- a client CAN hold two contracts on one item, and
     only they know which is right.
+
+    Bounded on purpose. Pairing is quadratic, and since the customer and the
+    period now come from the upload form, every row in one sheet shares both --
+    so a sheet listing one item 200 times produces 19,900 clashes and megabytes
+    of HTML, recomputed on every page load, on a 512 MB single-worker box. The
+    first `limit` clashes tell the client the same thing the full list would.
     """
     buckets = {}
     for r in rows:
+        # The route validates end >= start, but nothing in the schema enforces
+        # it, and rows written by the previous version took their period from
+        # sheet columns. A reversed row can neither break the scan nor clash,
+        # so it would quietly drag its bucket back toward quadratic.
+        if r["period_end"] < r["period_start"]:
+            continue
         buckets.setdefault(
             (normalise_match_key(r["customer"]), r["match_key"]), []
         ).append(r)
@@ -244,14 +373,21 @@ def find_overlaps(rows):
         ordered = sorted(group, key=lambda r: r["period_start"])
         for i, a in enumerate(ordered):
             for b in ordered[i + 1:]:
+                # Sorted by period_start, so once one b starts after a ends,
+                # every later b does too. Nothing after this point can clash
+                # with THIS a.
+                if b["period_start"] > a["period_end"]:
+                    break
                 # Half-open would let a contract ending 30 Jun and one starting
                 # 30 Jun both claim that day. Inclusive at both ends is the
                 # reading a contract actually has.
-                if a["period_start"] <= b["period_end"] and b["period_start"] <= a["period_end"]:
+                if a["period_start"] <= b["period_end"]:
                     clashes.append({
                         "customer": a["customer"],
                         "item":     a["item_name"],
                         "a":        a["period_start"] + " to " + a["period_end"],
                         "b":        b["period_start"] + " to " + b["period_end"],
                     })
+                    if len(clashes) >= limit:
+                        return clashes
     return clashes
