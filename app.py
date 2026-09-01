@@ -18,6 +18,7 @@ from flask_wtf.csrf import CSRFProtect
 import anthropic as _anthropic
 
 import database as db
+import expiry
 import rate_limit
 import tenders
 import validators
@@ -38,7 +39,8 @@ from emails import (
     _deliver as _deliver_email,
 )
 from auth_utils import (
-    login_required, admin_required, analyst_required, _allowed, _verify_session_owner,
+    login_required, admin_required, analyst_required, _allowed, _upload_ext,
+    _verify_session_owner,
     trial_active_required, trial_expired,
 )
 from rec_logic import (
@@ -556,6 +558,7 @@ def robots_txt():
         "Disallow: /settings\n"
         "Disallow: /suppliers\n"
         "Disallow: /tenders\n"
+        "Disallow: /expiry\n"
         "Disallow: /analyse\n"
         "Disallow: /api/\n"
         "Allow: /\n",
@@ -3738,9 +3741,12 @@ def tenders_page():
         u["rejects"] = []
         if u["rejects_json"]:
             try:
-                u["rejects"] = json.loads(u["rejects_json"])
+                parsed = json.loads(u["rejects_json"])
             except (ValueError, TypeError):
-                pass
+                parsed = []
+            # Same shape check as /expiry: valid JSON is not necessarily a list,
+            # and the template calls |length on whatever this is.
+            u["rejects"] = parsed if isinstance(parsed, list) else []
         if not u.get("customer"):
             # Sheets uploaded before the customer moved onto the form: fall back
             # to the rows, which have always carried it.
@@ -3820,7 +3826,7 @@ def tenders_upload():
     # Extension comes off the FULL filename — the one _allowed() actually
     # validated — not off the 120-char truncation, or a long name could pass the
     # check as .csv and land on disk as something else entirely.
-    ext  = os.path.splitext(file.filename)[1].lower()
+    ext  = _upload_ext(file.filename)
     stem = os.path.splitext(secure_filename(original_name))[0] or "sheet"
     filepath = os.path.join(UPLOAD_FOLDER, f"tmp_tender_{int(upload_id)}_{stem}{ext}")
 
@@ -3926,6 +3932,227 @@ def tenders_delete():
     db.delete_tender_upload(org, upload_id)
     flash("Tender sheet removed.", "success")
     return redirect(url_for("tenders_page"))
+
+
+# ── Expiry (lot tracking) ────────────────────────────────────────────────────
+# A lot-tracking export: one row per physical lot, with its own expiry date.
+# Read here and shown here; it does NOT feed the recommendation maths. The
+# pipeline merges lots into one row per item on purpose, which is right for
+# reorder quantities and wrong for "which lot goes off first".
+
+# A lot export is a snapshot of physical stock, not a transaction log:
+# thousands of rows, not hundreds of thousands. Anything bigger is the wrong
+# file. Counted on the RAW rows the parser saw, subtotal lines included.
+MAX_EXPIRY_ROWS = 20_000
+
+# Ceiling on everything one org has stored across all snapshots. Roughly a
+# dozen full monthly exports; past that the user deletes an old one. Storage
+# guard, not a memory guard — the page only ever reads one snapshot.
+MAX_EXPIRY_LOTS_PER_ORG = 40_000
+
+# Hard ceiling on what one page render can pull. The production worker is a
+# single gunicorn process on 512 MB and every row is copied on the way to the
+# template, so this read is bounded even if the cap above is somehow bypassed.
+MAX_EXPIRY_LOTS_SHOWN = 5_000
+MAX_EXPIRY_SNAPSHOTS_LISTED = 50
+
+# Whitelist, not a range: the window comes from a query string, and an int
+# that only has to be "in this tuple" cannot be coerced into anything odd.
+EXPIRY_WINDOWS = (30, 60, 90, 120, 180, 365)
+EXPIRY_WINDOW_DEFAULT = 120
+
+
+@app.route("/expiry")
+@login_required
+def expiry_page():
+    org = session["org_name"]
+    try:
+        days = int(request.args.get("days", EXPIRY_WINDOW_DEFAULT))
+    except (TypeError, ValueError):
+        days = EXPIRY_WINDOW_DEFAULT
+    if days not in EXPIRY_WINDOWS:
+        days = EXPIRY_WINDOW_DEFAULT
+
+    uploads = db.get_expiry_uploads(org, MAX_EXPIRY_SNAPSHOTS_LISTED)
+    for u in uploads:
+        u["rejects"] = []
+        if u["rejects_json"]:
+            try:
+                parsed = json.loads(u["rejects_json"])
+            except (ValueError, TypeError):
+                parsed = []
+            # Parsing cleanly is not the same as parsing to a list: "123" is
+            # valid JSON and yields an int, which the template then calls
+            # |length on. Shape has to be checked, not just syntax.
+            u["rejects"] = parsed if isinstance(parsed, list) else []
+
+    # Only one snapshot's rows are read. A month-old snapshot of physical stock
+    # is not history, it is a wrong answer — the older ones stay listed and
+    # deletable, tagged as superseded.
+    #
+    # "Newest that actually holds lots", not simply "newest": an upload that
+    # imported nothing is still kept and listed, because the user needs its
+    # reject reasons to see WHY it failed. But it must not become the stock
+    # picture, or one broken export renders "0 expired" while real expired stock
+    # sits in the snapshot before it. Silence is the one answer this page must
+    # never give. Which snapshot that is comes from the lots table, never from a
+    # counter that can drift away from the rows it describes.
+    current_id = db.latest_expiry_upload_id(org)
+    latest = next((u for u in uploads if u["id"] == current_id), None)
+    today  = datetime.now().date()
+    cutoff = (today + timedelta(days=days)).isoformat()
+    rows = (db.get_expiry_lots(org, latest["id"], cutoff, MAX_EXPIRY_LOTS_SHOWN)
+            if latest else [])
+
+    expired, soon = [], []
+    for row in rows:
+        # Derived on read, never stored: days-remaining changes every night and
+        # a stored copy would be wrong by morning.
+        row["days_left"] = expiry.days_remaining(row["expiry_date"], today)
+        qty = row["qty_available"] if row["qty_available"] is not None else row["qty_on_hand"]
+        row["qty_display"] = tenders.format_qty(qty)
+        (expired if row["days_left"] < 0 else soon).append(row)
+
+    return render_template(
+        "expiry.html",
+        uploads=uploads,
+        latest=latest,
+        expired=expired,
+        soon=soon,
+        days=days,
+        windows=EXPIRY_WINDOWS,
+        truncated=len(rows) >= MAX_EXPIRY_LOTS_SHOWN,
+        max_shown=MAX_EXPIRY_LOTS_SHOWN,
+        org_name=org,
+    )
+
+
+@app.route("/expiry/upload", methods=["POST"])
+@login_required
+@analyst_required
+@trial_active_required
+def expiry_upload():
+    org  = session["org_name"]
+    file = request.files.get("file")
+    if not file or not file.filename:
+        flash("Choose a .xlsx or .csv file to upload.", "error")
+        return redirect(url_for("expiry_page"))
+    if not _allowed(file.filename):
+        flash("Please upload a .xlsx or .csv file.", "error")
+        return redirect(url_for("expiry_page"))
+    if not _disk_has_room():
+        flash("Server storage is full — the team has been notified.", "error")
+        return redirect(url_for("expiry_page"))
+
+    # No form fields: a lot export carries everything this page needs.
+    original_name = file.filename[:120]
+    upload_id = db.create_expiry_upload(org, original_name, session.get("email", ""))
+    # Scratch table name is built from our own AUTOINCREMENT id, never from the
+    # filename — the only interpolation into SQL the repo allows is an int id.
+    scratch = f"expiry_import_{int(upload_id)}"
+    # secure_filename() strips a fully non-ASCII stem to nothing ("訂單.csv" →
+    # "csv"), which would leave the path extensionless and send a CSV to the
+    # xlsx parser. Carry the already-validated extension explicitly instead.
+    # The tmp_ prefix is what _sweep_stale_chunks looks for, so a worker killed
+    # mid-upload leaves nothing permanent on the persistent disk.
+    # Extension comes off the FULL filename — the one _allowed() actually
+    # validated — not off the 120-char truncation, or a long name could pass the
+    # check as .csv and land on disk as something else entirely.
+    ext  = _upload_ext(file.filename)
+    stem = os.path.splitext(secure_filename(original_name))[0] or "sheet"
+    filepath = os.path.join(UPLOAD_FOLDER, f"tmp_expiry_{int(upload_id)}_{stem}{ext}")
+
+    try:
+        file.save(filepath)
+        result = db.excel_to_sqlite(filepath, "expiry_import", int(upload_id))
+        if not result.get("ok"):
+            db.delete_expiry_upload(org, upload_id)
+            # The parser's own error text can carry a server path; log that,
+            # show the user a message that tells them what to do instead.
+            logger.warning("Expiry parse failed for org %s: %s", org, result.get("error"))
+            flash("Could not read that file. Please re-export it as .xlsx or .csv "
+                  "and try again.", "error")
+            return redirect(url_for("expiry_page"))
+        if result.get("rows", 0) > MAX_EXPIRY_ROWS:
+            db.delete_expiry_upload(org, upload_id)
+            flash(f"That file has {result['rows']:,} rows. A lot list should be "
+                  f"under {MAX_EXPIRY_ROWS:,} — check it is the right file.", "error")
+            return redirect(url_for("expiry_page"))
+
+        # Resolve the columns from the headers alone, so only those are ever
+        # read into memory — a 22-column export must not be materialised whole.
+        mapping, missing = expiry.detect_columns(db.scratch_table_headers(scratch))
+        if missing:
+            db.delete_expiry_upload(org, upload_id)
+            # `missing` holds our own fixed English strings, never client text.
+            flash(f"Couldn't find a column for: {', '.join(missing)}. This page "
+                  f"needs a lot list: an item, an expiry date and a quantity.",
+                  "error")
+            return redirect(url_for("expiry_page"))
+
+        records = db.read_scratch_table(scratch, list(mapping.values()), MAX_EXPIRY_ROWS)
+        lots, rejects, stats = expiry.build_lots(records, mapping)
+
+        if db.count_expiry_lots(org) + len(lots) > MAX_EXPIRY_LOTS_PER_ORG:
+            db.delete_expiry_upload(org, upload_id)
+            flash(f"That file would take you past {MAX_EXPIRY_LOTS_PER_ORG:,} stored "
+                  f"lots. Remove an older snapshot, or check this is the right file.",
+                  "error")
+            return redirect(url_for("expiry_page"))
+
+        db.save_expiry_lots(org, upload_id, lots)
+        # The stored blob is capped so one bad file cannot bloat the row; the
+        # COUNTS are the true ones, so stored + skipped + unreadable always
+        # accounts for every row read.
+        db.finalise_expiry_upload(org, upload_id, len(lots), len(rejects),
+                                  stats["summary"],
+                                  json.dumps(rejects[:expiry.MAX_REJECTS_STORED]))
+    except Exception:
+        logger.exception("Expiry upload failed for org %s", org)
+        db.delete_expiry_upload(org, upload_id)
+        flash("Something went wrong reading that file. Please try again.", "error")
+        return redirect(url_for("expiry_page"))
+    finally:
+        # The lot rows are in the database; the file itself is not kept. Each
+        # cleanup is guarded separately: a locked DB failing the DROP must not
+        # skip deleting the client's file, which is the half that matters.
+        try:
+            db.drop_scratch_table(scratch)
+        except Exception:
+            logger.warning("Could not drop scratch table %s", scratch, exc_info=True)
+        try:
+            os.remove(filepath)
+        except OSError:
+            pass
+
+    # The flash IS the parse-quality report: every row read is accounted for.
+    msg = (f"Read {stats['read']} rows: {len(lots)} lots stored, "
+           f"{stats['summary']} summary lines skipped, "
+           f"{len(rejects)} rows unreadable.")
+    if stats["no_expiry"]:
+        msg += f" {stats['no_expiry']} of those had no expiry date."
+    flash(msg, "success" if lots else "error")
+    return redirect(url_for("expiry_page"))
+
+
+@app.route("/expiry/delete", methods=["POST"])
+@login_required
+@analyst_required
+def expiry_delete():
+    org = session["org_name"]
+    try:
+        upload_id = int(request.form.get("upload_id", ""))
+    except (TypeError, ValueError):
+        return redirect(url_for("expiry_page"))
+    # Python ints are unbounded but SQLite's are 64-bit, so a wider number
+    # raises OverflowError inside the driver -- past this try, and a 500. Our
+    # ids are AUTOINCREMENT, so anything outside the positive 64-bit range is
+    # not a row we could own.
+    if not 0 < upload_id <= 2 ** 63 - 1:
+        return redirect(url_for("expiry_page"))
+    db.delete_expiry_upload(org, upload_id)
+    flash("Snapshot removed.", "success")
+    return redirect(url_for("expiry_page"))
 
 
 if __name__ == "__main__":

@@ -343,6 +343,45 @@ def init_db():
         # upload row so the collapsed summary line can name it without opening
         # the sheet. tender_commitments.customer stays the source of truth.
         "ALTER TABLE tender_uploads ADD COLUMN customer TEXT",
+        # One row per uploaded lot-tracking snapshot. The file is NOT kept:
+        # the parsed rows are all the page needs. Separate from the lot rows so
+        # a file that imported nothing still shows up with its reasons instead
+        # of vanishing.
+        """CREATE TABLE IF NOT EXISTS expiry_uploads (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            org_name TEXT NOT NULL,
+            filename TEXT NOT NULL,
+            uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            uploaded_by TEXT,
+            rows_imported INTEGER DEFAULT 0,
+            rows_rejected INTEGER DEFAULT 0,
+            rows_skipped INTEGER DEFAULT 0,
+            rejects_json TEXT
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_expiry_uploads_org ON expiry_uploads(org_name)",
+        # One row per stock lot. Deliberately NOT merged per item: the pipeline
+        # merges lots into one row per SKU because reorder maths needs that,
+        # which destroys the granularity this page exists to show.
+        # expiry_date is ISO 'YYYY-MM-DD' TEXT so lexicographic order IS
+        # chronological order -- that is what makes the earliest-first read a
+        # plain indexed ORDER BY with no date parsing in SQL.
+        # org_name is denormalised onto every row so ownership is checked
+        # without a join, the same rule tender_commitments follows.
+        """CREATE TABLE IF NOT EXISTS expiry_lots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            org_name TEXT NOT NULL,
+            upload_id INTEGER NOT NULL,
+            item_code TEXT,
+            item_name TEXT NOT NULL,
+            match_key TEXT NOT NULL,
+            lot_no TEXT,
+            uom TEXT,
+            expiry_date TEXT NOT NULL,
+            qty_on_hand REAL,
+            qty_available REAL
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_expiry_lots_org ON expiry_lots(org_name)",
+        "CREATE INDEX IF NOT EXISTS idx_expiry_lots_upload ON expiry_lots(upload_id, expiry_date)",
     ]:
         try:
             conn.execute(migration)
@@ -1786,4 +1825,97 @@ def delete_tender_upload(org_name: str, upload_id: int) -> None:
     execute("DELETE FROM tender_commitments WHERE org_name=? AND upload_id=?",
             (org_name, upload_id))
     execute("DELETE FROM tender_uploads WHERE org_name=? AND id=?",
+            (org_name, upload_id))
+
+
+# ── Expiry lots ──────────────────────────────────────────────────────────────
+
+def create_expiry_upload(org_name: str, filename: str, uploaded_by: str = "") -> int:
+    return execute(
+        "INSERT INTO expiry_uploads (org_name, filename, uploaded_by) "
+        "VALUES (?,?,?)", (org_name, filename, uploaded_by))
+
+
+def save_expiry_lots(org_name: str, upload_id: int, lots: list) -> None:
+    if not lots:
+        return
+    conn = get_db()
+    try:
+        # match_key is written now although nothing reads it yet: the version
+        # that crosses lots against sales needs it, and storing it here means
+        # that version needs no migration and no backfill.
+        conn.executemany(
+            "INSERT INTO expiry_lots "
+            "(org_name, upload_id, item_code, item_name, match_key, lot_no, "
+            " uom, expiry_date, qty_on_hand, qty_available) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?)",
+            [(org_name, upload_id, r["item_code"], r["item_name"], r["match_key"],
+              r["lot_no"], r["uom"], r["expiry_date"],
+              r["qty_on_hand"], r["qty_available"]) for r in lots])
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def finalise_expiry_upload(org_name: str, upload_id: int, imported: int,
+                           rejected: int, skipped: int, rejects_json: str) -> None:
+    execute("UPDATE expiry_uploads SET rows_imported=?, rows_rejected=?, "
+            "rows_skipped=?, rejects_json=? WHERE id=? AND org_name=?",
+            (imported, rejected, skipped, rejects_json, upload_id, org_name))
+
+
+def get_expiry_uploads(org_name: str, limit: int = 50) -> list:
+    """Snapshots for an org, newest first. The caller passes the page's own
+    ceiling; the default is a backstop so no read is ever unbounded."""
+    return query("SELECT * FROM expiry_uploads WHERE org_name=? "
+                 "ORDER BY uploaded_at DESC, id DESC LIMIT ?",
+                 (org_name, int(limit)))
+
+
+def count_expiry_lots(org_name: str) -> int:
+    """How many lot rows this org already holds, across every snapshot."""
+    got = query("SELECT COUNT(*) AS n FROM expiry_lots WHERE org_name=?",
+                (org_name,))
+    return got[0]["n"] if got else 0
+
+
+def latest_expiry_upload_id(org_name: str):
+    """Newest snapshot that actually holds lots, or None.
+
+    Read from the lots themselves, deliberately NOT from expiry_uploads'
+    rows_imported counter. A denormalised count can drift from the rows it
+    describes, and when it drifts low the page renders an empty list while real
+    expired stock is stored — which is the one answer this page must never give.
+    Ids are AUTOINCREMENT, so the highest is the newest.
+    """
+    got = query("SELECT MAX(upload_id) AS id FROM expiry_lots WHERE org_name=?",
+                (org_name,))
+    return got[0]["id"] if got and got[0]["id"] is not None else None
+
+
+def get_expiry_lots(org_name: str, upload_id: int, cutoff_iso: str,
+                    limit: int) -> list:
+    """Lots in one snapshot expiring on or before cutoff_iso, earliest first.
+
+    org_name stays in the WHERE clause even though upload_id is given: an id
+    alone would let one org read another's rows by guessing a number.
+
+    COALESCE(qty_available, qty_on_hand) > 0 is how a sheet that only carries
+    on-hand still ranks, without inventing an availability figure. Ascending
+    order plus LIMIT means that if the ceiling ever truncates, what survives is
+    the most urgent end of the list, not the least.
+    """
+    return query(
+        "SELECT * FROM expiry_lots WHERE org_name=? AND upload_id=? "
+        "AND expiry_date <= ? AND COALESCE(qty_available, qty_on_hand) > 0 "
+        "ORDER BY expiry_date ASC, item_name ASC LIMIT ?",
+        (org_name, int(upload_id), cutoff_iso, int(limit)))
+
+
+def delete_expiry_upload(org_name: str, upload_id: int) -> None:
+    """Remove one snapshot and every lot it created. Re-uploading a corrected
+    export is the fix for a bad row, so there is no per-lot edit."""
+    execute("DELETE FROM expiry_lots WHERE org_name=? AND upload_id=?",
+            (org_name, upload_id))
+    execute("DELETE FROM expiry_uploads WHERE org_name=? AND id=?",
             (org_name, upload_id))

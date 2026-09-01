@@ -96,6 +96,25 @@ def _allowed(filename: str) -> bool:
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
 
 
+def _upload_ext(filename: str) -> str:
+    """The extension _allowed() validated, dot included.
+
+    Deliberately NOT os.path.splitext: that reads ".csv" as a dotfile with an
+    empty extension, while _allowed() reads it as a CSV and passes it. The two
+    disagreeing is the bug — a name the check accepted then lands on disk with
+    no suffix and is handed to the xlsx parser, so a perfectly readable CSV is
+    refused with "Could not read that file". Validation and use have to split
+    the name the same way.
+
+    The guard is what makes the return value provably one of two constants
+    rather than a promise in a docstring: this feeds os.path.join, so a caller
+    that skipped _allowed would otherwise put an attacker's string into a path.
+    """
+    if not _allowed(filename):
+        raise ValueError("extension not allowed")
+    return "." + filename.rpartition(".")[2].lower()
+
+
 def _verify_session_owner(session_id):
     """Guard for any session-scoped route. Aborts the request if the current
     user's org does not own the session. All users in the same org can see

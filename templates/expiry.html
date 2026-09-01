@@ -1,0 +1,227 @@
+{% extends "base.html" %}
+{% block title %}Expiry — berthcast{% endblock %}
+
+{% block head %}
+<style>
+  /* One collapsed row per uploaded snapshot. Exports stack up month after
+     month, so the page has to stay the same height at ten as at one. */
+  .expiry-file {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    margin-top: 8px;
+  }
+  .expiry-file > summary {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 11px 14px; cursor: pointer; list-style: none;
+    font-size: 14px;
+  }
+  .expiry-file > summary::-webkit-details-marker { display: none; }
+  .expiry-file > summary::before {
+    content: "›"; color: var(--brass); font-size: 16px; line-height: 1;
+    transition: transform 160ms var(--ease-out);
+  }
+  .expiry-file[open] > summary::before { transform: rotate(90deg); }
+  .expiry-file[open] > summary { border-bottom: 1px solid var(--border); }
+  .expiry-name { font-weight: 600; color: var(--text); }
+  .expiry-body { padding: 4px 14px 14px; }
+  .t-tag {
+    font-size: 11px; letter-spacing: 0.02em; padding: 2px 7px;
+    border-radius: 999px; border: 1px solid var(--border); color: var(--muted);
+    white-space: nowrap;
+  }
+  .t-tag.is-soon { color: var(--warning); border-color: rgba(230,180,80,0.4); }
+  .t-tag.is-bad  { color: var(--danger);  border-color: rgba(232,154,146,0.4); }
+  .expiry-meta { color: var(--muted); font-size: 13px; margin-left: auto; }
+  /* The window picker sits on one line beside its label. Desktop only. */
+  .expiry-window { display: flex; align-items: flex-end; gap: 10px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-wrap">
+  <section class="hero" style="padding: 20px 0 8px;">
+    <div class="hero-eyebrow">Lot tracking · {{ org_name }}</div>
+    <h1 style="font-size: 30px; font-weight: 700; letter-spacing: -0.02em;">Stock <em>expiry</em></h1>
+    <div class="hero-byline">
+      <span>{{ expired | length }} expired</span>
+      <span class="hero-byline-sep">/</span>
+      <span>{{ soon | length }} expiring in the next {{ days }} days</span>
+    </div>
+  </section>
+
+  <div class="alert alert-info" style="margin-top:14px;">
+    This page reads your lot list and ranks it, earliest expiry first. It does not
+    change your reorder quantities: the analysis merges lots into one figure per item
+    on purpose, which is right for ordering and wrong for this.
+  </div>
+
+  <div class="card" style="margin-top:14px;">
+    <div class="card-title" style="font-size:14px;">Upload a lot list</div>
+    <p style="color:var(--muted); font-size:13px; margin-bottom:12px;">
+      A .xlsx or .csv lot list, one row per lot. It needs an item, an expiry date
+      and a quantity, named however your system names them. Report titles and
+      subtotal lines are skipped automatically, and we tell you how many.
+    </p>
+    <form method="POST" action="{{ url_for('expiry_upload') }}"
+          enctype="multipart/form-data">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="form-group" style="margin:0 0 12px; max-width:420px;">
+        <label style="font-size:13px;">Lot list</label>
+        <input type="file" name="file" accept=".xlsx,.csv" required
+               aria-label="Lot list file">
+      </div>
+      <button type="submit" class="btn btn-sm btn-primary">Upload</button>
+    </form>
+  </div>
+
+  {% if latest %}
+  <div class="card" style="margin-top:14px;">
+    <form method="GET" action="{{ url_for('expiry_page') }}" class="expiry-window">
+      <div class="form-group" style="margin:0;">
+        <label style="font-size:13px;">Show stock expiring within</label>
+        <select name="days">
+          {% for w in windows %}
+          <option value="{{ w }}" {% if w == days %}selected{% endif %}>{{ w }} days</option>
+          {% endfor %}
+        </select>
+      </div>
+      <button type="submit" class="btn btn-sm">Apply</button>
+    </form>
+  </div>
+
+  {% if truncated %}
+  <p style="color:var(--warning); font-size:13px; margin-top:14px;">
+    Showing the first {{ max_shown }} lots, earliest first.
+  </p>
+  {% endif %}
+
+  {% if expired %}
+  <h2 style="font-size:16px; margin-top:26px;">
+    Already expired <span class="t-tag is-bad">{{ expired | length }}</span>
+  </h2>
+  <p style="color:var(--muted); font-size:13px; margin:6px 0 10px;">
+    These lots are past their expiry date and still show stock against them.
+  </p>
+  <div style="overflow-x:auto;">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Item</th><th>Code</th><th>Lot</th><th>UOM</th>
+          <th>Expired</th><th>Days ago</th><th>Available</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in expired %}
+        <tr>
+          <td>{{ r.item_name }}</td>
+          <td>{{ r.item_code or '' }}</td>
+          <td>{{ r.lot_no or '' }}</td>
+          <td>{{ r.uom or '' }}</td>
+          <td>{{ r.expiry_date }}</td>
+          <td>{{ -r.days_left }}</td>
+          <td>{{ r.qty_display }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  <h2 style="font-size:16px; margin-top:26px;">Expiring in the next {{ days }} days</h2>
+  {% if soon %}
+  <div style="overflow-x:auto; margin-top:10px;">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Item</th><th>Code</th><th>Lot</th><th>UOM</th>
+          <th>Expires</th><th>Days left</th><th>Available</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in soon %}
+        <tr>
+          <td>{{ r.item_name }}</td>
+          <td>{{ r.item_code or '' }}</td>
+          <td>{{ r.lot_no or '' }}</td>
+          <td>{{ r.uom or '' }}</td>
+          <td>{{ r.expiry_date }}</td>
+          <td>
+            {% if r.days_left <= 30 %}<span class="t-tag is-soon">{{ r.days_left }}</span>
+            {% else %}{{ r.days_left }}{% endif %}
+          </td>
+          <td>{{ r.qty_display }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p style="color:var(--muted); font-size:14px; margin-top:10px;">
+    Nothing in this snapshot expires in the next {{ days }} days.
+  </p>
+  {% endif %}
+  {% endif %}
+
+  {% if uploads %}
+  <h2 style="font-size:16px; margin-top:26px;">Uploaded snapshots</h2>
+  {% for u in uploads %}
+  <details class="expiry-file">
+    <summary>
+      <span class="expiry-name">{{ u.filename }}</span>
+      {% if not latest or u.id != latest.id %}<span class="t-tag">Superseded</span>{% endif %}
+      <span class="t-tag">{{ u.rows_imported }} lot{{ '' if u.rows_imported == 1 else 's' }}</span>
+      {% if u.rows_skipped %}
+      <span class="t-tag">{{ u.rows_skipped }} summary lines</span>
+      {% endif %}
+      {% if u.rows_rejected %}
+      <span class="t-tag is-bad">{{ u.rows_rejected }} unreadable</span>
+      {% endif %}
+      <span class="expiry-meta">{{ u.uploaded_at }}</span>
+    </summary>
+    <div class="expiry-body">
+      {% if u.rejects %}
+      <p style="color:var(--danger); font-size:13px; margin:12px 0 6px;">
+        Rows that could not be read. Fix them in your export and upload it again.
+        {% if u.rows_rejected > u.rejects | length %}
+        Showing the first {{ u.rejects | length }} of {{ u.rows_rejected }}.
+        {% endif %}
+      </p>
+      <div style="overflow-x:auto;">
+        <table class="data-table">
+          <thead><tr><th>Row</th><th>Item</th><th>Lot</th><th>Why it was skipped</th></tr></thead>
+          <tbody>
+            {% for rj in u.rejects %}
+            <tr>
+              <td>{{ rj.row }}</td>
+              <td>{{ rj.item }}</td>
+              <td>{{ rj.lot }}</td>
+              <td>{{ rj.reason }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p style="color:var(--muted); font-size:13px; margin:12px 0 6px;">
+        Every row in this file was either stored or a summary line.
+      </p>
+      {% endif %}
+
+      {% if session.role != 'viewer' %}
+      <form method="POST" action="{{ url_for('expiry_delete') }}" style="margin-top:12px;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="upload_id" value="{{ u.id }}">
+        <button type="submit" class="link-btn">Remove this snapshot</button>
+      </form>
+      {% endif %}
+    </div>
+  </details>
+  {% endfor %}
+  {% else %}
+  <p style="color:var(--muted); font-size:14px; margin-top:26px;">
+    No lot list uploaded yet. Upload one above to see what is expiring.
+  </p>
+  {% endif %}
+</div>
+{% endblock %}
