@@ -226,10 +226,97 @@ def _send_reset_email(to_email: str, reset_url: str) -> None:
     _deliver(msg, sender, password, to_email)
 
 
+def _expiry_section(block):
+    """(plain-text, html) for the flagged-lot section, or ("", "") when there is
+    no block. Shared by the report section and the weekly digest.
+
+    Every value here is echoed from a file the client uploaded. It goes through
+    _esc in the HTML half ONLY. Escaping the text/plain half corrupts it: there
+    is no markup to neutralise, so an ordinary name like "BROOKVALE A&W SYRUP"
+    would arrive reading "A&amp;W", and a lot "5'S PACK" as "5&#x27;S PACK".
+    _send_critical_alert below keeps its text rows raw for the same reason.
+    """
+    if not block:
+        return "", ""
+    rows = block.get("rows") or []
+
+    def _line(r):
+        bits = [str(r.get("item", ""))]
+        if r.get("lot"):
+            bits.append(f"lot {r['lot']}")
+        bits.append(f"expires {r.get('expiry', '')}")
+        days = r.get("days")
+        bits.append("EXPIRED" if isinstance(days, int) and days < 0
+                    else f"{days} days left")
+        if r.get("qty"):
+            bits.append(f"{r['qty']} {r.get('uom', '')}".strip())
+        return "  - " + "  ".join(bits)
+
+    total   = block.get("total", 0)
+    expired = block.get("expired", 0)
+    text = (
+        f"\nStock to push\n"
+        f"{total} lot{'s' if total != 1 else ''} close to expiry"
+        + (f", {expired} already expired" if expired else "") + ".\n"
+        + "\n".join(_line(r) for r in rows) + "\n"
+        + (f"\nSnapshot uploaded {block['snapshot_date']}.\n"
+           if block.get("snapshot_date") else "")
+        + f"Full list: {block.get('url', '')}\n\n"
+    )
+
+    rows_html = "".join(
+        f"""<tr>
+              <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-weight:500;">{_esc(r.get('item',''))}</td>
+              <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;color:#6b7280;font-size:13px;">{_esc(r.get('lot',''))}</td>
+              <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;">{_esc(r.get('expiry',''))}</td>
+              <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;color:#8B2C2C;">{'EXPIRED' if isinstance(r.get('days'), int) and r['days'] < 0 else _esc(r.get('days','')) + ' days'}</td>
+              <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;text-align:right;">{_esc(r.get('qty',''))} {_esc(r.get('uom',''))}</td>
+            </tr>"""
+        for r in rows)
+    html = f"""
+      <div style="font-size:11px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;
+                  color:#8B6B3D;margin:28px 0 8px;">Stock to push</div>
+      <p style="font-size:14.5px;line-height:1.6;color:#0F1B2D;margin:0 0 12px;">
+        {total} lot{'s' if total != 1 else ''} close to expiry{f', <strong style="color:#8B2C2C;">{expired} already expired</strong>' if expired else ''}.
+      </p>
+      <table style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:14px;">
+        <thead>
+          <tr style="background:#f9fafb;">
+            <th style="padding:8px 12px;text-align:left;font-size:11px;text-transform:uppercase;
+                       letter-spacing:0.06em;color:#6b7280;border-bottom:2px solid #e5e7eb;">Item</th>
+            <th style="padding:8px 12px;text-align:left;font-size:11px;text-transform:uppercase;
+                       letter-spacing:0.06em;color:#6b7280;border-bottom:2px solid #e5e7eb;">Lot</th>
+            <th style="padding:8px 12px;text-align:left;font-size:11px;text-transform:uppercase;
+                       letter-spacing:0.06em;color:#6b7280;border-bottom:2px solid #e5e7eb;">Expires</th>
+            <th style="padding:8px 12px;text-align:left;font-size:11px;text-transform:uppercase;
+                       letter-spacing:0.06em;color:#6b7280;border-bottom:2px solid #e5e7eb;">Left</th>
+            <th style="padding:8px 12px;text-align:right;font-size:11px;text-transform:uppercase;
+                       letter-spacing:0.06em;color:#6b7280;border-bottom:2px solid #e5e7eb;">Qty</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows_html}
+        </tbody>
+      </table>
+      {f'<p style="font-size:12px;color:#9ca3af;margin:0 0 10px;">Snapshot uploaded {_esc(block["snapshot_date"])}.</p>' if block.get("snapshot_date") else ''}
+      <a href="{_esc(block.get('url', ''))}"
+         style="font-size:14px;color:#0F1B2D;font-weight:600;">See every lot on the Expiry tab &rarr;</a>
+"""
+    return text, html
+
+
 def _send_analysis_ready_email(user_id: int, upload_session_id: int,
-                                summary: dict, base_url: str = "") -> None:
+                                summary: dict, base_url: str = "",
+                                expiry=None) -> None:
     """Email the user when their analysis has finished. summary is a small dict
-    with: total_items, critical, low, rec_count, flagged."""
+    with: total_items, critical, low, rec_count, flagged.
+
+    `expiry` is the optional flagged-lot section (app._expiry_report_block).
+    It is a STANDALONE section read from the org's expiry snapshot: it is not
+    joined to the report above it, and when it is None the body is byte-identical
+    to what this function has always sent. It is never deduplicated -- the
+    weekly digest is the only thing that suppresses a lot it has already named.
+    """
     users = db.query("SELECT email FROM users WHERE id=?", (user_id,))
     if not users:
         return
@@ -248,6 +335,7 @@ def _send_analysis_ready_email(user_id: int, upload_session_id: int,
     flagged  = summary.get("flagged", 0)
 
     subject = "Your berthcast analysis is ready"
+    expiry_text, expiry_html = _expiry_section(expiry)
 
     text = (
         f"Your berthcast analysis is ready.\n\n"
@@ -255,6 +343,7 @@ def _send_analysis_ready_email(user_id: int, upload_session_id: int,
         f"{critical} flagged as critical, {low} low.\n"
         f"{recs} reorder recommendations ({flagged} flagged for attention).\n\n"
         f"Open it here: {results_path}\n\n"
+        f"{expiry_text}"
         f"— berthcast"
     )
     html = f"""
@@ -274,7 +363,7 @@ def _send_analysis_ready_email(user_id: int, upload_session_id: int,
                 background:#0F1B2D;color:#fff;text-decoration:none;
                 border-radius:10px;font-weight:600;font-size:14px;">
         Open the analysis →
-      </a>
+      </a>{expiry_html}
       <p style="font-size:13px;color:#6B7280;line-height:1.5;margin-top:24px;">
         Tip: edit any recommendation before approving — quantity, supplier, and notes all save automatically.
       </p>
@@ -290,6 +379,82 @@ def _send_analysis_ready_email(user_id: int, upload_session_id: int,
     msg.attach(MIMEText(html, "html"))
 
     _deliver(msg, sender, password, to_email)
+
+
+def _send_expiry_digest_email(to_email: str, new_rows: list, new_total: int,
+                              flagged_total: int, snapshot_date: str,
+                              url: str) -> bool:
+    """The weekly newly-flagged digest. Returns whether it was actually sent.
+
+    `new_rows` arrives ALREADY SLICED by the caller and is never sliced,
+    capped, re-ordered or filtered here: the caller records exactly this list
+    in the sent-alerts ledger, and if the two could drift apart the ledger
+    would claim lots were emailed that nobody saw.
+
+    The return value is load-bearing for the same reason -- the caller only
+    writes the ledger when this returns True, so a bounced send is retried next
+    week instead of being silently marked as announced.
+    """
+    sender   = os.environ.get("MAIL_SENDER", "")
+    password = os.environ.get("MAIL_APP_PASSWORD", "")
+    if not sender or not password:
+        return False
+
+    # Counts only in the Subject, never client text, and collapsed anyway so a
+    # crafted value could not inject an extra header.
+    subject = _oneline(f"berthcast: {new_total} lot{'s' if new_total != 1 else ''} "
+                       f"to push this week")
+
+    queued = new_total - len(new_rows)
+    queued_line = (f"The other {queued} are on the Expiry tab and will follow "
+                   f"in the coming weeks." if queued > 0 else "")
+
+    # The section's own count describes the rows printed UNDER it, so it takes
+    # new_total, not flagged_total. Handing it the org-wide figure printed
+    # "127 lots close to expiry" directly above a list of 2 -- a header that
+    # does not describe its list, in the one email whose whole job is counts the
+    # client can act on. flagged_total still appears, once, in the intro above.
+    body_text, body_html = _expiry_section(
+        {"total": new_total,
+         "expired": sum(1 for r in new_rows
+                        if isinstance(r.get("days"), int) and r["days"] < 0),
+         "rows": new_rows,
+         "snapshot_date": snapshot_date, "url": url})
+
+    text = (
+        f"berthcast expiry alert\n\n"
+        f"{new_total} lot{'s' if new_total != 1 else ''} newly close to expiry "
+        f"since the last alert. {flagged_total} "
+        f"{'are' if flagged_total != 1 else 'is'} flagged in total.\n"
+        + (queued_line + "\n" if queued_line else "")
+        + body_text
+        + "— berthcast"
+    )
+    html = f"""
+    <div style="font-family:'Inter','Segoe UI',sans-serif;max-width:560px;margin:0 auto;color:#0F1B2D;">
+      <div style="font-size:11px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;
+                  color:#8B6B3D;margin-bottom:8px;">Expiry alert</div>
+      <div style="font-family:'Inter Tight','Inter',sans-serif;font-size:24px;font-weight:600;
+                  letter-spacing:-0.01em;color:#0B1424;margin-bottom:12px;">
+        {new_total} lot{'s' if new_total != 1 else ''} to push this week
+      </div>
+      <p style="font-size:14.5px;line-height:1.6;color:#0F1B2D;margin:0 0 4px;">
+        Newly close to expiry since the last alert. {flagged_total} flagged in total.
+      </p>
+      {f'<p style="font-size:13px;color:#6B7280;line-height:1.5;margin:0;">{queued_line}</p>' if queued_line else ''}
+      {body_html}
+      <p style="font-size:12px;color:#9ca3af;margin-top:24px;">— berthcast</p>
+    </div>
+    """
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"]    = sender
+    msg["To"]      = to_email
+    msg.attach(MIMEText(text, "plain"))
+    msg.attach(MIMEText(html, "html"))
+
+    return _deliver(msg, sender, password, to_email)
 
 
 def _send_verification_email(to_email: str, verify_url: str) -> None:

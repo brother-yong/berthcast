@@ -35,7 +35,7 @@ from config import UPLOAD_FOLDER, FILE_SLOTS, AVAILABLE_MODELS
 from emails import (
     _send_critical_alert, _send_reset_email, _send_analysis_ready_email,
     _send_verification_email, _send_invite_email, _send_contact_email,
-    _send_run_failure_alert,
+    _send_run_failure_alert, _send_expiry_digest_email,
     _deliver as _deliver_email,
 )
 from auth_utils import (
@@ -2729,9 +2729,20 @@ def run_analysis(upload_session_id):
                     "rec_count":   len([r for r in recommendations if isinstance(r, dict) and not r.get("error")]),
                     "flagged":     sum(1 for r in recommendations if isinstance(r, dict) and (r.get("supplier_risk") == "HIGH" or r.get("flags"))),
                 }
+                # Standalone section: reads the org's own expiry snapshot, does
+                # not touch the report above it. Its own try/except because a
+                # missing or broken snapshot must degrade to "no section", never
+                # to "no analysis-ready email".
+                try:
+                    expiry_block = _expiry_report_block(_org_name, base_url)
+                except Exception:
+                    logger.warning("Expiry email section failed for session %s",
+                                   upload_session_id, exc_info=True)
+                    expiry_block = None
                 threading.Thread(
                     target=_send_analysis_ready_email,
-                    args=(_user_id, upload_session_id, summary_dict, base_url),
+                    args=(_user_id, upload_session_id, summary_dict, base_url,
+                          expiry_block),
                     daemon=True,
                 ).start()
             except Exception:
@@ -3961,6 +3972,58 @@ MAX_EXPIRY_SNAPSHOTS_LISTED = 50
 EXPIRY_WINDOWS = (30, 60, 90, 120, 180, 365)
 EXPIRY_WINDOW_DEFAULT = 120
 
+# ── Expiry push alerts ───────────────────────────────────────────────────────
+# Ceiling on one flag scan. On the real snapshot only a fraction of stocked lots
+# fall inside the widest threshold, so this is headroom, not a working limit.
+# The query orders earliest-expiry first, so if it ever truncates, what survives
+# is the urgent end.
+EXPIRY_ALERT_SCAN_LIMIT = 2_000
+
+# Rows listed in the report-email section. DISPLAY ONLY -- nothing downstream
+# reads this number, so changing it changes what is shown and nothing else.
+EXPIRY_REPORT_ROWS = 10
+
+# Rows listed in the WEEKLY email -- and, deliberately, the exact number of lots
+# the ledger records. The digest announces the most urgent newly flagged lots
+# and marks exactly those as announced; anything not listed stays unrecorded and
+# comes back next week. CHANGING THIS NUMBER CHANGES WHAT GETS MARKED AS SEEN,
+# not just what is displayed. That is why it stays a separate constant from the
+# one above instead of both collapsing into a shared "rows in an email".
+EXPIRY_DIGEST_ROWS = 10
+
+# Weekly, and no more often. The count in the email is always the true one; the
+# cap above limits what is LISTED, and the backlog drains from the urgent end at
+# that rate.
+EXPIRY_DIGEST_INTERVAL_DAYS = 7
+
+# Do not email off a stale snapshot. Stock moves; telling staff to push lots
+# that sold three weeks ago is how a client stops opening the email at all.
+EXPIRY_STALE_DAYS = 14
+
+EXPIRY_DIGEST_CHECK_INTERVAL_S = 6 * 3600
+EXPIRY_ALERT_LEDGER_READ = 10_000
+EXPIRY_ALERT_KEEP_DAYS = 400
+EXPIRY_ALERT_ORGS_SCANNED = 200
+
+# The scheduler has no request to read a host from, so the link in the weekly
+# email needs a configured base. Defaults to the live domain (the same default
+# check_deploy.py already uses), overridable without a code change.
+EXPIRY_ALERT_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "https://berthcast.com").rstrip("/")
+
+# Both timestamps this feature compares against (expiry_uploads.uploaded_at and
+# expiry_alerts_sent.sent_at) are SQLite CURRENT_TIMESTAMP: UTC, stored as plain
+# 'YYYY-MM-DD HH:MM:SS' text, and read back as text. That format sorts
+# lexicographically, so every window check below is a string compare against
+# utcnow() and needs no parsing. datetime.now() here would shift each window by
+# the local UTC offset. Days-REMAINING is a different clock and deliberately
+# stays on datetime.now().date(), so the email and the /expiry page can never
+# disagree about how long a lot has left.
+_TS_FMT = "%Y-%m-%d %H:%M:%S"
+
+
+def _utc_cutoff(days: int) -> str:
+    return (datetime.utcnow() - timedelta(days=days)).strftime(_TS_FMT)
+
 
 @app.route("/expiry")
 @login_required
@@ -4153,6 +4216,243 @@ def expiry_delete():
     db.delete_expiry_upload(org, upload_id)
     flash("Snapshot removed.", "success")
     return redirect(url_for("expiry_page"))
+
+
+# ── Expiry alerts: the shared read ───────────────────────────────────────────
+
+def _expiry_snapshot(org_name):
+    """An org's newest snapshot row that actually HOLDS lots, or None.
+
+    Reads db.latest_expiry_upload_id, never simply the newest upload -- the
+    /expiry page makes the same choice for the same reason: an upload that
+    imported nothing must not become the stock picture.
+
+    Split out of _expiry_flagged so the weekly digest can run its staleness and
+    cadence gates on two cheap row reads BEFORE the lot scan below. Six passes
+    in seven the digest is not due, and scanning up to EXPIRY_ALERT_SCAN_LIMIT
+    rows only to discard them is work a 512MB single worker should not do.
+
+    The empty-org guard is not theoretical tidiness: org_name is the entire
+    isolation boundary on this path, so a blank tenant key gets refused rather
+    than sent to the database as a filter value.
+    """
+    if not org_name:
+        return None
+    upload_id = db.latest_expiry_upload_id(org_name)
+    if not upload_id:
+        return None
+    return db.get_expiry_upload(org_name, upload_id) or None
+
+
+def _expiry_flagged(org_name, snapshot=None):
+    """(snapshot_row, flagged_lots) for an org's newest snapshot, or (None, []).
+
+    Pass `snapshot` when the caller already has it (the digest does, from its
+    gates) and this makes one query instead of three.
+
+    The SQL cutoff uses the WIDER of the two thresholds; the per-lot threshold is
+    then applied in Python by expiry.flag_lots, because it depends on the lot's
+    own life class and SQL cannot see that.
+    """
+    if snapshot is None:
+        snapshot = _expiry_snapshot(org_name)
+    if not snapshot:
+        return None, []
+    upload_id = snapshot["id"]
+    # Same clock the /expiry page uses, so the page and the email can never
+    # disagree about days remaining.
+    today  = datetime.now().date()
+    cutoff = (today + timedelta(days=expiry.LONG_LIFE_FLAG_DAYS)).isoformat()
+    rows = db.get_expiry_lots(org_name, upload_id, cutoff, EXPIRY_ALERT_SCAN_LIMIT)
+    if len(rows) >= EXPIRY_ALERT_SCAN_LIMIT:
+        # The email states its total as fact, so a silent truncation would print
+        # a wrong number to a client. Rows arrive earliest-expiry-first, so what
+        # survives is the urgent end -- but say so in the log.
+        logger.warning("Expiry flag scan hit the %s-row cap for %s: the total "
+                       "reported in the email is a floor, not the true count",
+                       EXPIRY_ALERT_SCAN_LIMIT, org_name)
+    flagged, skipped = expiry.flag_lots(rows, today)
+    if skipped:
+        logger.warning("Expiry flag scan skipped %s unreadable lot row(s) for %s",
+                       skipped, org_name)
+    return snapshot, flagged
+
+
+def _expiry_email_rows(flagged, limit):
+    """Display-ready dicts for emails.py: item, lot, expiry, days, qty, uom.
+
+    Quantities are formatted HERE, with tenders.format_qty, which app.py already
+    imports. emails.py stays a renderer with no new imports and no arithmetic of
+    its own.
+    """
+    rows = []
+    for r in flagged[:limit]:
+        qty = r["qty_available"] if r.get("qty_available") is not None else r.get("qty_on_hand")
+        rows.append({"item":   r.get("item_name") or "",
+                     "lot":    r.get("lot_no") or "",
+                     "expiry": r.get("expiry_date") or "",
+                     "days":   r.get("days_left"),
+                     "qty":    tenders.format_qty(qty),
+                     "uom":    r.get("uom") or ""})
+    return rows
+
+
+def _expiry_report_block(org_name, base_url):
+    """The expiry section for the analysis-ready email, or None.
+
+    Returns None -- so the email renders NOTHING, not an empty box and not a
+    broken table -- when the org has no snapshot, when the snapshot holds no
+    lots, or when nothing is currently flagged.
+
+    Deliberately does NOT join these lots to the analysis report's inventory
+    items. It reads the org's expiry snapshot on its own. The name-match rate
+    between the lot export and the inventory upload is UNMEASURED, and an
+    unmeasured join has no business inside the pilot's main output.
+
+    Shows the FULL current flagged list, capped for display only. It never
+    consults expiry_alerts_sent: deduplication belongs to the weekly digest
+    alone, and a lot hidden here after one mention is a silent miss, which is
+    the exact failure this feature exists to prevent.
+
+    Carries snapshot_date so the reader can see how old the picture is. The
+    weekly email refuses to send off a stale snapshot; this one still renders,
+    because it mirrors what /expiry shows and dating it is more honest than
+    hiding it.
+    """
+    snapshot, flagged = _expiry_flagged(org_name)
+    if not snapshot or not flagged:
+        return None
+    return {
+        # Counted over the FULL flagged list, not over the rows shown.
+        "total":         len(flagged),
+        "expired":       sum(1 for r in flagged if r["days_left"] < 0),
+        "rows":          _expiry_email_rows(flagged, EXPIRY_REPORT_ROWS),
+        "snapshot_date": str(snapshot.get("uploaded_at") or "")[:10],
+        "url":           f"{base_url}/expiry",
+    }
+
+
+# ── Expiry alerts: the weekly digest worker ──────────────────────────────────
+
+def _send_expiry_digest(org_name) -> None:
+    """One org's weekly newly-flagged email. Never raises.
+
+    Every guard below ends in "log and return", never an exception: this runs on
+    a background thread, and a thrown error there is invisible.
+    """
+    try:
+        # ORDER MATTERS: both cheap gates run before the lot scan. Reversing
+        # this reads up to EXPIRY_ALERT_SCAN_LIMIT rows on every pass and throws
+        # them away on the six passes in seven that send nothing.
+        snapshot = _expiry_snapshot(org_name)
+        if not snapshot:
+            return
+
+        # Stale snapshot: no email, and the ledger is NOT touched. A stale week
+        # must not swallow lots that will need announcing when a fresh snapshot
+        # lands.
+        if str(snapshot.get("uploaded_at") or "") < _utc_cutoff(EXPIRY_STALE_DAYS):
+            logger.info("Expiry digest skipped for %s: snapshot older than %s days",
+                        org_name, EXPIRY_STALE_DAYS)
+            return
+
+        sent = db.get_sent_expiry_alerts(org_name, EXPIRY_ALERT_LEDGER_READ)
+        # The ledger doubles as the cadence clock: an in-memory "last sent" would
+        # be wiped by every redeploy, so a weekly timer might never fire. An
+        # empty ledger reads as never-sent and proceeds -- there is no seeding
+        # pass and no special first run.
+        if sent and max(str(r["sent_at"] or "") for r in sent) > _utc_cutoff(
+                EXPIRY_DIGEST_INTERVAL_DAYS):
+            return
+
+        # Due to send: only now is the scan worth its cost.
+        _, flagged = _expiry_flagged(org_name, snapshot)
+        if not flagged:
+            return
+
+        sent_keys = {r["lot_key"] for r in sent}
+        # flagged arrives earliest-expiry-first, so new is already in urgency
+        # order and needs no re-sort.
+        new = [r for r in flagged if expiry.lot_key(r) not in sent_keys]
+        if not new:
+            return
+
+        # ONE slice, feeding both the email body and the ledger write. Recording
+        # anything wider would mark lots announced that nobody ever saw, and they
+        # would never appear in a weekly email again.
+        listed = new[:EXPIRY_DIGEST_ROWS]
+
+        to_email = db.get_org_alert_recipient(
+            org_name, str(snapshot.get("uploaded_by") or ""))
+        if not to_email:
+            logger.warning("Expiry digest has no recipient for %s", org_name)
+            return
+
+        sent_ok = _send_expiry_digest_email(
+            to_email,
+            # listed is already the slice; len() keeps that the only cut made.
+            _expiry_email_rows(listed, len(listed)),
+            len(new), len(flagged),
+            str(snapshot.get("uploaded_at") or "")[:10],
+            f"{EXPIRY_ALERT_BASE_URL}/expiry")
+        # Only on a real send: a bounced attempt must leave the ledger untouched
+        # so next week retries instead of marking lots nobody saw.
+        if sent_ok:
+            db.record_expiry_alerts(org_name, [expiry.lot_key(r) for r in listed])
+    except Exception:
+        logger.warning("Expiry digest failed for %s", org_name, exc_info=True)
+
+
+def _expiry_alert_loop():
+    """Check every org, every EXPIRY_DIGEST_CHECK_INTERVAL_S. One worker in
+    production, so one scheduler is enough -- the same assumption
+    backup.start_backup_scheduler makes.
+
+    THAT ASSUMPTION IS LOAD-BEARING, and it breaks silently. The start guard
+    below is a per-process global, so a second gunicorn worker starts a second
+    scheduler, and the cadence gate does not save you: two workers can both read
+    the ledger before either writes, and the client gets the digest twice. Raise
+    the worker count and this needs a real lock (same ceiling as rate_limit.py).
+
+    The try/except sits INSIDE the while, so one bad pass never kills the thread.
+    """
+    while True:
+        try:
+            db.prune_expiry_alerts(_utc_cutoff(EXPIRY_ALERT_KEEP_DAYS))
+            for org in db.orgs_with_expiry_lots(EXPIRY_ALERT_ORGS_SCANNED):
+                _send_expiry_digest(org)
+        except Exception:
+            logger.warning("Expiry digest pass failed", exc_info=True)
+        time.sleep(EXPIRY_DIGEST_CHECK_INTERVAL_S)
+
+
+# Started in the WORKER on first request, not at import. gunicorn forks its
+# workers and a thread started at import can end up in the master and die at
+# fork -- the same lesson the DB watchdog above is built around.
+_expiry_sched_lock = threading.Lock()
+_expiry_sched_started = False
+
+
+def _ensure_expiry_scheduler():
+    global _expiry_sched_started
+    if _expiry_sched_started or app.config.get("TESTING"):
+        return
+    # No mail credentials means nothing can be sent, so the thread would be a
+    # timer with nothing on the other end. It also keeps a developer machine
+    # that happens to hold the mail vars from emailing a real client.
+    if not (os.environ.get("MAIL_SENDER") and os.environ.get("MAIL_APP_PASSWORD")):
+        return
+    with _expiry_sched_lock:
+        if _expiry_sched_started:
+            return
+        _expiry_sched_started = True
+    threading.Thread(target=_expiry_alert_loop, daemon=True,
+                     name="expiry-digest").start()
+
+
+@app.before_request
+def _expiry_scheduler_boot():
+    _ensure_expiry_scheduler()
 
 
 if __name__ == "__main__":

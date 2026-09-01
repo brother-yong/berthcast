@@ -32,6 +32,12 @@ from tenders import parse_date   # same Excel-serial handling; one date parser, 
 _FIELD_KEYWORDS = {
     "expiry":        ("expirydate", "expdate", "expiry", "expiration",
                       "bestbefore", "useby", "shelflifeend"),
+    # OPTIONAL, and it sits immediately after "expiry" so the expiry column is
+    # always claimed first and can never be stolen by this. Feeds the life-class
+    # inference (a lot received three months before it expires is fresh stock,
+    # one received two years before is not); nothing renders it.
+    "received":      ("originalreceiptdate", "receiptdate", "receiveddate",
+                      "datereceived", "goodsreceiptdate", "grndate"),
     "qty_available": ("qtyavailable", "availableqty", "quantityavailable",
                       "qtyavail", "available"),
     "qty_on_hand":   ("qtyonhand", "onhandqty", "quantityonhand", "onhand",
@@ -43,9 +49,25 @@ _FIELD_KEYWORDS = {
                       "productdescription", "itemname", "productname",
                       "stkname", "description", "desc"),
     "uom":           ("uom", "unitofmeasure", "unit"),
+    # OPTIONAL. The client's ERP knows chilled/frozen/dry but their current
+    # export does not carry it, so this usually misses and the receipt-gap
+    # inference takes over. It exists for the day the column appears.
+    #
+    # The omissions are again the design. NO bare "type" ("Document Type",
+    # "Lot Type"), NO bare "group" ("Supplier Group"), NO bare "class"
+    # ("Classification"). A false hit here is worse than a miss: it would
+    # silently classify every fresh lot as long-life on unrecognised values,
+    # and chilled stock would then stop being flagged at 28 days -- the one
+    # thing this feature was asked for.
+    "category":      ("itemcategory", "productcategory", "stockcategory",
+                      "inventorycategory", "itemgroup", "productgroup",
+                      "stockgroup", "itemtype", "producttype", "storagetype",
+                      "storagecondition", "temperaturezone", "tempzone",
+                      "category"),
 }
-_FIELD_ORDER = ("expiry", "qty_available", "qty_on_hand", "lot_no",
-                "item_code", "item_name", "uom")
+# "category" goes LAST so every other field claims its header first.
+_FIELD_ORDER = ("expiry", "received", "qty_available", "qty_on_hand", "lot_no",
+                "item_code", "item_name", "uom", "category")
 
 # Last resort, and EXACT rather than substring -- that is the whole point. A
 # simpler sheet whose columns are just "Item" and "Qty" has to import, but the
@@ -67,6 +89,33 @@ _NOT_ALNUM = re.compile(r"[^a-z0-9]+")
 # the tenders build learned: a substring net has to exclude what it must never
 # catch.
 _QTY_FIELDS = ("qty_available", "qty_on_hand")
+
+# A date field is never a quantity, the same way a quantity is never a date.
+# Without this, a sheet with "Qty Received" hands the receipt-date field a
+# number, the parse fails, and every lot silently falls to the long-life
+# default -- the failure is invisible because it looks exactly like a sheet
+# with no receipt column at all.
+_DATE_FIELDS = ("received",)
+
+# The client's own numbers. They will not sell chilled stock with under 14 days
+# left or dry/frozen with under 6 months, so the alert has to fire while there
+# is still time to move it: roughly two weeks of buffer on short-life stock and
+# a month on long-life. Dry and frozen carry the same rule, which is why this
+# is a two-way split and not a three-way one.
+SHORT_LIFE_FLAG_DAYS = 28
+LONG_LIFE_FLAG_DAYS  = 210
+
+# Nothing in the export says chilled or frozen, but the shelf life does: stock
+# received 3 months before it expires is fresh, stock received 2 years before
+# it expires is not. 180 days sits in the empty middle of the real file's
+# distribution, so a wobble either way moves nothing.
+SHORT_LIFE_GAP_DAYS = 180
+
+# Checked SHORT first on purpose: a value that somehow contains both puts the
+# lot in the class that flags earlier. An early alert is noise, a late one is
+# thrown-away stock.
+_SHORT_LIFE_TOKENS = ("CHILL", "FRESH")
+_LONG_LIFE_TOKENS  = ("FROZEN", "DRY")
 
 # Report noise, not products. See is_summary_value for why the code column and
 # the name column are judged by different rules.
@@ -108,12 +157,20 @@ def detect_columns(headers):
 
     Required = an expiry date, at least one quantity column, and at least one
     item identifier. Everything else is optional and renders blank.
+
+    `received` and `category` are optional too, and neither is ever added to
+    `missing`: a sheet without them still imports, and its lots fall to the
+    documented long-life default.
     """
     normed = [(h, _norm_header(h)) for h in headers]
     mapping, claimed = {}, set()
     for field in _FIELD_ORDER:
-        pool = ([(h, n) for h, n in normed if "date" not in n]
-                if field in _QTY_FIELDS else normed)
+        if field in _QTY_FIELDS:
+            pool = [(h, n) for h, n in normed if "date" not in n]
+        elif field in _DATE_FIELDS:
+            pool = [(h, n) for h, n in normed if "date" in n]
+        else:
+            pool = normed
         hit = _first_keyword_hit(pool, claimed, _FIELD_KEYWORDS[field])
         if hit is None and field in _FIELD_EXACT:
             # A header that IS the word, not one that merely contains it.
@@ -199,7 +256,9 @@ def build_lots(records, mapping, today=None):
       rejects  [{"row", "reason", "item", "lot"}] -- same shape discipline as
                tenders: the user must be able to fix the sheet without guessing
                which cell offended
-      stats    {"read", "summary": n, "no_expiry": n}
+      stats    {"read", "summary": n, "no_expiry": n}, plus
+               "category_ignored": True only when a detected category column
+               turned out to recognise nothing
 
     INVARIANT, asserted in the tests: stats["read"] == stats["summary"]
     + len(lots) + len(rejects). Every data row is accounted for. A count that
@@ -216,6 +275,8 @@ def build_lots(records, mapping, today=None):
     uom_col  = mapping.get("uom")
     avail_col   = mapping.get("qty_available")
     on_hand_col = mapping.get("qty_on_hand")
+    recv_col = mapping.get("received")
+    cat_col  = mapping.get("category")
 
     lots, rejects = [], []
     stats = {"read": 0, "summary": 0, "no_expiry": 0}
@@ -241,6 +302,11 @@ def build_lots(records, mapping, today=None):
                             "item": label[:80], "lot": lot[:80]})
             continue
 
+        # Same parse_date the expiry column uses -- one date parser, not two,
+        # so an Excel serial in this column reads the same way it does there.
+        received = parse_date(rec.get(recv_col)) if recv_col else None
+        cat = str(rec.get(cat_col) or "").strip() if cat_col else ""
+
         available = parse_qty(rec.get(avail_col)) if avail_col else None
         on_hand   = parse_qty(rec.get(on_hand_col)) if on_hand_col else None
         if available is None and on_hand is None:
@@ -257,7 +323,23 @@ def build_lots(records, mapping, today=None):
             "expiry_date":   expiry.isoformat(),
             "qty_on_hand":   on_hand,
             "qty_available": available,
+            # Raw inputs, not the class derived from them: the inference rule
+            # can then be corrected without asking the client to re-upload.
+            "received_date": received.isoformat() if received else None,
+            "category":      (cat[:60] or None),
         })
+
+    # A category column that recognises nothing across a whole file is a
+    # mis-detected column, not a file full of unknown categories. Left alone it
+    # would silently mark every lot long-life and switch off the 28-day rule.
+    # Drop it and let the receipt-gap inference do the work it would have done
+    # anyway. This has to happen here because parse time is the only place the
+    # whole file is visible; the per-row rule (unrecognised value -> long-life)
+    # is untouched.
+    if cat_col and not any(_category_class(r["category"]) for r in lots):
+        for r in lots:
+            r["category"] = None
+        stats["category_ignored"] = True
     return lots, rejects, stats
 
 
@@ -268,3 +350,108 @@ def days_remaining(expiry_iso: str, today: datetime.date) -> int:
     morning.
     """
     return (datetime.date.fromisoformat(expiry_iso) - today).days
+
+
+def _category_class(value):
+    """Return "short" / "long", or None when the value says nothing recognisable.
+
+    None is NOT "unknown means long-life" -- that decision belongs to
+    life_class. Kept separate so build_lots can ask "did this column recognise
+    anything at all" without inheriting the default.
+    """
+    text = str(value or "").upper()
+    if not text:
+        return None
+    if any(token in text for token in _SHORT_LIFE_TOKENS):
+        return "short"
+    if any(token in text for token in _LONG_LIFE_TOKENS):
+        return "long"
+    return None
+
+
+def life_class(category, received_iso, expiry_iso) -> str:
+    """Return "short" or "long": category first, then the receipt-to-expiry gap,
+    then long-life as the documented default.
+
+    NEVER raises. A received_date of "0000-00-00", or any other junk a client
+    file can carry, is treated as absent. This runs in a loop over uploaded
+    data on a background email thread, and one bad cell must not kill a digest.
+
+    A negative gap (receipt recorded after expiry, which is a data error) lands
+    in short-life: the class that alerts earlier is the safe direction to be
+    wrong in.
+    """
+    hit = _category_class(category)
+    if hit:
+        return hit
+    try:
+        gap = (datetime.date.fromisoformat(expiry_iso)
+               - datetime.date.fromisoformat(received_iso)).days
+    except (TypeError, ValueError):
+        return "long"
+    return "short" if gap <= SHORT_LIFE_GAP_DAYS else "long"
+
+
+def flag_threshold(life) -> int:
+    """How many days before expiry this life class starts being shouted about."""
+    return SHORT_LIFE_FLAG_DAYS if life == "short" else LONG_LIFE_FLAG_DAYS
+
+
+def flag_lots(rows, today):
+    """Flagged lots from a snapshot, most urgent first, as (flagged, skipped).
+
+    `rows` come straight from db.get_expiry_lots, so the sellable-stock filter
+    and the ordering have already happened in SQL. This applies the per-lot
+    threshold, which SQL cannot: it depends on the lot's own life class. Input
+    order (expiry_date ASC, item_name ASC) is preserved -- it is already the
+    order the email wants.
+
+    Adds days_left, life and threshold to each row it keeps. Nothing derived is
+    ever stored: days_left changes every night and a stored copy is wrong by
+    morning, the same rule the /expiry page follows.
+
+    A row whose expiry_date will not parse is SKIPPED and counted, never
+    crashed on. Every row here was written by a parser that only stores ISO
+    dates, so this cannot fire today; it exists because a background email
+    thread must not die on one malformed cell if anything ever writes to the
+    table by another path.
+    """
+    flagged, skipped = [], 0
+    for row in rows:
+        try:
+            left = days_remaining(row.get("expiry_date"), today)
+        except (TypeError, ValueError):
+            skipped += 1
+            continue
+        life = life_class(row.get("category"), row.get("received_date"),
+                          row.get("expiry_date"))
+        limit = flag_threshold(life)
+        if left <= limit:
+            row["days_left"] = left
+            row["life"] = life
+            row["threshold"] = limit
+            flagged.append(row)
+    return flagged, skipped
+
+
+def lot_key(row) -> str:
+    """Stable fingerprint of a physical lot, for the weekly digest's ledger.
+
+    Deliberately NOT the row id. A new snapshot writes entirely new rows, so
+    expiry_lots.id and upload_id both change on every re-upload -- a ledger
+    keyed on either would find nothing familiar and re-announce every flagged
+    lot every single week, which is a catalogue, not an alert.
+
+    What does NOT change when the client re-exports is the physical lot: the
+    same product, in the same batch, going off on the same day. match_key is
+    already stored for the item half (normalised, so casing and punctuation
+    drift in the item name cannot fork the key). lot_no and expiry_date carry
+    the batch half.
+
+    A blank lot number collapses two otherwise-identical lots into one key.
+    That is correct: without a lot number they are indistinguishable to anyone
+    reading the email, so announcing them once is the honest count.
+    """
+    return "|".join((row.get("match_key") or "",
+                     (row.get("lot_no") or "").strip().upper(),
+                     row.get("expiry_date") or ""))

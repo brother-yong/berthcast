@@ -213,15 +213,27 @@ SAN = ["location_code", "location_name", "inventory_code", "inventory_descriptio
        "condition_remarks", "country_of_origin", "supplier_name",
        "source_voucher_no", "pack_size", "qty_on_hand", "qty_selected",
        "qty_allocated", "qty_allocated_selected", "qty_available"]
-EXPECTED = {"expiry": "Expiry Date", "qty_available": "Qty Available",
+EXPECTED = {"expiry": "Expiry Date", "received": "Original Receipt Date",
+            "qty_available": "Qty Available",
             "qty_on_hand": "Qty On Hand", "lot_no": "Lot No.",
             "item_code": "Inventory Code", "item_name": "Inventory Description",
             "uom": "UOM"}
 
-# The plan's section 12 tripwire list, verbatim. A field claiming any of these
-# puts the wrong number in front of staff deciding what to throw away.
+# The plan's section 12 tripwire list, verbatim, MINUS "Original Receipt
+# Date". A field claiming any of these puts the wrong number in front of staff
+# deciding what to throw away.
+#
+# The receipt date moved out of this list, and only out of this list: it is
+# RECLASSIFIED, not unguarded. Its status went from "no field may claim it" to
+# "only `received` may claim it", because the life-class inference needs the
+# receipt-to-expiry gap and without it every lot falls to the long-life default
+# and the 28-day chilled rule never fires. The danger that put it here in the
+# first place is unchanged and is pinned by RECEIPT_FENCE below: if `expiry`
+# ever claims this column, every lot renders a date typically 477 days too
+# early and staff dump good stock. Do not fold it back into FORBIDDEN, and do
+# not delete the replacement check as redundant.
 FORBIDDEN = ["Location Code", "Location Name", "Supplier Name",
-             "Original Receipt Date", "Qty Selected", "Qty Allocated",
+             "Qty Selected", "Qty Allocated",
              "Qty Allocated Selected", "Lot Reference No.", "Source Voucher No.",
              "Pack Size"]
 
@@ -245,6 +257,17 @@ for _f in FORBIDDEN:
     _check(f"{_f!r} cannot reach the exact-match tier",
            expiry._norm_header(_f) not in ("qty", "quantity", "item", "product"),
            detail=expiry._norm_header(_f))
+
+# RECEIPT_FENCE. Replaces the plain FORBIDDEN entry for "Original Receipt
+# Date": the column may now be claimed, but by exactly one field. `expiry`
+# claiming it is the original hazard -- on the real file the receipt date runs
+# typically 477 days earlier than the expiry, so every lot would render as
+# nearly expired and staff would dump good stock.
+_check("only the `received` field may claim the receipt-date column",
+       [f for f, h in _map.items() if h == "Original Receipt Date"] == ["received"],
+       detail=str(_map))
+_check("the expiry field still claims the expiry column, not the receipt date",
+       _map.get("expiry") == "Expiry Date", detail=str(_map.get("expiry")))
 
 # Drop each required column in turn. This is the only way the exact tier ever
 # runs on this sheet, so it is where a wrong steal would actually happen.

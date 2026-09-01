@@ -382,6 +382,27 @@ def init_db():
         )""",
         "CREATE INDEX IF NOT EXISTS idx_expiry_lots_org ON expiry_lots(org_name)",
         "CREATE INDEX IF NOT EXISTS idx_expiry_lots_upload ON expiry_lots(upload_id, expiry_date)",
+        # Life class is inferred, not stored: the raw inputs are kept and the
+        # class is derived on read, so the inference rule can be corrected
+        # without asking the client to re-upload. Both are NULL on every row
+        # written before this migration, which lands those lots on the
+        # long-life default -- right about 96% of the time on the real file.
+        "ALTER TABLE expiry_lots ADD COLUMN received_date TEXT",
+        "ALTER TABLE expiry_lots ADD COLUMN category TEXT",
+        # Which lots the WEEKLY digest has already announced. Never consulted
+        # by /expiry or by the report email -- both always show the full
+        # current list. The key is a fingerprint of the physical lot, NOT its
+        # row id: expiry_lots.id and upload_id are both regenerated on every
+        # re-upload, so an id-keyed ledger would re-announce every lot every
+        # week. UNIQUE(org_name, lot_key) is what makes the writes INSERT OR
+        # IGNORE and doubles as the read index.
+        """CREATE TABLE IF NOT EXISTS expiry_alerts_sent (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            org_name TEXT NOT NULL,
+            lot_key TEXT NOT NULL,
+            sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(org_name, lot_key)
+        )""",
     ]:
         try:
             conn.execute(migration)
@@ -1847,11 +1868,13 @@ def save_expiry_lots(org_name: str, upload_id: int, lots: list) -> None:
         conn.executemany(
             "INSERT INTO expiry_lots "
             "(org_name, upload_id, item_code, item_name, match_key, lot_no, "
-            " uom, expiry_date, qty_on_hand, qty_available) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?)",
+            " uom, expiry_date, qty_on_hand, qty_available, received_date, "
+            " category) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
             [(org_name, upload_id, r["item_code"], r["item_name"], r["match_key"],
               r["lot_no"], r["uom"], r["expiry_date"],
-              r["qty_on_hand"], r["qty_available"]) for r in lots])
+              r["qty_on_hand"], r["qty_available"],
+              r.get("received_date"), r.get("category")) for r in lots])
         conn.commit()
     finally:
         conn.close()
@@ -1910,6 +1933,100 @@ def get_expiry_lots(org_name: str, upload_id: int, cutoff_iso: str,
         "AND expiry_date <= ? AND COALESCE(qty_available, qty_on_hand) > 0 "
         "ORDER BY expiry_date ASC, item_name ASC LIMIT ?",
         (org_name, int(upload_id), cutoff_iso, int(limit)))
+
+
+def get_expiry_upload(org_name: str, upload_id: int):
+    """One snapshot row, or None.
+
+    Needed for uploaded_at (staleness) and uploaded_by (recipient). org_name is
+    in the WHERE clause even though the id is given -- an id alone would let
+    one org read another's row by guessing a number, the same rule
+    get_expiry_lots follows.
+    """
+    got = query("SELECT * FROM expiry_uploads WHERE org_name=? AND id=? LIMIT 1",
+                (org_name, int(upload_id)))
+    return got[0] if got else None
+
+
+def orgs_with_expiry_lots(limit: int) -> list:
+    """Org names holding at least one lot. Bounded: the weekly digest loop must
+    not grow a per-pass cost that no one is watching."""
+    return [r["org_name"] for r in query(
+        "SELECT DISTINCT org_name FROM expiry_lots ORDER BY org_name LIMIT ?",
+        (int(limit),))]
+
+
+def get_sent_expiry_alerts(org_name: str, limit: int) -> list:
+    """Lots the weekly digest has already announced for one org, newest first.
+
+    Newest-first matters at the cap: if an org ever exceeds it, the keys that
+    fall out of the set are the OLDEST, so the failure mode is re-announcing an
+    old lot (noise) and never hiding a new one (silence). Noise is the right
+    direction to fail in for an alert.
+    """
+    return query("SELECT lot_key, sent_at FROM expiry_alerts_sent "
+                 "WHERE org_name=? ORDER BY sent_at DESC, id DESC LIMIT ?",
+                 (org_name, int(limit)))
+
+
+def record_expiry_alerts(org_name: str, keys) -> None:
+    """Mark lots as emailed. Idempotent by UNIQUE(org_name, lot_key), so a
+    retried send cannot double-write.
+
+    Called with the keys of the rows the email actually LISTED, never with a
+    wider set: this table means "this lot has been emailed", and a lot recorded
+    here never appears in a weekly digest again.
+    """
+    if not keys:
+        return
+    conn = get_db()
+    try:
+        conn.executemany(
+            "INSERT OR IGNORE INTO expiry_alerts_sent (org_name, lot_key) "
+            "VALUES (?,?)", [(org_name, k) for k in keys])
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def prune_expiry_alerts(before_iso: str) -> int:
+    """Drop ledger rows older than the cutoff, across every org. Housekeeping by
+    age, so it keeps the bounded read above comfortably inside its cap.
+
+    sent_at is SQLite CURRENT_TIMESTAMP -- UTC, plain 'YYYY-MM-DD HH:MM:SS'
+    text -- so the caller passes a string in that same format and the compare
+    is lexicographic.
+    """
+    conn = get_db()
+    try:
+        c = conn.cursor()
+        c.execute("DELETE FROM expiry_alerts_sent WHERE sent_at < ?", (before_iso,))
+        conn.commit()
+        return c.rowcount
+    finally:
+        conn.close()
+
+
+def get_org_alert_recipient(org_name: str, preferred_email: str):
+    """Who the weekly digest goes to, or None.
+
+    preferred_email is expiry_uploads.uploaded_by, which app.py fills from the
+    logged-in session at upload time. It is still re-checked against users here
+    rather than trusted: it is a stored string, and a stored string that has
+    since been changed, mistyped or orphaned must not receive another org's
+    stock data. Falls back to the org's own admin, then to nobody.
+
+    role, not is_admin: is_admin is the platform-operator flag, role is the
+    org-level one.
+    """
+    if preferred_email:
+        got = query("SELECT email FROM users WHERE org_name=? AND email=? LIMIT 1",
+                    (org_name, preferred_email))
+        if got:
+            return got[0]["email"]
+    got = query("SELECT email FROM users WHERE org_name=? AND role='admin' "
+                "ORDER BY id LIMIT 1", (org_name,))
+    return got[0]["email"] if got else None
 
 
 def delete_expiry_upload(org_name: str, upload_id: int) -> None:
