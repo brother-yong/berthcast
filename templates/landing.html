@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>berthcast — Inventory intelligence for food distributors</title>
-  <meta name="description" content="berthcast flags what's about to stock out AND what you over-ordered, then writes the order you should place — from files you already export.">
+  <title>berthcast: inventory intelligence for food distributors</title>
+  <meta name="description" content="berthcast flags what's about to stock out and what you over-ordered, then writes the order to place, from the files you already export.">
   <link rel="canonical" href="https://berthcast.com/">
   <!-- Google Search Console ownership proof. Do NOT remove — deleting it un-verifies the site. -->
   <meta name="google-site-verification" content="kQ1R_XtpFZEqkk07CEU33YtyLmDMeAP-adI1qeUHclM">
@@ -12,13 +12,13 @@
 
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="berthcast">
-  <meta property="og:title" content="berthcast — Inventory intelligence for food distributors">
-  <meta property="og:description" content="Every stockout is a lost sale. Every over-order is cash with an expiry date. berthcast flags both — from the files you already export.">
+  <meta property="og:title" content="berthcast: inventory intelligence for food distributors">
+  <meta property="og:description" content="Every stockout is a lost sale. Every over-order is cash with an expiry date. berthcast flags both, from the files you already export.">
   <meta property="og:url" content="https://berthcast.com/">
   <meta property="og:image" content="https://berthcast.com/static/logo.png">
   <meta name="twitter:card" content="summary">
-  <meta name="twitter:title" content="berthcast — Inventory intelligence for food distributors">
-  <meta name="twitter:description" content="Every stockout is a lost sale. Every over-order is cash with an expiry date. berthcast flags both — from the files you already export.">
+  <meta name="twitter:title" content="berthcast: inventory intelligence for food distributors">
+  <meta name="twitter:description" content="Every stockout is a lost sale. Every over-order is cash with an expiry date. berthcast flags both, from the files you already export.">
   <meta name="twitter:image" content="https://berthcast.com/static/logo.png">
 
   <script type="application/ld+json">
@@ -42,7 +42,7 @@
         "operatingSystem": "Web",
         "url": "https://berthcast.com/",
         "publisher": { "@id": "https://berthcast.com/#org" },
-        "description": "Upload your inventory, sales, purchase-order and supplier files (.xlsx or .csv). berthcast analyses them and returns a stock-health report plus purchase recommendations — flagging what is about to run out and what was over-ordered, then drafting the order to place."
+        "description": "Upload your inventory, sales, purchase-order and supplier files (.xlsx or .csv). berthcast analyses them and returns a stock-health report plus purchase recommendations. It flags what is about to run out and what was over-ordered, then drafts the order to place."
       }
     ]
   }
@@ -274,7 +274,7 @@
     <div class="hero-copy">
       <div class="eyebrow">AI inventory operations for food distributors</div>
       <h1 class="hero-title">Every stockout is a <em>lost sale</em>. Every over-order is cash with an <em>expiry date</em>.</h1>
-      <p class="hero-sub">berthcast flags both — what's about to run out, and what you overbought — from the files you already export.</p>
+      <p class="hero-sub">berthcast reads the files you already export and flags both: what's about to run out, and what you overbought.</p>
       <div class="hero-ctas">
         <a class="btn btn-primary" href="{{ url_for('contact') }}">Book a pilot →</a>
         <span class="hero-note">Runs on your own exports. Nothing to install.</span>
@@ -306,8 +306,8 @@
     <h2 class="sec-h2">Where the money leaks out.</h2>
   </div>
   <div class="leak-body">
-    <p>A stockout costs the sale, and often the customer with it — the line was ordered a week too late.</p>
-    <p>Overstock does the opposite: cash sits in the warehouse, and on chilled and frozen lines it walks out as waste.</p>
+    <p>A stockout costs the sale, and often the customer with it, because the line was ordered a week too late.</p>
+    <p>Overstock is the reverse. Cash sits in the warehouse, and on chilled and frozen lines it walks out as waste.</p>
     <p>Both happen for the same reason. The reorder logic lives in one person's head and one spreadsheet, and neither scales with the catalogue.</p>
   </div>
 </div></section>
@@ -318,8 +318,8 @@
   <h2 class="sec-h2">Three steps, from your files to a decision.</h2>
   <div class="how-steps">
     <div class="step"><div class="step__n">01</div><h3>Upload your files</h3><p>Inventory, sales and purchase orders, exactly as they come out of your system. No column mapping, no template to fill in.</p></div>
-    <div class="step"><div class="step__n">02</div><h3>An AI pipeline reads them</h3><p>Messy sheets are normalised, then every line is scored on stock health against its demand and its supplier's real lead time.</p></div>
-    <div class="step"><div class="step__n">03</div><h3>Get the report and the order</h3><p>A stock-health report plus exact purchase recommendations — quantities you can review, adjust, approve and print.</p></div>
+    <div class="step"><div class="step__n">02</div><h3>It cleans them, then scores every line</h3><p>berthcast merges the same item spelled three different ways, then scores every line on stock health against its demand and its supplier's real lead time.</p></div>
+    <div class="step"><div class="step__n">03</div><h3>Get the report and the order</h3><p>A stock-health report plus exact purchase recommendations, with quantities you can review, adjust, approve and print.</p></div>
   </div>
 </div></section>
 
@@ -330,17 +330,17 @@
   <div class="what-grid">
     <div class="wcard">
       <h3>Stock-health report</h3>
-      <p>What is critical, what is running low, what is healthy, and what is sitting overstocked or dead — with the reasoning attached to each line.</p>
+      <p>What is critical, what is running low, what is healthy, and what is sitting overstocked or dead, with the reasoning attached to each line.</p>
       <div class="wchips"><span class="chip crit">Critical</span><span class="chip low">Low</span><span class="chip ok">Healthy</span><span class="chip">Dead</span></div>
     </div>
     <div class="wcard">
       <h3>Purchase recommendations</h3>
-      <p>What to order and how much, sized to cover demand until the stock actually lands — factoring the supplier's lead time and what is already in transit.</p>
+      <p>What to order and how much, sized to cover demand until the stock actually lands, factoring in the supplier's lead time and what is already in transit.</p>
       <div class="wchips"><span class="chip gold">Quantity</span><span class="chip gold">Lead time</span><span class="chip gold">In transit</span></div>
     </div>
     <div class="wcard">
       <h3>Supplier reliability</h3>
-      <p>Promised lead times measured against what was actually delivered, so the quantities reflect the suppliers who turn up — not the ones who say they will.</p>
+      <p>Promised lead times measured against what was actually delivered, so the quantities reflect the suppliers who turn up, not the ones who say they will.</p>
       <div class="wchips"><span class="chip ok">Promised vs delivered</span></div>
     </div>
   </div>
@@ -352,7 +352,7 @@
     <div class="kicker">Who it's for</div>
     <h2>Mid-market food &amp; beverage distributors in Southeast Asia.</h2>
   </div>
-  <p class="who-note">If your catalogue has outgrown the spreadsheet it is managed in, your exports never line up, and the reorder call still rests on one person's judgement — that is the shape of the problem berthcast was built for.</p>
+  <p class="who-note">If your catalogue has outgrown the spreadsheet it is managed in, your exports never line up, and the reorder call still rests on one person's judgement, berthcast was built for you.</p>
 </div></section>
 
 <!-- PILOT CTA -->
