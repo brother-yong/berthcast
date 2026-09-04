@@ -73,11 +73,6 @@
   /* section eyebrow — plain uppercase gold, Design-style (no leading rule) */
   .kicker{ font-family:var(--sans); font-size:11px; font-weight:600; letter-spacing:.17em;
            text-transform:uppercase; color:var(--gold); }
-  /* hero eyebrow keeps the short gold rule before it */
-  .eyebrow{ font-family:var(--sans); font-size:11.5px; font-weight:600; letter-spacing:.14em; text-transform:uppercase;
-            color:var(--gold); display:flex; align-items:center; gap:14px; }
-  .eyebrow::before{ content:''; width:28px; height:1px; background:var(--gold); }
-
   /* nav — frosted glass bar, stays put while the page scrolls under it */
   .topbar{ position:sticky; top:0; z-index:10; background:rgba(5,20,10,.55);
            -webkit-backdrop-filter:blur(14px); backdrop-filter:blur(14px);
@@ -123,10 +118,8 @@
       linear-gradient(to bottom, rgba(5,20,10,.55) 0%, rgba(5,20,10,0) 26%, rgba(5,20,10,0) 60%, rgba(5,20,10,.88) 90%, var(--green-deep) 100%); }
   .hero-inner{ position:relative; z-index:3; max-width:1180px; width:100%; margin:0 auto; padding:150px 40px 120px; }
   .hero-copy{ max-width:600px; }
-  .hero .eyebrow{ margin-bottom:26px; }
   h1.hero-title{ font-family:var(--serif); font-weight:500; font-size:clamp(38px,5.3vw,76px); line-height:1.0;
                  letter-spacing:-.018em; color:var(--ivory); }
-  h1.hero-title em{ font-style:normal; color:var(--gold); }
   .hero-sub{ font-size:18.5px; color:var(--ivory-dim); line-height:1.58; margin-top:26px; max-width:33em; }
   .hero-ctas{ display:flex; gap:22px; flex-wrap:wrap; margin-top:38px; align-items:center; }
   .hero-note{ font-size:13.5px; color:var(--ivory-faint); }
@@ -228,7 +221,7 @@
     <a class="nav-link" href="#what">What you get</a>
     <a class="nav-link" href="#who">Who it's for</a>
     <a class="nav-link" href="{{ url_for('pricing') }}">Pricing</a>
-    <a class="btn btn-nav" href="{{ url_for('login') }}">Sign in →</a>
+    <a class="btn btn-nav" href="{{ url_for('login') }}">Sign in</a>
     <details class="menu">
       <summary aria-label="Menu">
         <svg width="18" height="14" viewBox="0 0 18 14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M1 1h16M1 7h16M1 13h16"/></svg>
@@ -245,7 +238,7 @@
         <a href="{{ url_for('terms') }}">Terms</a>
         <a href="{{ url_for('privacy') }}">Privacy</a>
         <hr>
-        <a href="{{ url_for('login') }}">Sign in →</a>
+        <a href="{{ url_for('login') }}">Sign in</a>
       </div>
     </details>
   </div>
@@ -272,12 +265,11 @@
   <div class="hero-scan" id="heroScan"></div>
   <div class="hero-inner">
     <div class="hero-copy">
-      <div class="eyebrow">AI inventory operations for food distributors</div>
-      <h1 class="hero-title">Every stockout is a <em>lost sale</em>. Every over-order is cash with an <em>expiry date</em>.</h1>
-      <p class="hero-sub">berthcast reads the files you already export and flags both: what's about to run out, and what you overbought.</p>
+      <h1 class="hero-title">Every stockout is a lost sale. Every over-order is cash with an expiry date.</h1>
+      <p class="hero-sub">berthcast reads the inventory, sales and purchase-order files you already export, and flags both.</p>
       <div class="hero-ctas">
-        <a class="btn btn-primary" href="{{ url_for('contact') }}">Book a pilot →</a>
-        <span class="hero-note">Runs on your own exports. Nothing to install.</span>
+        <a class="btn btn-primary" href="{{ url_for('contact') }}">Book a pilot</a>
+        <span class="hero-note">For food and beverage distributors. Nothing to install.</span>
       </div>
     </div>
   </div>
@@ -360,7 +352,7 @@
   <h2>Book a pilot.</h2>
   <div class="pilot-side">
     <p>Send us your inventory, sales and purchase-order exports. We'll run berthcast on your own data and walk you through what it finds, line by line.</p>
-    <a class="btn btn-primary" href="{{ url_for('contact') }}">Book a pilot →</a>
+    <a class="btn btn-primary" href="{{ url_for('contact') }}">Book a pilot</a>
   </div>
 </div></section>
 
