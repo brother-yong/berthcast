@@ -2946,8 +2946,33 @@ def results(upload_session_id):
         "urgent":    sum(1 for r in _valid if (r.get("_order_by") or {}).get("status") == "urgent"),
     }
 
+    # Two standalone tabs, both org-level rather than run-level: they read the
+    # org's own expiry snapshot and tender sheets, not this session's upload.
+    # Each gets its own try/except because neither is worth failing a results
+    # page over -- a broken snapshot must degrade to "no tab", never to "no
+    # results". Same rule the analysis email already follows.
+    try:
+        # Empty base_url on purpose, so the link renders as a relative "/expiry"
+        # like the tender block's does. The email caller passes the absolute
+        # form because an email has no origin to be relative to; a page does,
+        # and building one out of the client-controlled Host header to link
+        # back to the same site is a header dependency with nothing to gain.
+        expiry_block = _expiry_report_block(session["org_name"], "")
+    except Exception:
+        logger.warning("Expiry results tab failed for session %s",
+                       upload_session_id, exc_info=True)
+        expiry_block = None
+    try:
+        tender_block = _tender_results_block(session["org_name"])
+    except Exception:
+        logger.warning("Tender results tab failed for session %s",
+                       upload_session_id, exc_info=True)
+        tender_block = None
+
     return render_template(
         "results.html",
+        expiry_block=expiry_block,
+        tender_block=tender_block,
         summary=summary,
         recommendations=recommendations,
         rec_groups=rec_groups,
@@ -3721,7 +3746,73 @@ MAX_TENDER_ROWS = 20_000
 # 512 MB worker and takes every tenant down with it. Real tender sheets are
 # hundreds of rows, so this only ever catches the wrong file.
 MAX_TENDER_ROWS_PER_ORG = 20_000
+
+# Display cap for the results page's tender tab. The full list stays one click
+# away on /tenders; this page is already long and a 200-row table buried in a
+# tab is not read by anybody.
+TENDER_RESULTS_ROWS = 25
 MAX_TENDER_CUSTOMER_CHARS = 120
+
+
+def _shape_tender_row(r, today):
+    """One commitment row with its display fields derived. ONE copy of this
+    maths, because /tenders and /results both render these rows and two copies
+    would drift -- the same reason the fields are derived on read at all
+    rather than stored: quantity, basis and the two dates are the single
+    source of truth.
+    """
+    row = dict(r)
+    row["active"]  = row["period_start"] <= today <= row["period_end"]
+    row["expired"] = row["period_end"] < today
+    row["monthly_qty"]     = tenders.monthly_rate(
+        row["quantity"], row.get("qty_basis"),
+        row["period_start"], row["period_end"])
+    row["basis_label"]     = tenders.BASIS_LABELS.get(row.get("qty_basis"), "Not stated")
+    row["qty_display"]     = tenders.format_qty(row["quantity"])
+    row["monthly_display"] = tenders.format_qty(row["monthly_qty"])   # "" when unknown
+    return row
+
+
+def _tender_results_block(org_name):
+    """Live tender commitments for the results page, or None.
+
+    Returns None -- so the tab never renders at all -- when the org has no
+    sheet or when every commitment's period has already ended. An empty tab is
+    worse than no tab: it reads as "you have no tenders" when the truth is
+    "none are running right now".
+
+    Deliberately NOT joined to the recommendations beside it. The name-match
+    rate between tender sheets and the inventory upload is UNMEASURED, and a
+    wrong join here would quietly move stock the client has already promised
+    to a customer. Shown side by side instead, so a human does the matching --
+    which is what staff do today anyway, only without having to open a second
+    tab to do it.
+    """
+    # Same explicit guard _expiry_snapshot carries, and for the same reason:
+    # org_name is the entire isolation boundary on this path, so a blank tenant
+    # key gets refused here rather than sent to the database as a filter value.
+    # It happens to return nothing today because the column is NOT NULL, but
+    # relying on a schema detail to enforce a tenancy rule is not a guard.
+    if not org_name:
+        return None
+    rows = db.get_tender_commitments(org_name, limit=MAX_TENDER_ROWS_PER_ORG)
+    if not rows:
+        return None
+    today = datetime.now().date().isoformat()
+    live = [s for s in (_shape_tender_row(r, today) for r in rows) if s["active"]]
+    if not live:
+        return None
+    # Soonest to finish first: that is the commitment with the least room left
+    # to cover, so it is the one worth reading before placing an order.
+    live.sort(key=lambda s: (s["period_end"], s["customer"] or "", s["item_name"] or ""))
+    return {
+        "total": len(live),
+        "rows":  live[:TENDER_RESULTS_ROWS],
+        # Literal, not url_for: url_for needs an application context, and this
+        # helper has to stay callable outside a request the way the expiry
+        # blocks already are. A relative path is all a link on the page needs.
+        "url":   "/tenders",
+    }
 
 
 @app.route("/tenders")
@@ -3734,17 +3825,7 @@ def tenders_page():
     today = datetime.now().date().isoformat()
     by_upload, active_count = {}, 0
     for r in rows:
-        row = dict(r)
-        row["active"] = row["period_start"] <= today <= row["period_end"]
-        row["expired"] = row["period_end"] < today
-        # Derived on read, never stored: quantity, basis and the two dates are
-        # the single source of truth, and a stored copy would drift from them.
-        row["monthly_qty"]     = tenders.monthly_rate(
-            row["quantity"], row.get("qty_basis"),
-            row["period_start"], row["period_end"])
-        row["basis_label"]     = tenders.BASIS_LABELS.get(row.get("qty_basis"), "Not stated")
-        row["qty_display"]     = tenders.format_qty(row["quantity"])
-        row["monthly_display"] = tenders.format_qty(row["monthly_qty"])   # "" when unknown
+        row = _shape_tender_row(r, today)
         active_count += 1 if row["active"] else 0
         by_upload.setdefault(row["upload_id"], []).append(row)
 

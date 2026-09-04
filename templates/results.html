@@ -110,6 +110,22 @@
                    font-weight:600;">{{ dead_count }}</span>
     </button>
     {% endif %}
+    {% if expiry_block %}
+    <button class="tab-btn" onclick="showTab('tab-expiry', this)">
+      Expiring soon
+      <span style="margin-left:6px; background:rgba(232,154,146,0.18); color:var(--danger);
+                   font-size:11px; padding:1px 7px; border-radius:10px;
+                   font-weight:600;">{{ expiry_block.total }}</span>
+    </button>
+    {% endif %}
+    {% if tender_block %}
+    <button class="tab-btn" onclick="showTab('tab-tender', this)">
+      Tender commitments
+      <span style="margin-left:6px; background:rgba(243,239,223,0.14); color:var(--text);
+                   font-size:11px; padding:1px 7px; border-radius:10px;
+                   font-weight:600;">{{ tender_block.total }}</span>
+    </button>
+    {% endif %}
   </div>
 
   <!-- ── RECOMMENDATIONS TAB (mission control split layout) ── -->
@@ -548,6 +564,106 @@
         </tbody>
       </table>
     </div>
+  </div>
+  {% endif %}
+
+  {# ── EXPIRING SOON TAB ──
+     Org-level, not run-level: this reads the latest lot report uploaded on
+     /expiry, not this session's inventory file. Dated below for that reason,
+     so nobody reads a three-week-old snapshot as today's shelf. #}
+  {% if expiry_block %}
+  <div id="tab-expiry" style="display:none; margin-top: 24px;">
+    <div class="card" style="margin-bottom:16px; background:var(--paper-2);">
+      <p style="font-size:14px; color:var(--muted); margin:0;">
+        {{ expiry_block.total }} lot{{ 's' if expiry_block.total != 1 }} close to expiry
+        {%- if expiry_block.expired %}, {{ expiry_block.expired }} already past the date{% endif %}.
+        Sell these first. From the lot report uploaded on {{ expiry_block.snapshot_date }}.
+        <a href="{{ expiry_block.url }}" style="color:var(--gold);">See the full list →</a>
+      </p>
+    </div>
+    <div class="card" style="overflow-x:auto;">
+      <table class="data-table data-table-ledger">
+        <thead>
+          <tr>
+            <th>Item</th>
+            <th>Lot</th>
+            <th>Expires</th>
+            <th>Days left</th>
+            <th>Available</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in expiry_block.rows %}
+          <tr>
+            <td>{{ r.item }}</td>
+            <td style="color:var(--muted);">{{ r.lot or '—' }}</td>
+            <td>{{ r.expiry }}</td>
+            <td{% if r.days is not none and r.days < 0 %} style="color:var(--danger); font-weight:600;"{% endif %}>
+              {%- if r.days is none %}—
+              {%- elif r.days < 0 %}expired {{ -r.days }}d ago
+              {%- else %}{{ r.days }}{% endif -%}
+            </td>
+            <td>{{ r.qty }} {{ r.uom }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if expiry_block.total > expiry_block.rows | length %}
+    <p style="color:var(--muted); font-size:14px; margin-top:16px; text-align:center;">
+      Showing the {{ expiry_block.rows | length }} most urgent of {{ expiry_block.total }}.
+      <a href="{{ expiry_block.url }}" style="color:var(--gold);">See them all →</a>
+    </p>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {# ── TENDER COMMITMENTS TAB ──
+     Shown BESIDE the recommendations, never subtracted from them. The item
+     names on tender sheets do not reliably match the inventory upload, so the
+     join is a human's job until that match rate is measured. #}
+  {% if tender_block %}
+  <div id="tab-tender" style="display:none; margin-top: 24px;">
+    <div class="card" style="margin-bottom:16px; background:var(--paper-2);">
+      <p style="font-size:14px; color:var(--muted); margin:0;">
+        {{ tender_block.total }} commitment{{ 's' if tender_block.total != 1 }} running right now.
+        This stock is already promised to a customer, so check it before you cut an order quantity.
+        These are <strong>not</strong> deducted from the recommendations yet.
+        <a href="{{ tender_block.url }}" style="color:var(--gold);">Manage sheets →</a>
+      </p>
+    </div>
+    <div class="card" style="overflow-x:auto;">
+      <table class="data-table data-table-ledger">
+        <thead>
+          <tr>
+            <th>Customer</th>
+            <th>Item</th>
+            <th>Committed</th>
+            <th>Basis</th>
+            <th>Per month</th>
+            <th>Runs until</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in tender_block.rows %}
+          <tr>
+            <td>{{ r.customer or '—' }}</td>
+            <td>{{ r.item_name }}</td>
+            <td>{{ r.qty_display }}</td>
+            <td style="color:var(--muted); font-size:14px;">{{ r.basis_label }}</td>
+            <td>{{ r.monthly_display or '—' }}</td>
+            <td>{{ r.period_end }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if tender_block.total > tender_block.rows | length %}
+    <p style="color:var(--muted); font-size:14px; margin-top:16px; text-align:center;">
+      Showing {{ tender_block.rows | length }} of {{ tender_block.total }}.
+      <a href="{{ tender_block.url }}" style="color:var(--gold);">See them all →</a>
+    </p>
+    {% endif %}
   </div>
   {% endif %}
 </div>
