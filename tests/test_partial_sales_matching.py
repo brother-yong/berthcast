@@ -1,9 +1,9 @@
 """Regression tests for the 12 June "no recommendations" failure.
 
-a regional food distributor ran their full inventory (1,346 items, 731 zero-stock) with a sales
-report covering a handful of SKUs and got ZERO recommendations, despite a
-clearly out-of-stock item with real sales. Three compounding causes, all
-reproduced against their real files:
+a regional food distributor ran their full inventory (most items zero-stock)
+with a sales report covering a handful of SKUs and got ZERO recommendations,
+despite a clearly out-of-stock item with real sales. Three compounding causes,
+all reproduced against their real files:
 
   1. Name drift: their staff type annotations ("<- out of stock") into the
      sales sheet's item-name column, so exact-name matching loses the sales
