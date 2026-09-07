@@ -29,7 +29,7 @@ from logging_setup import logger
 from agents import (
     run_pipeline,
 )
-from agents.shared import sampling_kwargs, thinking_kwargs
+from agents.shared import sampling_kwargs, thinking_kwargs, normalise_match_key
 
 from config import UPLOAD_FOLDER, FILE_SLOTS, AVAILABLE_MODELS
 from emails import (
@@ -46,7 +46,7 @@ from auth_utils import (
 from rec_logic import (
     _normalise_confidence, _effective_qty, _effective_supplier,
     _compute_order_by, _group_recs_by_supplier, _confidence_reasons,
-    _quantity_basis, _has_stakes, clarity_gaps,
+    _quantity_basis, _has_stakes, clarity_gaps, _tender_split,
 )
 from chat_logic import _build_chat_context, build_chat_system_prompt
 
@@ -2890,6 +2890,16 @@ def results(upload_session_id):
         for item in inventory
     }
 
+    # Confirmed tender volume per item, added on top of each base quantity
+    # below. Same try/except discipline the expiry and tender tabs use: a
+    # tender problem degrades to "no split", never to "no results page".
+    try:
+        _addons = _tender_addon_map(session["org_name"])
+    except Exception:
+        logger.warning("Tender addons failed for session %s",
+                       upload_session_id, exc_info=True)
+        _addons = {}
+
     # Enrich each recommendation with order-by date and confidence reasons
     # so the template can render them without computing inline. Confidence
     # is normalised first so old rows (with "MED") match the template's
@@ -2907,6 +2917,8 @@ def results(upload_session_id):
         rec["_effective_supplier"] = _effective_supplier(rec)
         rec["_quantity_basis"]     = _quantity_basis(rec)
         rec["_has_stakes"]         = _has_stakes(rec)
+        rec["_tender"] = _tender_split(
+            rec, _addons.get(normalise_match_key(str(rec.get("item", "")))))
         rec["_card_idx"]      = _idx
         _idx += 1
 
@@ -2945,6 +2957,25 @@ def results(upload_session_id):
         "order_now": sum(1 for r in _valid if (r.get("_order_by") or {}).get("status") == "overdue"),
         "urgent":    sum(1 for r in _valid if (r.get("_order_by") or {}).get("status") == "urgent"),
     }
+
+    # Contracted items the run produced no recommendation for. agents/
+    # recommendation.py only recommends LOW and CRITICAL items (plus spoilage
+    # risks), so a HEALTHY item with a live contract vanishes from this page
+    # entirely. The dangerous direction is UNDER-ordering: "healthy" is read
+    # off a sales history that does not contain a new contract's volume. Set
+    # difference over data already in memory, NAMES only, no quantity: sizing
+    # an order the pipeline never computed is the line this feature does not
+    # cross.
+    _rec_keys = {normalise_match_key(str(r.get("item", ""))) for r in _valid}
+    tender_uncovered = []
+    for _key, _addon in _addons.items():
+        if _key in _rec_keys:
+            continue
+        _sources = _addon.get("sources") or []
+        if _sources and _sources[0].get("item"):
+            tender_uncovered.append(_sources[0]["item"])
+        if len(tender_uncovered) >= TENDER_RESULTS_ROWS:
+            break
 
     # Two standalone tabs, both org-level rather than run-level: they read the
     # org's own expiry snapshot and tender sheets, not this session's upload.
@@ -2986,6 +3017,8 @@ def results(upload_session_id):
         supplier_score_map=supplier_score_map,
         data_notes=data_notes,
         gaps=clarity_gaps(recommendations),
+        tender_split_count=sum(1 for r in _valid if r.get("_tender")),
+        tender_uncovered=tender_uncovered,
     )
 
 
@@ -3088,6 +3121,12 @@ def print_results(upload_session_id):
     printable = [r for r in recommendations if not r.get("error")]
     # Current stock (qty on hand) isn't on the rec — join it from the inventory report.
     stock_map = _stock_on_hand_map(upload_session_id)
+    try:
+        _addons = _tender_addon_map(session["org_name"])
+    except Exception:
+        logger.warning("Tender addons failed for print of session %s",
+                       upload_session_id, exc_info=True)
+        _addons = {}
     # Enrich with effective values + order-by so the print template can stay simple.
     for r in printable:
         _normalise_confidence(r)
@@ -3096,6 +3135,8 @@ def print_results(upload_session_id):
         r["_order_by"]           = _compute_order_by(r)
         r["_current_stock"]      = stock_map.get(str(r.get("item", "")).strip())
         r["_order_covers"]       = _order_covers_months(r)
+        r["_tender"] = _tender_split(
+            r, _addons.get(normalise_match_key(str(r.get("item", "")))))
     # Group by supplier so each block prints as one hand-over-ready PO, same
     # grouping/order the on-screen results page uses.
     groups = _group_recs_by_supplier(printable, _status_by_item_map(upload_session_id))
@@ -3132,12 +3173,20 @@ def export_csv(upload_session_id):
     approved = [r for g in groups for r in g["recs"]]
     # Current stock (qty on hand) is joined from the inventory report by item name.
     stock_map = _stock_on_hand_map(upload_session_id)
+    try:
+        _addons = _tender_addon_map(session["org_name"])
+    except Exception:
+        logger.warning("Tender addons failed for export of session %s",
+                       upload_session_id, exc_info=True)
+        _addons = {}
 
     buf = io.StringIO()
     writer = csv.writer(buf)
     # Same columns and labels as the printed sheet and the PDF, so all three match.
+    # The add-on sits next to the quantity it is part of, so the two numbers are
+    # read together.
     writer.writerow([
-        "Item", "On Hand", "Qty To Order", "Supplier",
+        "Item", "On Hand", "Qty To Order", "Tender Add-On", "Supplier",
         "Order By", "Current Stock Lasts (months)", "This Order Lasts (months)", "Notes"
     ])
     # Free-text columns come from uploaded files and the model, so they're run
@@ -3153,11 +3202,24 @@ def export_csv(upload_session_id):
         sug = str(r.get("suggested_quantity", "") or "")
         if r.get("edited_quantity") and qty.strip() and sug.strip() and qty != sug:
             qty = f"{qty} (AI: {sug})"
+        # A confirmed tender add-on: "Qty To Order" carries the TOTAL, because
+        # that is the number staff paste into the ERP, and the add-on gets its
+        # own column beside it. The "(AI: ...)" suffix is dropped in that case:
+        # "300 CTN (AI: 250 CTN)" next to an add-on column reads as a
+        # contradiction.
+        split = _tender_split(
+            r, _addons.get(normalise_match_key(str(r.get("item", "")))))
+        add_on = ""
+        if split:
+            add_on = split["add"]
+            if split["total"]:
+                qty = split["total"]
         covers = _order_covers_months(r)
         writer.writerow([
             _safe(r.get("item", "")),
             _safe("" if on_hand in (None, "") else on_hand),
             _safe(qty),
+            add_on,
             _safe(_effective_supplier(r)),
             _order_by_text(r),
             runway,
@@ -3730,11 +3792,15 @@ def suppliers_ignore_group():
 
 
 # ── Tenders ──────────────────────────────────────────────────────────────────
-# Committed volume the client has already sold under contract. Part 1 stores
-# and shows it; it does NOT yet feed the recommendation maths. Whether a tender
+# Committed volume the client has already sold under contract. Whether a tender
 # quantity is per-month or a total across the whole period changes the
-# arithmetic, so the uploader is asked on the form rather than guessed at, but
-# the wiring into recommendations still waits.
+# arithmetic, so the uploader is asked on the form rather than guessed at.
+#
+# A tender quantity reaches an order quantity ONLY through a pairing a human
+# confirmed on /tenders/match, and only then as a visible add-on beside the
+# base figure. The addition happens here, post-pipeline: agents/ never sees a
+# tender number, so the base and the add stay two separate values all the way
+# to the template.
 
 # A tender sheet is a contract summary, not a transaction export: hundreds of
 # rows, not hundreds of thousands. Anything larger is the wrong file.
@@ -3752,6 +3818,14 @@ MAX_TENDER_ROWS_PER_ORG = 20_000
 # tab is not read by anybody.
 TENDER_RESULTS_ROWS = 25
 MAX_TENDER_CUSTOMER_CHARS = 120
+
+# The org's item universe for the match screen. A real item list runs to a few
+# hundred names; the cap is the 512 MB worker's guard, not a product limit.
+MAX_MATCH_ITEMS = 5_000
+
+# Commitment texts offered on one match screen. A real sheet is a few dozen
+# rows, so this is headroom rather than a limit anyone should meet.
+MAX_MATCH_ROWS  = 200
 
 
 def _shape_tender_row(r, today):
@@ -3815,6 +3889,89 @@ def _tender_results_block(org_name):
     }
 
 
+def _org_item_names(org_name):
+    """Item names from the org's most recent completed run, de-duplicated.
+
+    Not an arbitrary source: agents/recommendation.py builds every rec from
+    inv_item["item"], so matching against this exact list is what guarantees a
+    confirmed pairing can actually join to a recommendation later. Its SIZE
+    varies a lot with which file a client uploads as their inventory, and a
+    shorter list leaves more tender rows with no candidate at all, which is why
+    the match screen has a fallback for rows nothing comes close to.
+
+    Same explicit guard _tender_results_block and _expiry_snapshot carry:
+    org_name is the entire isolation boundary here, so a blank tenant key is
+    refused BEFORE any query rather than left to a NOT NULL column.
+    """
+    if not org_name:
+        return []
+    rows = db.query(
+        "SELECT ar.inventory_report FROM analysis_results ar "
+        "JOIN upload_sessions us ON ar.session_id = us.id "
+        "WHERE us.org_name=? AND us.status='complete' "
+        "ORDER BY us.created_at DESC, us.id DESC LIMIT 1",
+        (org_name,))
+    if not rows:
+        return []
+    try:
+        inv = json.loads(rows[0]["inventory_report"] or "[]")
+    except (ValueError, TypeError):
+        return []
+    if isinstance(inv, dict):
+        inv = inv.get("report")
+    if not isinstance(inv, list):
+        return []
+    names, seen = [], set()
+    for entry in inv:
+        if not isinstance(entry, dict):
+            continue
+        name = str(entry.get("item") or "").strip()
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        names.append(name)
+        if len(names) >= MAX_MATCH_ITEMS:
+            break
+    return names
+
+
+def _tender_addon_map(org_name):
+    """Confirmed, live tender volume per item key, or {}.
+
+    Empty for a blank org without touching the database. Empty too when nobody
+    has confirmed anything: only the confirm route ever writes a pairing row,
+    so an unreviewed tender sheet adds zero by construction.
+    """
+    if not org_name:
+        return {}
+    return tenders.tender_addons(
+        db.get_matched_tender_commitments(org_name, limit=MAX_TENDER_ROWS_PER_ORG),
+        datetime.now().date().isoformat())
+
+
+def _tender_match_rows(rows):
+    """The first MAX_MATCH_ROWS distinct tender texts, in the order the DB gave.
+
+    ONE copy of this walk, because the GET and the POST have to see the same
+    rows in the same order: if they truncated different sets, a row could
+    render on the screen and then be ignored on save. The display sort happens
+    AFTER this, never before.
+
+    An item name with no alphanumerics normalises to "" and is skipped
+    entirely: there is nothing to key a decision on.
+    """
+    picked, seen = [], set()
+    for r in rows:
+        key = r.get("match_key") or ""
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        picked.append(r)
+        if len(picked) >= MAX_MATCH_ROWS:
+            break
+    return picked
+
+
 @app.route("/tenders")
 @login_required
 def tenders_page():
@@ -3823,9 +3980,15 @@ def tenders_page():
     rows    = db.get_tender_commitments(org, limit=MAX_TENDER_ROWS_PER_ORG)
 
     today = datetime.now().date().isoformat()
+    # Stamped inside the existing loop rather than in a second pass: the page
+    # already walks every row once and a tenth of a second per page load is not
+    # worth a second walk.
+    matched_by_key = {m["tender_key"]: m
+                      for m in db.get_tender_matches(org, limit=MAX_TENDER_ROWS_PER_ORG)}
     by_upload, active_count = {}, 0
     for r in rows:
         row = _shape_tender_row(r, today)
+        row["match"] = matched_by_key.get(row["match_key"])
         active_count += 1 if row["active"] else 0
         by_upload.setdefault(row["upload_id"], []).append(row)
 
@@ -3853,6 +4016,7 @@ def tenders_page():
         active_count=active_count,
         overlaps=tenders.find_overlaps([dict(r) for r in rows]),
         overlap_limit=tenders.MAX_OVERLAPS_REPORTED,
+        unmatched_count=db.count_unmatched_tender_commitments(org, today),
         org_name=org,
     )
 
@@ -4024,6 +4188,162 @@ def tenders_delete():
     db.delete_tender_upload(org, upload_id)
     flash("Tender sheet removed.", "success")
     return redirect(url_for("tenders_page"))
+
+
+@app.route("/tenders/match")
+@login_required
+def tenders_match():
+    """Decide which of the org's own items each tender line refers to.
+
+    This screen is the only way a tender quantity ever reaches an order
+    quantity. Nothing is pre-selected: measured against real sheets, a small
+    but real share of top-1 guesses are confidently wrong (one mapped a 400g
+    bottle to a 20kg bag) and more again are ambiguous on pack size, so a
+    pre-ticked radio would turn the review into a click-through and let a wrong
+    pairing sail past.
+
+    A viewer may read it; the template hides the form for them, the same check
+    tenders.html already makes.
+    """
+    org = session["org_name"]
+    if not org:
+        return redirect(url_for("tenders_page"))
+
+    rows  = _tender_match_rows(
+        db.get_tender_commitments(org, limit=MAX_TENDER_ROWS_PER_ORG))
+    saved = {m["tender_key"]: m
+             for m in db.get_tender_matches(org, limit=MAX_TENDER_ROWS_PER_ORG)}
+    names = _org_item_names(org)
+    index = tenders.build_match_index(names)
+
+    items = []
+    for r in rows:
+        match = saved.get(r["match_key"])
+        candidates = tenders.propose_matches(r["item_name"], index)
+        nearest = []
+        if not candidates and names:
+            # Render-time courtesy for a human who is looking at the row, and
+            # nothing more: against a short item list a large share of tender
+            # rows get no candidate at all, and a screen that hands those rows
+            # a blank box is a screen the user abandons. The threshold is never
+            # lowered on the path that stores a decision.
+            nearest = tenders.propose_matches(r["item_name"], index,
+                                              top_n=tenders.MATCH_TOP_N,
+                                              min_score=0.0)
+        offered = candidates or nearest
+        chosen  = match["inventory_item"] if match and match["inventory_key"] else ""
+        items.append({
+            "key":         r["match_key"],
+            "item":        r["item_name"],
+            "customer":    r["customer"],
+            "qty_display": tenders.format_qty(r["quantity"]),
+            "basis_label": tenders.BASIS_LABELS.get(r.get("qty_basis"), "Not stated"),
+            "period":      f"{r['period_start']} to {r['period_end']}",
+            "candidates":  offered,
+            "nearest":     bool(nearest) and not candidates,
+            "match":       match,
+            "chosen":      chosen,
+            # A previously confirmed item that is not among today's candidates
+            # still has to render as the checked choice, so it goes in the
+            # free-text box.
+            "other":       chosen if chosen and all(
+                c["name"] != chosen for c in offered) else "",
+            "decided":     match is not None,
+        })
+
+    # Undecided first so a half-reviewed sheet opens on the work that is left.
+    # Sorted AFTER the truncation in _tender_match_rows, never before: sorting
+    # first would hand the GET and the POST different row sets.
+    items.sort(key=lambda it: it["decided"])
+
+    return render_template(
+        "tender_match.html",
+        items=items,
+        item_names=names,
+        decided=sum(1 for it in items if it["decided"]),
+        total=len(items),
+        org_name=org,
+    )
+
+
+@app.route("/tenders/match", methods=["POST"])
+@login_required
+@analyst_required
+def tenders_match_save():
+    """Store the decisions. Free text from a browser never lands as an item name.
+
+    The loop walks keys read from THIS org's own rows, never request.form, so a
+    posted key belonging to another org is never looked at, and the work this
+    view does is bounded by the org's own row count however many fields the
+    form carries. (Werkzeug still parses the whole body into a MultiDict before
+    the view runs, which MAX_CONTENT_LENGTH bounds app-wide, not this route.)
+    A typed name is resolved against the org's own item universe by normalised
+    key and the CANONICAL spelling is stored; a name that does not resolve
+    stores nothing.
+    """
+    org = session["org_name"]
+    if not org:
+        return redirect(url_for("tenders_page"))
+
+    rows = _tender_match_rows(
+        db.get_tender_commitments(org, limit=MAX_TENDER_ROWS_PER_ORG))
+    # An item name with no letters or digits (a "-----" spacer row that made it
+    # through the pipeline) normalises to "", which is the not-stocked
+    # sentinel. Left in, a typed value that also normalises to "" would resolve
+    # to that item and then be stored AS the sentinel: the user picks a real
+    # item and the screen reads back "we do not stock this". Dropped here, the
+    # same rule build_rows applies to the tender side of the pairing.
+    by_key = {k: n for k, n in
+              ((normalise_match_key(n), n) for n in _org_item_names(org)) if k}
+    matched = not_stocked = undecided = unknown = 0
+
+    for r in rows:
+        key    = r["match_key"]
+        choice = request.form.get("match__" + key)
+        if choice is None:
+            continue                      # row was not on the submitted page
+        if choice == "__other__":
+            choice = request.form.get("other__" + key, "")
+        choice = choice.strip()
+        if not choice:
+            db.delete_tender_match(org, key)
+            undecided += 1
+            continue
+        if choice == "__none__":
+            # Cannot collide with a real item: a candidate's radio value is a
+            # raw inventory item name, and normalise_match_key strips
+            # non-alphanumerics, so no stored key can ever be this literal.
+            db.save_tender_match(org, key, r["item_name"], "", "",
+                                 session.get("email", ""))
+            not_stocked += 1
+            continue
+        if len(choice) > 300:
+            unknown += 1
+            continue
+        canonical = by_key.get(normalise_match_key(choice))
+        if canonical is None:
+            unknown += 1
+            continue
+        db.save_tender_match(org, key, r["item_name"], canonical,
+                             normalise_match_key(canonical),
+                             session.get("email", ""))
+        matched += 1
+
+    counts = []
+    if matched:
+        counts.append(f"{matched} matched")
+    if not_stocked:
+        counts.append(f"{not_stocked} marked not stocked")
+    if undecided:
+        counts.append(f"{undecided} left undecided")
+    if counts:
+        flash("Saved: " + ", ".join(counts) + ".", "success")
+    if unknown:
+        flash(f"{unknown} row{'' if unknown == 1 else 's'} could not be saved: "
+              f"that item name is not on your item list. Pick one of the names "
+              f"offered, or type it exactly as it appears in your inventory.",
+              "error")
+    return redirect(url_for("tenders_match"))
 
 
 # ── Expiry (lot tracking) ────────────────────────────────────────────────────

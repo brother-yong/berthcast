@@ -134,8 +134,8 @@ _check("the form's customer and basis are stored on every row",
 _check("item names render on the page", b"BROOKVALE UHT MILK 1L" in r.data)
 _check("the filename is shown", b"alpha_tenders.csv" in r.data)
 _check("the reject reason is shown", b"no item name" in r.data)
-_check("page states the numbers are not applied yet",
-       b"Stored, not yet applied" in r.data)
+_check("page states a row only counts once it has been decided",
+       b"Matched rows are added on top of your order quantities." in r.data)
 
 uploads = db.get_tender_uploads("OrgAlpha")
 _check("one upload record exists", len(uploads) == 1, detail=str(len(uploads)))

@@ -219,6 +219,17 @@
         </div>
         {% endif %}
 
+        {# Required disclosure, not a detected problem: if their sales history
+           already contains the tender volume, adding it again double-counts,
+           and nothing in the data can tell us whether it does. #}
+        {% if tender_split_count %}
+        <p class="rec-tender-note">
+          <b>{{ tender_split_count }} item{{ 's' if tender_split_count != 1 }}</b> show a tender add-on in gold.
+          That quantity is added on top of what your sales history suggests.
+          If your sales figures already include the tender volume, do not order it twice.
+        </p>
+        {% endif %}
+
         <div id="recs-container">
         {% for group in rec_groups %}
         <div class="rec-supplier-group" data-group="{{ group.key }}" id="grp-{{ group.key }}">
@@ -299,7 +310,16 @@
                   <span class="badge badge-dead">Dismissed</span>
                 {% endif %}
               </span>
-              <span class="rec-row-qty">{{ rec.edited_quantity or rec.suggested_quantity or '—' }}</span>
+              {# Split, not one merged number: staff have to see at a glance
+                 which part of an order exists only because of a contract. #}
+              <span class="rec-row-qty">
+                {%- if rec._tender -%}
+                  {%- if rec._tender.base %}{{ rec._tender.base }} {% endif -%}
+                  <span class="qty-tender">+ {{ rec._tender.add }}</span>
+                {%- else -%}
+                  {{ rec.edited_quantity or rec.suggested_quantity or '—' }}
+                {%- endif -%}
+              </span>
               {% if rec._order_by and rec._order_by.order_by_date %}
               <span class="rec-row-date rec-row-date-{{ rec._order_by.status }}">
                 {% if rec._order_by.status == 'overdue' %}overdue {{ rec._order_by.buffer_days | abs }}d
@@ -372,6 +392,10 @@
               <div class="rec-edit-grid">
                 <div class="rec-edit-field">
                   <label for="qty-{{ rec._card_idx }}">Quantity to order</label>
+                  {# This input renders the BASE quantity, never the tender
+                     total. Approve posts whatever is in here, and a total
+                     posted back would be saved as the edited quantity, so the
+                     add-on would stack again on the next load. #}
                   <input type="text"
                          class="rec-edit-input"
                          id="qty-{{ rec._card_idx }}"
@@ -389,6 +413,16 @@
                   <span class="rec-edit-hint rec-edit-hint-muted" id="qty-hint-{{ rec._card_idx }}">
                     AI suggestion — adjust if you want to order more or less.
                   </span>
+                  {% endif %}
+                  {% if rec._tender %}
+                  <div class="rec-tender-line">
+                    <span class="qty-tender">+ {{ rec._tender.add }}</span>
+                    {%- if rec._tender.sources %} for the tender with {{ rec._tender.sources[0].customer }}
+                      {%- if rec._tender.more %} and {{ rec._tender.more }} more{% endif -%}
+                      , running to {{ rec._tender.sources[0].period_end }}
+                    {%- endif -%}.
+                    {% if rec._tender.total %}Order {{ rec._tender.total }} in total.{% endif %}
+                  </div>
                   {% endif %}
                 </div>
 
@@ -479,6 +513,26 @@
       <p style="color:var(--muted);">No recommendations generated. Your inventory may be in good shape, or there was insufficient sales data.</p>
     </div>
     {% endif %}
+    {% endif %}
+
+    {# Contracted items this run produced no recommendation for. NAMES only,
+       deliberately no quantity: the pipeline never sized an order for these,
+       and inventing one here would be the guess this whole feature refuses to
+       make. An item reads HEALTHY off a sales history that may not contain a
+       new contract's volume, which is why the miss runs toward under-ordering. #}
+    {% if tender_uncovered %}
+    <div class="card" style="margin-top:24px; border-color:rgba(201,162,39,0.35);">
+      <div class="card-title" style="font-size:14px;">Contracted, but not on this order list</div>
+      <p style="color:var(--muted); font-size:13.5px; margin-bottom:10px;">
+        These items were not flagged for reorder this run, but they have a tender contract
+        running. Check them yourself before you finish the order.
+      </p>
+      <ul style="margin:0; padding-left:18px; font-size:14px; line-height:1.7;">
+        {% for name in tender_uncovered %}
+        <li>{{ name }}</li>
+        {% endfor %}
+      </ul>
+    </div>
     {% endif %}
   </div>
 
@@ -578,7 +632,7 @@
         {{ expiry_block.total }} lot{{ 's' if expiry_block.total != 1 }} close to expiry
         {%- if expiry_block.expired %}, {{ expiry_block.expired }} already past the date{% endif %}.
         Sell these first. From the lot report uploaded on {{ expiry_block.snapshot_date }}.
-        <a href="{{ expiry_block.url }}" style="color:var(--gold);">See the full list →</a>
+        <a href="{{ expiry_block.url }}" style="color:var(--brass);">See the full list →</a>
       </p>
     </div>
     <div class="card" style="overflow-x:auto;">
@@ -612,7 +666,7 @@
     {% if expiry_block.total > expiry_block.rows | length %}
     <p style="color:var(--muted); font-size:14px; margin-top:16px; text-align:center;">
       Showing the {{ expiry_block.rows | length }} most urgent of {{ expiry_block.total }}.
-      <a href="{{ expiry_block.url }}" style="color:var(--gold);">See them all →</a>
+      <a href="{{ expiry_block.url }}" style="color:var(--brass);">See them all →</a>
     </p>
     {% endif %}
   </div>
@@ -627,9 +681,11 @@
     <div class="card" style="margin-bottom:16px; background:var(--paper-2);">
       <p style="font-size:14px; color:var(--muted); margin:0;">
         {{ tender_block.total }} commitment{{ 's' if tender_block.total != 1 }} running right now.
-        This stock is already promised to a customer, so check it before you cut an order quantity.
-        These are <strong>not</strong> deducted from the recommendations yet.
-        <a href="{{ tender_block.url }}" style="color:var(--gold);">Manage sheets →</a>
+        This stock is already promised to a customer. Rows you have matched to one of your
+        own items are added on top of that item's order quantity, in gold. Rows you have not
+        decided on yet add nothing.
+        <a href="{{ url_for('tenders_match') }}" style="color:var(--brass);">Match tender items →</a>
+        <a href="{{ tender_block.url }}" style="color:var(--brass);">Manage sheets →</a>
       </p>
     </div>
     <div class="card" style="overflow-x:auto;">
@@ -661,7 +717,7 @@
     {% if tender_block.total > tender_block.rows | length %}
     <p style="color:var(--muted); font-size:14px; margin-top:16px; text-align:center;">
       Showing {{ tender_block.rows | length }} of {{ tender_block.total }}.
-      <a href="{{ tender_block.url }}" style="color:var(--gold);">See them all →</a>
+      <a href="{{ tender_block.url }}" style="color:var(--brass);">See them all →</a>
     </p>
     {% endif %}
   </div>
@@ -699,6 +755,17 @@
 
 /* ── Quantity basis: plain-English "why this number" line ── */
 .rec-qty-basis { margin-top: 8px; font-size: 13px; color: var(--muted); line-height: 1.45; }
+
+/* ── Tender add-on: the part of a quantity that exists only because of a
+      contract. var(--brass) is the app's gold; there is no --gold token. ── */
+.qty-tender { color: var(--brass); font-weight: 600; }
+.rec-tender-line { margin-top: 6px; font-size: 13px; color: var(--muted); line-height: 1.45; }
+.rec-tender-note {
+  margin: 14px 0 0; padding: 11px 14px; font-size: 13.5px; line-height: 1.5;
+  color: var(--text); border: 1px solid rgba(201,162,39,0.35);
+  background: rgba(201,162,39,0.08); border-radius: 10px;
+}
+.rec-tender-note b { color: var(--brass); }
 
 /* ── Stakes: side-by-side "if you don't / if you do" boxes ── */
 .rec-stakes { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }

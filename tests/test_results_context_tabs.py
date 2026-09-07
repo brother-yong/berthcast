@@ -183,8 +183,8 @@ _check("tender tab renders", 'id="tab-tender"' in html)
 _check("tender tab button renders", "Tender commitments" in html)
 _check("live commitment shows on the page", "VANMARK CANNED TUNA 150G" in html)
 _check("ended commitment stays off the page", "PADIMAS JASMINE RICE 5KG" not in html)
-_check("the page says these are NOT deducted yet",
-       "not</strong> deducted from the recommendations" in html)
+_check("the page says an undecided row adds nothing",
+       "Rows you have not" in html and "decided on yet add nothing." in html)
 
 
 # ── 3b. The expiry tab renders once a snapshot exists ────────────────────────

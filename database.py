@@ -343,6 +343,33 @@ def init_db():
         # upload row so the collapsed summary line can name it without opening
         # the sheet. tender_commitments.customer stays the source of truth.
         "ALTER TABLE tender_uploads ADD COLUMN customer TEXT",
+        # One human decision per tender line: "this row on their sheet means
+        # this item of ours". Keyed on tender_key (the sheet's
+        # normalise_match_key), NOT on a commitment id: re-uploading a
+        # corrected sheet is the documented fix for a bad row, and that deletes
+        # and recreates every commitment row, so an id-keyed table would throw
+        # away all 25 confirmations on every re-upload. Text-keyed, the one
+        # thing a human actually decided survives the re-upload.
+        # A row only exists here because a human made a decision -- there is no
+        # "proposed" state on purpose, so "not decided adds zero" is true by
+        # construction rather than by a status column a bug could misread.
+        # An inventory_key of '' is the SENTINEL for "we do not stock this". It
+        # is a decision, so it is a row; it adds nothing, so every read that
+        # feeds arithmetic filters it out (see get_matched_tender_commitments).
+        # Orphans are harmless: the addon read JOINs to live commitments, so a
+        # mapping whose sheets have all been deleted contributes zero.
+        """CREATE TABLE IF NOT EXISTS tender_item_matches (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            org_name TEXT NOT NULL,
+            tender_key TEXT NOT NULL,
+            tender_item TEXT NOT NULL,
+            inventory_item TEXT NOT NULL,
+            inventory_key TEXT NOT NULL,
+            confirmed_by TEXT,
+            confirmed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(org_name, tender_key)
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_tender_match_org ON tender_item_matches(org_name)",
         # One row per uploaded lot-tracking snapshot. The file is NOT kept:
         # the parsed rows are all the page needs. Separate from the lot rows so
         # a file that imported nothing still shows up with its reasons instead
@@ -1847,6 +1874,128 @@ def delete_tender_upload(org_name: str, upload_id: int) -> None:
             (org_name, upload_id))
     execute("DELETE FROM tender_uploads WHERE org_name=? AND id=?",
             (org_name, upload_id))
+
+
+# ── Tender item matches: the human decisions ─────────────────────────────────
+
+def save_tender_match(org_name: str, tender_key: str, tender_item: str,
+                      inventory_item: str, inventory_key: str,
+                      confirmed_by: str = "") -> None:
+    """Record what one tender line refers to. Upsert, never a second row.
+
+    Re-deciding a line replaces the previous answer, which is what
+    UNIQUE(org_name, tender_key) is for -- two rows for one tender text would
+    make the addon depend on which one a JOIN happened to see first.
+    An inventory_key of '' is the "we do not stock this" sentinel and is stored
+    like any other decision.
+    """
+    # org_name is the entire tenancy boundary on this path. NOT NULL accepts
+    # an empty string, so a blank key would become a real filter value here
+    # rather than being rejected. Refused explicitly, at the layer that can
+    # never be bypassed by a new caller forgetting the check.
+    if not org_name or not tender_key:
+        return
+    execute(
+        "INSERT INTO tender_item_matches "
+        "(org_name, tender_key, tender_item, inventory_item, inventory_key, confirmed_by) "
+        "VALUES (?,?,?,?,?,?) "
+        "ON CONFLICT(org_name, tender_key) DO UPDATE SET "
+        "inventory_item=excluded.inventory_item, "
+        "inventory_key=excluded.inventory_key, "
+        "tender_item=excluded.tender_item, "
+        "confirmed_by=excluded.confirmed_by, "
+        "confirmed_at=CURRENT_TIMESTAMP",
+        (org_name, tender_key, tender_item, inventory_item, inventory_key,
+         confirmed_by))
+
+
+def delete_tender_match(org_name: str, tender_key: str) -> None:
+    """Back to "not decided yet". The row goes, so the unmatched count sees it
+    again -- that is the difference between "not reviewed" and "not stocked"."""
+    # org_name is the entire tenancy boundary on this path. NOT NULL accepts
+    # an empty string, so a blank key would become a real filter value here
+    # rather than being rejected. Refused explicitly, at the layer that can
+    # never be bypassed by a new caller forgetting the check.
+    if not org_name or not tender_key:
+        return
+    execute("DELETE FROM tender_item_matches WHERE org_name=? AND tender_key=?",
+            (org_name, tender_key))
+
+
+def get_tender_matches(org_name: str, limit: int = None) -> list:
+    """Every decision this org has made, sentinel rows INCLUDED.
+
+    The confirm screen and the /tenders column both have to show "we do not
+    stock this", so this read cannot filter it. Only the read that feeds
+    arithmetic does.
+    """
+    # org_name is the entire tenancy boundary on this path. NOT NULL accepts
+    # an empty string, so a blank key would become a real filter value here
+    # rather than being rejected. Refused explicitly, at the layer that can
+    # never be bypassed by a new caller forgetting the check.
+    if not org_name:
+        return []
+    tail = " LIMIT ?" if limit is not None else ""
+    args = (org_name,) if limit is None else (org_name, int(limit))
+    return query("SELECT * FROM tender_item_matches WHERE org_name=? "
+                 "ORDER BY tender_key" + tail, args)
+
+
+def get_matched_tender_commitments(org_name: str, limit: int = None) -> list:
+    """Commitment rows a human has paired with one of the org's own items.
+
+    org_name is on BOTH sides of the join: a join alone is not a tenancy check.
+    The sentinel filter sits in the WHERE and not in the ON, so this is the one
+    place "we do not stock this" is stripped and it can never reach the
+    arithmetic. c.id is the ORDER BY tie-break, because the caller's
+    "first row wins" de-duplication means nothing without a deterministic order.
+    """
+    # org_name is the entire tenancy boundary on this path. NOT NULL accepts
+    # an empty string, so a blank key would become a real filter value here
+    # rather than being rejected. Refused explicitly, at the layer that can
+    # never be bypassed by a new caller forgetting the check.
+    if not org_name:
+        return []
+    tail = " LIMIT ?" if limit is not None else ""
+    args = (org_name,) if limit is None else (org_name, int(limit))
+    return query(
+        "SELECT c.id, c.customer, c.item_name, c.match_key, c.quantity, "
+        "       c.qty_basis, c.period_start, c.period_end, "
+        "       m.inventory_item, m.inventory_key "
+        "FROM tender_commitments c "
+        "JOIN tender_item_matches m "
+        "  ON m.org_name = c.org_name AND m.tender_key = c.match_key "
+        "WHERE c.org_name = ? AND m.inventory_key <> '' "
+        "ORDER BY c.period_end, c.customer, c.item_name, c.id" + tail, args)
+
+
+def count_unmatched_tender_commitments(org_name: str, today_iso: str) -> int:
+    """Live commitment rows nobody has decided on yet.
+
+    No sentinel filter, deliberately: a "we do not stock this" row HAS an id,
+    so m.id IS NULL already excludes it. That is what lets the banner reach
+    zero once the user has looked at everything, instead of nagging forever
+    about rows they have already ruled out. Ended contracts stop counting too.
+
+    A row whose match_key is empty is excluded for the same reason. build_rows
+    refuses those now, but rows written before it did are still in the table,
+    and the confirm screen skips them, so counting one would nag about a row
+    nobody can ever decide. A banner that cannot reach zero stops being read.
+    """
+    # org_name is the entire tenancy boundary on this path. NOT NULL accepts
+    # an empty string, so a blank key would become a real filter value here
+    # rather than being rejected. Refused explicitly, at the layer that can
+    # never be bypassed by a new caller forgetting the check.
+    if not org_name:
+        return 0
+    got = query(
+        "SELECT COUNT(*) AS n FROM tender_commitments c "
+        "LEFT JOIN tender_item_matches m "
+        "  ON m.org_name = c.org_name AND m.tender_key = c.match_key "
+        "WHERE c.org_name = ? AND m.id IS NULL AND c.period_end >= ? "
+        "  AND c.match_key <> ''",
+        (org_name, today_iso))
+    return got[0]["n"] if got else 0
 
 
 # ── Expiry lots ──────────────────────────────────────────────────────────────

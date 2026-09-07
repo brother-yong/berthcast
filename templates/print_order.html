@@ -71,7 +71,16 @@
         </td>
         <td>{{ r._current_stock if r._current_stock not in (None, '') else '—' }}</td>
         <td>
-          <strong>{{ r._effective_qty or r.suggested_quantity }}</strong>
+          <strong>{% if r._tender and r._tender.total %}{{ r._tender.total }}{% else %}{{ r._effective_qty or r.suggested_quantity }}{% endif %}</strong>
+          {% if r._tender %}
+            {# This sheet gets photocopied, so the word "tender" carries the
+               meaning: colour is never the only signal. Darker than the app's
+               gold, which is too pale to read on white. #}
+            <div class="note" style="color:#8a6a12;">
+              {%- if r._tender.base %}{{ r._tender.base }} + {% else %}+ {% endif -%}
+              {{ r._tender.add }} tender
+            </div>
+          {% endif %}
           {% if r.edited_quantity and r.edited_quantity != r.suggested_quantity %}
             <div class="note">AI suggested: {{ r.suggested_quantity }}</div>
           {% endif %}

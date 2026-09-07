@@ -12,6 +12,7 @@ silently widens or shortens a commitment window, which moves stock the client
 has legally promised to somebody else.
 """
 import datetime
+import difflib
 import math
 import re
 
@@ -88,6 +89,37 @@ MAX_REJECTS_STORED = 50
 
 # Bound the overlap scan. Both a memory and a CPU guard: see find_overlaps.
 MAX_OVERLAPS_REPORTED = 50
+
+# Longest item name we will accept off a tender sheet. A CPU guard first: the
+# ingest layer allows a 100,000-character cell, propose_matches does work that
+# grows with the token count of the name it is matching, and the confirm screen
+# runs it for every row on the page. One pasted blob in an item column would
+# hold the single production worker for minutes and take every other tenant
+# down with it. Real item names on these sheets are short, so 200 is already
+# generous, and a longer value means the wrong column was mapped.
+# Refused with a reason rather than truncated, the same choice the customer
+# name makes at MAX_TENDER_CUSTOMER_CHARS: a silently shortened item name is a
+# mis-match waiting to happen.
+MAX_TENDER_ITEM_CHARS = 200
+
+# Candidates offered per tender row on the confirm screen.
+MATCH_TOP_N = 3
+
+# Below this, offer nothing rather than noise. Measured on real sheets, the
+# correct answers score 0.300, 0.314 and 0.329 while garbage scores 0.28, 0.253
+# and 0.242: the two bands OVERLAP, so no threshold separates them and lowering
+# this globally would inject confident nonsense into the top three. It is not a
+# tuning knob. The one caller that needs a lower floor passes it per call, at
+# render time only, and never on a path that writes.
+MATCH_MIN_SCORE = 0.30
+
+# difflib runs on at most this many candidates per tender row. Without the
+# prescreen, 200 rows against 5,000 names is a million SequenceMatcher calls on
+# one 512 MB worker.
+_MATCH_PRESCREEN = 25
+
+# Contracts named on the expanded card before it says "and N more".
+MAX_ADDON_SOURCES = 3
 
 
 def _norm_header(name) -> str:
@@ -313,8 +345,25 @@ def build_rows(records, customer, period_start, period_end, qty_basis, mapping=N
             continue          # blank spacer row, not an error worth reporting
 
         reason = None
+        # Sliced before normalising so an oversized cell cannot make even this
+        # regex expensive. On an accepted row the slice is a no-op, because the
+        # length check below has already passed.
+        key    = normalise_match_key(item[:MAX_TENDER_ITEM_CHARS + 1])
         if not item:
             reason = "no item name"
+        elif len(item) > MAX_TENDER_ITEM_CHARS:
+            reason = (f"item name is too long (over {MAX_TENDER_ITEM_CHARS} "
+                      "characters), check the column is the right one")
+        elif not key:
+            # A name with no letters or digits ("***", "-----") normalises to
+            # an empty match key. Stored, that row can never be matched to one
+            # of the client's items and can never even be decided: the confirm
+            # screen skips empty keys, while the unmatched count still counts
+            # the row. The banner would then sit at "1 not matched" forever
+            # with nothing the client could do about it, and a warning that
+            # cannot reach zero stops being read at all. Refuse it here, the
+            # same way a blank name is refused.
+            reason = "item name has no letters or numbers"
         elif qty is None:
             reason = "quantity is missing, zero or not a number"
 
@@ -331,7 +380,7 @@ def build_rows(records, customer, period_start, period_end, qty_basis, mapping=N
         rows.append({
             "customer":     customer,
             "item_name":    item,
-            "match_key":    normalise_match_key(item),
+            "match_key":    key,
             "quantity":     qty,
             "period_start": start_iso,
             "period_end":   end_iso,
@@ -391,3 +440,160 @@ def find_overlaps(rows, limit=MAX_OVERLAPS_REPORTED):
                     if len(clashes) >= limit:
                         return clashes
     return clashes
+
+
+# ── Matching a tender line to one of the client's own items ──────────────────
+# The two files carry the same products in a different word order:
+# "SAUCE OYSTER_500GRM/BTL." against "OYSTER SAUCE 500ML". normalise_match_key
+# preserves order, so on a real sheet it matches nothing at all. Token-set
+# overlap is what fixes that. stdlib difflib only, no new dependency.
+#
+# Nothing here decides anything. It produces a shortlist a human confirms:
+# measured against real sheets, most top-1 guesses are right, a handful are
+# ambiguous on pack size (400g against 425g) and a couple are confidently WRONG
+# (one mapped a 400g bottle to a 20kg bag). That last group is why nothing is
+# auto-applied and nothing is pre-selected.
+
+def _match_tokens(name):
+    """Lowercase alphanumeric runs of two characters or more.
+
+    Digits are KEPT on purpose: "500" against "425" is exactly the
+    discriminator a pack-size mismatch needs.
+    """
+    return [t for t in re.split(r"[^a-z0-9]+", str(name).casefold()) if len(t) >= 2]
+
+
+def build_match_index(inventory_names):
+    """One reusable index of the org's item names, built ONCE per page.
+
+    Rebuilding it per tender row would re-tokenise the whole item list 25 times
+    over for a single screen.
+    """
+    names, tokens, by_token = [], [], {}
+    for name in inventory_names:
+        toks = set(_match_tokens(name))
+        for t in toks:
+            by_token.setdefault(t, []).append(len(names))
+        names.append(name)
+        tokens.append(toks)
+    return {"names": names, "tokens": tokens, "by_token": by_token}
+
+
+def propose_matches(tender_item, index, top_n=MATCH_TOP_N, min_score=MATCH_MIN_SCORE):
+    """Best guesses at which item a tender line refers to, best first.
+
+    Returns [{"name": str, "score": float}, ...], or [] for empty input, an
+    empty index or a name with no usable tokens. Never raises: this runs while
+    rendering a page and a stray cell in the client's sheet must not 500 it.
+
+    min_score is a parameter for exactly ONE caller, the confirm screen's
+    zero-candidate fallback, which lowers it to show the nearest names to a
+    human who is looking at the row. Nothing that stores a decision may pass it.
+    """
+    if not isinstance(index, dict) or not index.get("names"):
+        return []
+    wanted = set(_match_tokens(tender_item))
+    if not wanted:
+        return []
+
+    # Candidate set = rows sharing at least one token, with the overlap count
+    # already counted on the way in.
+    overlap = {}
+    for t in wanted:
+        for idx in index["by_token"].get(t, ()):
+            overlap[idx] = overlap.get(idx, 0) + 1
+    if not overlap:
+        return []
+
+    def _jaccard(idx):
+        union = len(wanted | index["tokens"][idx])
+        return (overlap[idx] / union) if union else 0.0
+
+    # Prescreen on the cheap measures, then run difflib on the survivors only.
+    ranked = sorted(overlap,
+                    key=lambda i: (-overlap[i], -_jaccard(i), index["names"][i]))
+    # Sorting the tokens before the ratio is what makes word order stop
+    # mattering: two sheets naming the same product in a different order
+    # produce the same string here. Built ONCE: it does not vary with the
+    # candidate, and rebuilding it inside the loop sorted the same token set
+    # 25 times per row for nothing.
+    wanted_str = " ".join(sorted(wanted))
+    scored = []
+    for idx in ranked[:_MATCH_PRESCREEN]:
+        ratio = difflib.SequenceMatcher(
+            None, wanted_str,
+            " ".join(sorted(index["tokens"][idx]))).ratio()
+        score = round(0.65 * _jaccard(idx) + 0.35 * ratio, 3)
+        if score >= min_score:
+            scored.append({"name": index["names"][idx], "score": score})
+    scored.sort(key=lambda c: (-c["score"], c["name"]))
+    return scored[:top_n]
+
+
+def tender_addons(matched_rows, today_iso):
+    """Confirmed monthly tender volume per item: {inventory_key: {...}}.
+
+    matched_rows is get_matched_tender_commitments output, so every row here
+    already carries a human decision. Order of operations matters and it is
+    filter, then de-duplicate, then sum.
+
+    Each value is {"qty": float, "sources": [...], "count": int}, where sources
+    is capped at MAX_ADDON_SOURCES and count is the number of contracts behind
+    the figure, so the card can say "and N more" truthfully.
+    """
+    out, seen = {}, set()
+    for row in matched_rows:
+        start, end = row["period_start"], row["period_end"]
+        # 1. Live only. Ended and not-yet-started contribute zero.
+        if not (start <= today_iso <= end):
+            continue
+
+        # 2. De-duplicate, first row wins. save_tender_rows is a plain INSERT
+        # and tender_commitments has no UNIQUE constraint, so uploading the
+        # same sheet twice appends a second full set of rows. Both sets join to
+        # the ONE mapping row, and a 100/month contract would render as
+        # "200 + 200" on the results page, the printed PO and the CSV.
+        # Keyed on match_key, not inventory_key: a re-upload carries identical
+        # tender text so it still de-dupes, while two genuinely different
+        # tender lines a human mapped to the same item still sum correctly.
+        # customer is deliberately OUT of the key, or a re-upload typed
+        # "NORDVIK" once and "NORDVIK PTE LTD" the next time would evade the
+        # dedupe entirely.
+        # The trade: a genuine SECOND customer with an identical item, period,
+        # quantity and basis is under-counted. That is the right way to be
+        # wrong here. Under-counting fails visible (a stockout she can see and
+        # react to); over-counting fails expensive (a doubled PO she has
+        # already paid for).
+        try:
+            qty_part = round(float(row["quantity"]), 4)
+        except (TypeError, ValueError):
+            qty_part = row["quantity"]
+        fingerprint = (row["match_key"], start, end, qty_part, row.get("qty_basis"))
+        if fingerprint in seen:
+            continue
+        seen.add(fingerprint)
+
+        # 3. Sum. monthly_rate is the ONLY source of the per-month figure, and
+        # it returns None for an unstated basis or an unreadable date. None
+        # contributes ZERO and names no contract: a row we cannot rate is not
+        # evidence of a quantity, and guessing one is the whole failure this
+        # feature exists to avoid.
+        rate = monthly_rate(row["quantity"], row.get("qty_basis"), start, end)
+        if rate is None:
+            continue
+
+        # 4. count and sources come from the SURVIVING rows only, so "and N
+        # more" reports contracts rather than duplicate uploads.
+        entry = out.setdefault(row["inventory_key"],
+                               {"qty": 0.0, "sources": [], "count": 0})
+        entry["qty"] += rate
+        entry["count"] += 1
+        if len(entry["sources"]) < MAX_ADDON_SOURCES:
+            # "item" is the name as the ORG knows it, not the text on the
+            # customer's sheet: the only reader of it is the "contracted but
+            # not recommended" list, and a human looks that up in their own
+            # system.
+            entry["sources"].append({"customer":   row.get("customer") or "",
+                                     "item":       row.get("inventory_item") or "",
+                                     "period_end": end})
+    return out

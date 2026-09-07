@@ -2,6 +2,8 @@
 order-by date, supplier grouping, confidence reasons. Extracted verbatim from app.py."""
 from datetime import datetime, timedelta
 
+import quantity
+
 
 _CONFIDENCE_ALIASES = {
     "MED":          "MEDIUM",
@@ -321,3 +323,63 @@ def _quantity_basis(rec):
                          else "expected demand plus a safety buffer")
         sentence += f" Suggested order: {qty_str} — covers {buffer_phrase}."
     return sentence
+
+
+def _tender_split(rec, addon):
+    """Display pieces for a "base + tender" quantity, or None to change nothing.
+
+    `addon` is one value out of tenders.tender_addons: a confirmed, live
+    monthly tender volume for this item. None means the template renders
+    exactly what it renders today, which is the right answer in three cases:
+
+      - there is no confirmed live tender volume for this item at all;
+      - the monthly rate rounds to zero. A rate under half a unit cannot change
+        an order, and rounding it up to 1 would be inventing stock;
+      - the BASE rounds to zero. The two save routes accept an edited quantity
+        of "0" on purpose, which is a human saying "do not order this", and a
+        contract must not quietly turn that back into a real order on the
+        printed sheet or in the CSV. int(round(...)) rather than == 0.0 avoids
+        float equality and also catches a 0.4 base, which already displays
+        as "0".
+
+    The base and the addend stay two separate numbers all the way here: the
+    arithmetic is Python's, post-pipeline, and the model never sees a tender
+    figure.
+    """
+    if not isinstance(rec, dict) or not isinstance(addon, dict):
+        return None
+    try:
+        add_num = float(addon.get("qty") or 0)
+    except (TypeError, ValueError):
+        return None
+    add_int = int(round(add_num)) if add_num > 0 else 0
+    if add_int == 0:
+        return None
+
+    base_num = quantity.parse_quantity(_effective_qty(rec))
+    if base_num is not None and int(round(base_num)) == 0:
+        return None
+
+    # No " units" default: uom_label is absent on recs whose name drifted, and
+    # inventing a unit on a printed purchase order is worse than a bare number.
+    unit = rec.get("uom_label") or ""
+    sources = addon.get("sources") or []
+    try:
+        count = int(addon.get("count") or 0)
+    except (TypeError, ValueError):
+        count = len(sources)
+
+    split = {"base":    "",
+             "add":     str(add_int),
+             "total":   "",
+             "unit":    unit,
+             "sources": sources,
+             "more":    max(0, count - len(sources))}
+    if base_num is None:
+        # The sanitiser's "Verify with team" case: we refused to state a
+        # quantity, so we must not invent a total out of the tender number.
+        return split
+    base_int = int(round(base_num))
+    split["base"]  = str(base_int)
+    split["total"] = f"{base_int + add_int}{unit}"
+    return split
