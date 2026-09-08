@@ -92,35 +92,28 @@ MAX_OVERLAPS_REPORTED = 50
 
 # Longest item name we will accept off a tender sheet. A CPU guard first: the
 # ingest layer allows a 100,000-character cell, propose_matches does work that
-# grows with the token count of the name it is matching, and the confirm screen
-# runs it for every row on the page. One pasted blob in an item column would
+# grows with the token count of the name it is matching, and automatic pairing
+# runs it for every selected row. One pasted blob in an item column would
 # hold the single production worker for minutes and take every other tenant
-# down with it. Real item names on these sheets are short, so 200 is already
-# generous, and a longer value means the wrong column was mapped.
+# down with it. The cap is generous for an item label, and a longer value means
+# the wrong column was mapped.
 # Refused with a reason rather than truncated, the same choice the customer
 # name makes at MAX_TENDER_CUSTOMER_CHARS: a silently shortened item name is a
 # mis-match waiting to happen.
 MAX_TENDER_ITEM_CHARS = 200
 
-# Candidates offered per tender row on the confirm screen.
+# Default number of ranked candidates returned by the pure matching helper.
 MATCH_TOP_N = 3
 
-# Below this, offer nothing rather than noise. Measured on real sheets, the
-# correct answers score 0.300, 0.314 and 0.329 while garbage scores 0.28, 0.253
-# and 0.242: the two bands OVERLAP, so no threshold separates them and lowering
-# this globally would inject confident nonsense into the top three. It is not a
-# tuning knob. The one caller that needs a lower floor passes it per call, at
-# render time only, and never on a path that writes.
+# Below this, return nothing rather than noise. Wrong and correct guesses can
+# occupy the same score band, so the threshold is only a plausibility floor.
+# It cannot replace the source disclosure printed beside an automatic add-on.
 MATCH_MIN_SCORE = 0.30
 
 # difflib runs on at most this many candidates per tender row. Without the
 # prescreen, 200 rows against 5,000 names is a million SequenceMatcher calls on
 # one 512 MB worker.
 _MATCH_PRESCREEN = 25
-
-# Contracts named on the expanded card before it says "and N more".
-MAX_ADDON_SOURCES = 3
-
 
 def _norm_header(name) -> str:
     return _NOT_ALNUM.sub("", str(name).casefold())
@@ -357,8 +350,8 @@ def build_rows(records, customer, period_start, period_end, qty_basis, mapping=N
         elif not key:
             # A name with no letters or digits ("***", "-----") normalises to
             # an empty match key. Stored, that row can never be matched to one
-            # of the client's items and can never even be decided: the confirm
-            # screen skips empty keys, while the unmatched count still counts
+            # of the client's items and can never even be corrected: the form
+            # skips empty keys, while the unmatched count still counts
             # the row. The banner would then sit at "1 not matched" forever
             # with nothing the client could do about it, and a warning that
             # cannot reach zero stops being read at all. Refuse it here, the
@@ -443,16 +436,13 @@ def find_overlaps(rows, limit=MAX_OVERLAPS_REPORTED):
 
 
 # ── Matching a tender line to one of the client's own items ──────────────────
-# The two files carry the same products in a different word order:
-# "SAUCE OYSTER_500GRM/BTL." against "OYSTER SAUCE 500ML". normalise_match_key
-# preserves order, so on a real sheet it matches nothing at all. Token-set
-# overlap is what fixes that. stdlib difflib only, no new dependency.
+# Customer and inventory files can name the same product in a different word
+# order. normalise_match_key preserves order, so token-set overlap is used here.
+# stdlib difflib only, no new dependency.
 #
-# Nothing here decides anything. It produces a shortlist a human confirms:
-# measured against real sheets, most top-1 guesses are right, a handful are
-# ambiguous on pack size (400g against 425g) and a couple are confidently WRONG
-# (one mapped a 400g bottle to a 20kg bag). That last group is why nothing is
-# auto-applied and nothing is pre-selected.
+# auto_match stores the top plausible candidate without a separate confirmation
+# step. Wrong and correct candidates can score in the same band, so every order
+# surface names the raw tender line behind the added quantity.
 
 def _match_tokens(name):
     """Lowercase alphanumeric runs of two characters or more.
@@ -464,10 +454,10 @@ def _match_tokens(name):
 
 
 def build_match_index(inventory_names):
-    """One reusable index of the org's item names, built ONCE per page.
+    """One reusable index of the org's item names, built once per operation.
 
-    Rebuilding it per tender row would re-tokenise the whole item list 25 times
-    over for a single screen.
+    Rebuilding it per tender row would repeatedly re-tokenise the whole item
+    list during one upload or correction-page render.
     """
     names, tokens, by_token = [], [], {}
     for name in inventory_names:
@@ -483,12 +473,11 @@ def propose_matches(tender_item, index, top_n=MATCH_TOP_N, min_score=MATCH_MIN_S
     """Best guesses at which item a tender line refers to, best first.
 
     Returns [{"name": str, "score": float}, ...], or [] for empty input, an
-    empty index or a name with no usable tokens. Never raises: this runs while
-    rendering a page and a stray cell in the client's sheet must not 500 it.
+    empty index or a name with no usable tokens. Never raises: this runs during
+    upload, and a stray cell in the client's sheet must not abort the import.
 
-    min_score is a parameter for exactly ONE caller, the confirm screen's
-    zero-candidate fallback, which lowers it to show the nearest names to a
-    human who is looking at the row. Nothing that stores a decision may pass it.
+    The production write path uses MATCH_MIN_SCORE. The parameter remains for
+    deterministic helper tests without changing the matching policy.
     """
     if not isinstance(index, dict) or not index.get("names"):
         return []
@@ -530,6 +519,35 @@ def propose_matches(tender_item, index, top_n=MATCH_TOP_N, min_score=MATCH_MIN_S
     return scored[:top_n]
 
 
+def auto_match(rows, index, min_score=MATCH_MIN_SCORE):
+    """Best candidate per tender row: {match_key: inventory item name}.
+
+    Deliberately NOT a confirmation step. The client asked for a tender to land
+    on the printed order sheet without anyone pairing items up first, so the
+    pairing is GUESSED here and the guess is printed beside the quantity it
+    produced. A wrong pairing is caught by a human reading the order sheet,
+    which is a place they already look, instead of being prevented by a screen
+    they have to visit and complete.
+
+    That trade is deliberate and it is not free. Real wrong guesses can score
+    inside the same band as correct guesses, so neither a threshold nor a
+    confidence-gap rule makes the source line optional. Anything that reaches
+    the sheet is only as safe as the source line printed under it.
+
+    Rows nothing comes close to get no entry at all, and so add nothing.
+    """
+    out = {}
+    for r in rows:
+        key = r.get("match_key")
+        if not key or key in out:
+            continue
+        best = propose_matches(r.get("item_name") or "", index, top_n=1,
+                               min_score=min_score)
+        if best:
+            out[key] = best[0]["name"]
+    return out
+
+
 def tender_addons(matched_rows, today_iso):
     """Confirmed monthly tender volume per item: {inventory_key: {...}}.
 
@@ -537,9 +555,9 @@ def tender_addons(matched_rows, today_iso):
     already carries a human decision. Order of operations matters and it is
     filter, then de-duplicate, then sum.
 
-    Each value is {"qty": float, "sources": [...], "count": int}, where sources
-    is capped at MAX_ADDON_SOURCES and count is the number of contracts behind
-    the figure, so the card can say "and N more" truthfully.
+    Each value is {"qty": float, "sources": [...], "count": int}. Every
+    de-duplicated row that contributes to the figure remains in sources so each
+    order surface can name the full audit trail behind the add-on.
     """
     out, seen = {}, set()
     for row in matched_rows:
@@ -582,18 +600,21 @@ def tender_addons(matched_rows, today_iso):
         if rate is None:
             continue
 
-        # 4. count and sources come from the SURVIVING rows only, so "and N
-        # more" reports contracts rather than duplicate uploads.
+        # 4. count and sources come from the SURVIVING rows only, so duplicate
+        # uploads neither inflate the add-on nor repeat its audit trail.
         entry = out.setdefault(row["inventory_key"],
                                {"qty": 0.0, "sources": [], "count": 0})
         entry["qty"] += rate
         entry["count"] += 1
-        if len(entry["sources"]) < MAX_ADDON_SOURCES:
-            # "item" is the name as the ORG knows it, not the text on the
-            # customer's sheet: the only reader of it is the "contracted but
-            # not recommended" list, and a human looks that up in their own
-            # system.
-            entry["sources"].append({"customer":   row.get("customer") or "",
-                                     "item":       row.get("inventory_item") or "",
-                                     "period_end": end})
+        # Two names on purpose. "item" is the name as the ORG knows it,
+        # for the "contracted but not recommended" list, which a human
+        # looks up in their own system. "tender_item" is the raw text off
+        # the customer's sheet, and it is printed under the quantity on the
+        # order sheet: since the pairing is guessed rather than confirmed,
+        # showing every contributing line is the ONLY thing standing between
+        # a wrong guess and a wrong order.
+        entry["sources"].append({"customer":    row.get("customer") or "",
+                                 "item":        row.get("inventory_item") or "",
+                                 "tender_item": row.get("item_name") or "",
+                                 "period_end":  end})
     return out

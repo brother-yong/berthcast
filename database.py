@@ -343,16 +343,14 @@ def init_db():
         # upload row so the collapsed summary line can name it without opening
         # the sheet. tender_commitments.customer stays the source of truth.
         "ALTER TABLE tender_uploads ADD COLUMN customer TEXT",
-        # One human decision per tender line: "this row on their sheet means
-        # this item of ours". Keyed on tender_key (the sheet's
+        # One stored pairing per tender line: "this row on their sheet means
+        # this item of ours". Upload may guess it and a person may correct or
+        # clear it. Keyed on tender_key (the sheet's
         # normalise_match_key), NOT on a commitment id: re-uploading a
         # corrected sheet is the documented fix for a bad row, and that deletes
         # and recreates every commitment row, so an id-keyed table would throw
-        # away all 25 confirmations on every re-upload. Text-keyed, the one
-        # thing a human actually decided survives the re-upload.
-        # A row only exists here because a human made a decision -- there is no
-        # "proposed" state on purpose, so "not decided adds zero" is true by
-        # construction rather than by a status column a bug could misread.
+        # away saved pairings on every re-upload. Text-keyed, an automatic guess
+        # or human correction survives; confirmed_by distinguishes the two.
         # An inventory_key of '' is the SENTINEL for "we do not stock this". It
         # is a decision, so it is a row; it adds nothing, so every read that
         # feeds arithmetic filters it out (see get_matched_tender_commitments).
@@ -1860,11 +1858,11 @@ def get_tender_commitments(org_name: str, upload_id: int = None,
     if upload_id is None:
         args = (org_name,) if limit is None else (org_name, int(limit))
         return query("SELECT * FROM tender_commitments WHERE org_name=? "
-                     "ORDER BY customer, item_name, period_start" + tail, args)
+                     "ORDER BY customer, item_name, period_start, id" + tail, args)
     args = ((org_name, upload_id) if limit is None
             else (org_name, upload_id, int(limit)))
     return query("SELECT * FROM tender_commitments WHERE org_name=? AND upload_id=? "
-                 "ORDER BY customer, item_name, period_start" + tail, args)
+                 "ORDER BY customer, item_name, period_start, id" + tail, args)
 
 
 def delete_tender_upload(org_name: str, upload_id: int) -> None:
@@ -1910,8 +1908,11 @@ def save_tender_match(org_name: str, tender_key: str, tender_item: str,
 
 
 def delete_tender_match(org_name: str, tender_key: str) -> None:
-    """Back to "not decided yet". The row goes, so the unmatched count sees it
-    again -- that is the difference between "not reviewed" and "not stocked"."""
+    """Remove historical mapping state for diagnostics or data repair only.
+
+    The correction route must never use this to clear a pairing. It stores the
+    empty-key sentinel so a re-upload cannot silently restore the guess.
+    """
     # org_name is the entire tenancy boundary on this path. NOT NULL accepts
     # an empty string, so a blank key would become a real filter value here
     # rather than being rejected. Refused explicitly, at the layer that can
@@ -1925,9 +1926,8 @@ def delete_tender_match(org_name: str, tender_key: str) -> None:
 def get_tender_matches(org_name: str, limit: int = None) -> list:
     """Every decision this org has made, sentinel rows INCLUDED.
 
-    The confirm screen and the /tenders column both have to show "we do not
-    stock this", so this read cannot filter it. Only the read that feeds
-    arithmetic does.
+    Diagnostics and the /tenders correction column must see stored clears, so
+    this read cannot filter the sentinel. Only the arithmetic read does.
     """
     # org_name is the entire tenancy boundary on this path. NOT NULL accepts
     # an empty string, so a blank key would become a real filter value here
@@ -1941,8 +1941,42 @@ def get_tender_matches(org_name: str, limit: int = None) -> list:
                  "ORDER BY tender_key" + tail, args)
 
 
+def get_current_tender_matches(org_name: str, limit: int,
+                               upload_id: int = None) -> list:
+    """Decisions for tender keys that occur in a currently stored sheet.
+
+    Historical decisions stay stored so they can reactivate after a re-upload,
+    but they must not consume a bounded read before current decisions are seen.
+    Sentinel rows are included because a stored clear is still a decision.
+
+    The distinct-key subquery is materialised once before the join. A correlated
+    EXISTS would rescan commitments for every historical mapping and can reach
+    the worker watchdog at the org row ceiling.
+    """
+    if not org_name:
+        return []
+    limit = int(limit)
+    if limit <= 0:
+        return []
+    if upload_id is not None:
+        upload_id = int(upload_id)
+    return query(
+        "SELECT m.* "
+        "FROM tender_item_matches m "
+        "JOIN ("
+        "    SELECT DISTINCT match_key "
+        "    FROM tender_commitments "
+        "    WHERE org_name = ? "
+        "      AND (? IS NULL OR upload_id = ?)"
+        ") current_keys ON current_keys.match_key = m.tender_key "
+        "WHERE m.org_name = ? "
+        "ORDER BY m.tender_key "
+        "LIMIT ?",
+        (org_name, upload_id, upload_id, org_name, limit))
+
+
 def get_matched_tender_commitments(org_name: str, limit: int = None) -> list:
-    """Commitment rows a human has paired with one of the org's own items.
+    """Commitment rows paired with an org item, automatically or by a person.
 
     org_name is on BOTH sides of the join: a join alone is not a tenancy check.
     The sentinel filter sits in the WHERE and not in the ON, so this is the one
@@ -1979,8 +2013,8 @@ def count_unmatched_tender_commitments(org_name: str, today_iso: str) -> int:
 
     A row whose match_key is empty is excluded for the same reason. build_rows
     refuses those now, but rows written before it did are still in the table,
-    and the confirm screen skips them, so counting one would nag about a row
-    nobody can ever decide. A banner that cannot reach zero stops being read.
+    and no correction input can represent them, so counting one would nag about
+    a row nobody can ever decide. A banner that cannot reach zero stops being read.
     """
     # org_name is the entire tenancy boundary on this path. NOT NULL accepts
     # an empty string, so a blank key would become a real filter value here

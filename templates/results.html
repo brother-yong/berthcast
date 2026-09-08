@@ -417,11 +417,17 @@
                   {% if rec._tender %}
                   <div class="rec-tender-line">
                     <span class="qty-tender">+ {{ rec._tender.add }}</span>
-                    {%- if rec._tender.sources %} for the tender with {{ rec._tender.sources[0].customer }}
-                      {%- if rec._tender.more %} and {{ rec._tender.more }} more{% endif -%}
-                      , running to {{ rec._tender.sources[0].period_end }}
-                    {%- endif -%}.
+                    for current tender commitments.
                     {% if rec._tender.total %}Order {{ rec._tender.total }} in total.{% endif %}
+                    {# Pairings may be guessed. Name every contributing line so
+                       a wrong guess is visible where the number is read. #}
+                    {% for source in rec._tender.sources %}
+                    <div style="color:var(--muted); font-size:12.5px;">
+                      from tender line: {{ source.tender_item }}
+                      {%- if source.customer %} ({{ source.customer }}){% endif -%}
+                      {%- if source.period_end %}, running to {{ source.period_end }}{% endif -%}
+                    </div>
+                    {% endfor %}
                   </div>
                   {% endif %}
                 </div>
@@ -682,9 +688,9 @@
       <p style="font-size:14px; color:var(--muted); margin:0;">
         {{ tender_block.total }} commitment{{ 's' if tender_block.total != 1 }} running right now.
         This stock is already promised to a customer. Rows you have matched to one of your
-        own items are added on top of that item's order quantity, in gold. Rows you have not
-        decided on yet add nothing.
-        <a href="{{ url_for('tenders_match') }}" style="color:var(--brass);">Match tender items →</a>
+        own items are added on top of that item's order quantity, in gold. We match them
+        automatically and print the tender line beside the quantity, so check it before
+        you order. Rows we could not match add nothing.
         <a href="{{ tender_block.url }}" style="color:var(--brass);">Manage sheets →</a>
       </p>
     </div>

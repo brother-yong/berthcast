@@ -3186,8 +3186,9 @@ def export_csv(upload_session_id):
     # The add-on sits next to the quantity it is part of, so the two numbers are
     # read together.
     writer.writerow([
-        "Item", "On Hand", "Qty To Order", "Tender Add-On", "Supplier",
-        "Order By", "Current Stock Lasts (months)", "This Order Lasts (months)", "Notes"
+        "Item", "On Hand", "Qty To Order", "Tender Add-On", "Tender Source",
+        "Supplier", "Order By", "Current Stock Lasts (months)",
+        "This Order Lasts (months)", "Notes"
     ])
     # Free-text columns come from uploaded files and the model, so they're run
     # through csv_safe_cell to neutralise spreadsheet formula injection. The
@@ -3210,16 +3211,22 @@ def export_csv(upload_session_id):
         split = _tender_split(
             r, _addons.get(normalise_match_key(str(r.get("item", "")))))
         add_on = ""
+        tender_source = ""
         if split:
             add_on = split["add"]
             if split["total"]:
                 qty = split["total"]
+            tender_source = "; ".join(
+                ((str(source.get("tender_item") or "")
+                  + (f" ({source.get('customer')})" if source.get("customer") else "")))
+                for source in split.get("sources", []))
         covers = _order_covers_months(r)
         writer.writerow([
             _safe(r.get("item", "")),
             _safe("" if on_hand in (None, "") else on_hand),
             _safe(qty),
             add_on,
+            _safe(tender_source),
             _safe(_effective_supplier(r)),
             _order_by_text(r),
             runway,
@@ -3819,12 +3826,18 @@ MAX_TENDER_ROWS_PER_ORG = 20_000
 TENDER_RESULTS_ROWS = 25
 MAX_TENDER_CUSTOMER_CHARS = 120
 
-# The org's item universe for the match screen. A real item list runs to a few
-# hundred names; the cap is the 512 MB worker's guard, not a product limit.
+# The org's item universe for automatic pairing and inline corrections. The cap
+# protects the 512 MB worker; it is not a product limit.
 MAX_MATCH_ITEMS = 5_000
 
-# Commitment texts offered on one match screen. A real sheet is a few dozen
-# rows, so this is headroom rather than a limit anyone should meet.
+# Written into tender_item_matches.confirmed_by when the pairing was guessed
+# rather than chosen by a person. It is what tells a re-upload which rows it
+# may re-guess and which a human has already settled.
+TENDER_MATCH_AUTO = "auto"
+
+# Commitment texts offered when correcting pairings on the tenders page. A real
+# sheet is a few dozen rows, so this is headroom rather than a limit anyone
+# should meet.
 MAX_MATCH_ROWS  = 200
 
 
@@ -3894,10 +3907,9 @@ def _org_item_names(org_name):
 
     Not an arbitrary source: agents/recommendation.py builds every rec from
     inv_item["item"], so matching against this exact list is what guarantees a
-    confirmed pairing can actually join to a recommendation later. Its SIZE
-    varies a lot with which file a client uploads as their inventory, and a
-    shorter list leaves more tender rows with no candidate at all, which is why
-    the match screen has a fallback for rows nothing comes close to.
+    stored pairing can actually join to a recommendation later. Its size varies
+    with which file a client uploads as inventory, and a shorter list leaves
+    more tender rows with no plausible candidate.
 
     Same explicit guard _tender_results_block and _expiry_snapshot carry:
     org_name is the entire isolation boundary here, so a blank tenant key is
@@ -3926,7 +3938,15 @@ def _org_item_names(org_name):
         if not isinstance(entry, dict):
             continue
         name = str(entry.get("item") or "").strip()
-        if not name or name in seen:
+        # A name with no letters or digits (a "-----" spacer row that survived
+        # the pipeline) normalises to "", which IS the "adds nothing" sentinel
+        # stored in tender_item_matches.inventory_key. Left in this list, the
+        # automatic pairing could pick it, write the sentinel, and leave the
+        # tenders page showing "matched to -----" on a line contributing zero,
+        # counted as decided although nobody decided it. Dropped at the source,
+        # so both readers of this list (the pairing index and the correction
+        # resolver) are covered by one rule.
+        if not name or name in seen or not normalise_match_key(name):
             continue
         seen.add(name)
         names.append(name)
@@ -3936,11 +3956,10 @@ def _org_item_names(org_name):
 
 
 def _tender_addon_map(org_name):
-    """Confirmed, live tender volume per item key, or {}.
+    """Paired, live tender volume per item key, or {}.
 
-    Empty for a blank org without touching the database. Empty too when nobody
-    has confirmed anything: only the confirm route ever writes a pairing row,
-    so an unreviewed tender sheet adds zero by construction.
+    Empty for a blank org without touching the database. Automatic guesses and
+    human corrections can contribute; unpaired rows and stored clears add zero.
     """
     if not org_name:
         return {}
@@ -3983,12 +4002,11 @@ def tenders_page():
     # Stamped inside the existing loop rather than in a second pass: the page
     # already walks every row once and a tenth of a second per page load is not
     # worth a second walk.
-    matched_by_key = {m["tender_key"]: m
-                      for m in db.get_tender_matches(org, limit=MAX_TENDER_ROWS_PER_ORG)}
     by_upload, active_count = {}, 0
     for r in rows:
         row = _shape_tender_row(r, today)
-        row["match"] = matched_by_key.get(row["match_key"])
+        row["match"] = None
+        row["match_editable"] = False
         active_count += 1 if row["active"] else 0
         by_upload.setdefault(row["upload_id"], []).append(row)
 
@@ -4008,6 +4026,48 @@ def tenders_page():
             first = by_upload.get(u["id"]) or []
             u["customer"] = first[0]["customer"] if first else ""
 
+    # Build the correction state once. Each upload gets its own deterministic
+    # first 200 distinct keys, which is the exact same scope the POST accepts.
+    # Wrapped, because a broken item list or match read must cost the user the
+    # ability to CORRECT a pairing, never the ability to see their sheets.
+    corrections_available = False
+    try:
+        # Scoped per upload, the exact same read the POST does. An org-wide read
+        # truncates at the row cap, and a genuinely paired row that renders blank
+        # because of truncation gets CLEARED by an unchanged submit.
+        matched_by_key = {}
+        editable_rows = []
+        for u_id, upload_rows in by_upload.items():
+            per_upload = {m["tender_key"]: m for m in
+                          db.get_current_tender_matches(
+                              org, limit=MAX_TENDER_ROWS_PER_ORG,
+                              upload_id=u_id)}
+            matched_by_key.update(per_upload)
+            for row in upload_rows:
+                row["match"] = per_upload.get(row["match_key"])
+            selected = _tender_match_rows(upload_rows)
+            for row in selected:
+                row["match_editable"] = True
+            editable_rows.extend(selected)
+
+        item_names = _org_item_names(org)
+        match_options = {}
+        for row in editable_rows:
+            match = matched_by_key.get(row["match_key"])
+            match_options[row["match_key"]] = {
+                "chosen": (match["inventory_item"]
+                           if match and match["inventory_key"] else ""),
+                "auto": (bool(match) and
+                         (match["confirmed_by"] or "") == TENDER_MATCH_AUTO),
+            }
+        corrections_available = True
+    except Exception:
+        logger.warning("Tender match options failed for org", exc_info=True)
+        item_names, match_options = [], {}
+        for upload_rows in by_upload.values():
+            for row in upload_rows:
+                row["match_editable"] = False
+
     return render_template(
         "tenders.html",
         uploads=uploads,
@@ -4017,6 +4077,10 @@ def tenders_page():
         overlaps=tenders.find_overlaps([dict(r) for r in rows]),
         overlap_limit=tenders.MAX_OVERLAPS_REPORTED,
         unmatched_count=db.count_unmatched_tender_commitments(org, today),
+        item_names=item_names,
+        match_options=match_options,
+        corrections_available=corrections_available,
+        match_row_limit=MAX_MATCH_ROWS,
         org_name=org,
     )
 
@@ -4140,6 +4204,59 @@ def tenders_upload():
         # every data row in the sheet.
         db.finalise_tender_upload(org, upload_id, len(rows), len(rejects),
                                   json.dumps(rejects[:tenders.MAX_REJECTS_STORED]))
+        # Pair each tender line to one of the org's own items right here, so
+        # nothing is asked of the person uploading. The tender sheet carries
+        # the CUSTOMER's item names, which never match the org's own, so
+        # without this the sheet contributes nothing to any order quantity.
+        # The guess is printed under the quantity it produces, on the order
+        # sheet itself: see tenders.auto_match for why that line, and not a
+        # confirmation step, is what makes a wrong guess catchable.
+        # Its own try/except because a failed pairing must cost the user their
+        # add-ons, never their upload: the rows are already saved and correct.
+        try:
+            uploaded_rows = db.get_tender_commitments(
+                org, upload_id=upload_id, limit=MAX_TENDER_ROWS_PER_ORG)
+            match_rows = _tender_match_rows(uploaded_rows)
+            _auto = tenders.auto_match(
+                match_rows, tenders.build_match_index(_org_item_names(org)))
+            # A human correction outlives any later upload. Only rows still
+            # carrying the guess are re-guessed: someone who fixed a bad
+            # pairing once must not have to fix it again every time the sheet
+            # is re-sent, which is exactly what an unconditional upsert here
+            # would cost them.
+            _human = {m["tender_key"] for m in db.get_current_tender_matches(
+                          org, limit=MAX_TENDER_ROWS_PER_ORG, upload_id=upload_id)
+                      if (m["confirmed_by"] or "") != TENDER_MATCH_AUTO}
+            _name_by_key = {r["match_key"]: r["item_name"] for r in match_rows}
+            for _key, _name in _auto.items():
+                if _key in _human:
+                    continue
+                db.save_tender_match(org, _key, _name_by_key.get(_key, ""),
+                                     _name, normalise_match_key(_name),
+                                     TENDER_MATCH_AUTO)
+        except Exception:
+            logger.warning("Auto-match failed for tender upload %s", upload_id,
+                           exc_info=True)
+
+        # The upload message describes what is actually stored, including a
+        # partial auto-save and any human decision preserved from an old sheet.
+        # A failed read omits the count instead of inventing zero.
+        pairing_summary = None
+        try:
+            uploaded_rows = db.get_tender_commitments(
+                org, upload_id=upload_id, limit=MAX_TENDER_ROWS_PER_ORG)
+            persisted_matches = db.get_current_tender_matches(
+                org, limit=MAX_TENDER_ROWS_PER_ORG, upload_id=upload_id)
+            distinct_keys = {r["match_key"] for r in uploaded_rows
+                             if r.get("match_key")}
+            active_keys = {m["tender_key"] for m in persisted_matches
+                           if m.get("inventory_key")}
+            paired = len(distinct_keys & active_keys)
+            pairing_summary = (paired, len(distinct_keys),
+                               len(distinct_keys) - paired)
+        except Exception:
+            logger.warning("Could not read stored matches for tender upload %s",
+                           upload_id, exc_info=True)
     except Exception:
         logger.exception("Tender upload failed for org %s", org)
         db.delete_tender_upload(org, upload_id)
@@ -4161,11 +4278,22 @@ def tenders_upload():
 
     if rows:
         msg = f"Imported {len(rows)} tender row{'' if len(rows) == 1 else 's'}."
+        if pairing_summary is not None:
+            paired, total, not_adding = pairing_summary
+            label = "item name" if total == 1 else "item names"
+            msg += (f" {paired} of {total} distinct tender {label} "
+                    f"{'has' if paired == 1 else 'have'} a stored pairing and "
+                    "will be added to your order quantities.")
+            if not_adding:
+                remaining = "name" if not_adding == 1 else "names"
+                msg += (f" {not_adding} {remaining} "
+                        f"{'is' if not_adding == 1 else 'are'} unpaired or cleared "
+                        f"and {'adds' if not_adding == 1 else 'add'} nothing.")
         if rejects:
-            msg += f" {len(rejects)} row{'' if len(rejects) == 1 else 's'} skipped — see below."
+            msg += f" {len(rejects)} row{'' if len(rejects) == 1 else 's'} skipped, see below."
         flash(msg, "success")
     else:
-        flash("No usable rows in that file — every row was skipped. See the reasons below.",
+        flash("No usable rows in that file, every row was skipped. See the reasons below.",
               "error")
     return redirect(url_for("tenders_page"))
 
@@ -4190,93 +4318,23 @@ def tenders_delete():
     return redirect(url_for("tenders_page"))
 
 
-@app.route("/tenders/match")
-@login_required
-def tenders_match():
-    """Decide which of the org's own items each tender line refers to.
-
-    This screen is the only way a tender quantity ever reaches an order
-    quantity. Nothing is pre-selected: measured against real sheets, a small
-    but real share of top-1 guesses are confidently wrong (one mapped a 400g
-    bottle to a 20kg bag) and more again are ambiguous on pack size, so a
-    pre-ticked radio would turn the review into a click-through and let a wrong
-    pairing sail past.
-
-    A viewer may read it; the template hides the form for them, the same check
-    tenders.html already makes.
-    """
-    org = session["org_name"]
-    if not org:
-        return redirect(url_for("tenders_page"))
-
-    rows  = _tender_match_rows(
-        db.get_tender_commitments(org, limit=MAX_TENDER_ROWS_PER_ORG))
-    saved = {m["tender_key"]: m
-             for m in db.get_tender_matches(org, limit=MAX_TENDER_ROWS_PER_ORG)}
-    names = _org_item_names(org)
-    index = tenders.build_match_index(names)
-
-    items = []
-    for r in rows:
-        match = saved.get(r["match_key"])
-        candidates = tenders.propose_matches(r["item_name"], index)
-        nearest = []
-        if not candidates and names:
-            # Render-time courtesy for a human who is looking at the row, and
-            # nothing more: against a short item list a large share of tender
-            # rows get no candidate at all, and a screen that hands those rows
-            # a blank box is a screen the user abandons. The threshold is never
-            # lowered on the path that stores a decision.
-            nearest = tenders.propose_matches(r["item_name"], index,
-                                              top_n=tenders.MATCH_TOP_N,
-                                              min_score=0.0)
-        offered = candidates or nearest
-        chosen  = match["inventory_item"] if match and match["inventory_key"] else ""
-        items.append({
-            "key":         r["match_key"],
-            "item":        r["item_name"],
-            "customer":    r["customer"],
-            "qty_display": tenders.format_qty(r["quantity"]),
-            "basis_label": tenders.BASIS_LABELS.get(r.get("qty_basis"), "Not stated"),
-            "period":      f"{r['period_start']} to {r['period_end']}",
-            "candidates":  offered,
-            "nearest":     bool(nearest) and not candidates,
-            "match":       match,
-            "chosen":      chosen,
-            # A previously confirmed item that is not among today's candidates
-            # still has to render as the checked choice, so it goes in the
-            # free-text box.
-            "other":       chosen if chosen and all(
-                c["name"] != chosen for c in offered) else "",
-            "decided":     match is not None,
-        })
-
-    # Undecided first so a half-reviewed sheet opens on the work that is left.
-    # Sorted AFTER the truncation in _tender_match_rows, never before: sorting
-    # first would hand the GET and the POST different row sets.
-    items.sort(key=lambda it: it["decided"])
-
-    return render_template(
-        "tender_match.html",
-        items=items,
-        item_names=names,
-        decided=sum(1 for it in items if it["decided"]),
-        total=len(items),
-        org_name=org,
-    )
-
-
 @app.route("/tenders/match", methods=["POST"])
 @login_required
 @analyst_required
 def tenders_match_save():
-    """Store the decisions. Free text from a browser never lands as an item name.
+    """Correct a pairing the upload guessed. Nobody has to complete this.
 
-    The loop walks keys read from THIS org's own rows, never request.form, so a
-    posted key belonging to another org is never looked at, and the work this
-    view does is bounded by the org's own row count however many fields the
-    form carries. (Werkzeug still parses the whole body into a MultiDict before
-    the view runs, which MAX_CONTENT_LENGTH bounds app-wide, not this route.)
+    One field per tender line, `item__<key>`, carrying the org's own item name.
+    Blank clears an existing pairing, so that line stops adding anything.
+
+    Saving stamps the user's email rather than TENDER_MATCH_AUTO, and that is
+    what makes a correction stick: the upload only re-guesses lines still
+    marked auto, so a fix survives the same sheet being sent again.
+
+    The loop walks the same first 200 distinct keys rendered for one org-owned
+    upload, never request.form, so a posted key from another upload or org is
+    never looked at. (Werkzeug still parses the whole body into a MultiDict
+    before the view runs, which MAX_CONTENT_LENGTH bounds app-wide.)
     A typed name is resolved against the org's own item universe by normalised
     key and the CANONICAL spelling is stored; a name that does not resolve
     stores nothing.
@@ -4285,65 +4343,96 @@ def tenders_match_save():
     if not org:
         return redirect(url_for("tenders_page"))
 
+    try:
+        upload_id = int(request.form.get("upload_id", ""))
+    except (TypeError, ValueError):
+        return redirect(url_for("tenders_page"))
+    if not 0 < upload_id <= 2 ** 63 - 1:
+        return redirect(url_for("tenders_page"))
+
     rows = _tender_match_rows(
-        db.get_tender_commitments(org, limit=MAX_TENDER_ROWS_PER_ORG))
+        db.get_tender_commitments(org, upload_id=upload_id,
+                                  limit=MAX_TENDER_ROWS_PER_ORG))
+    saved = {m["tender_key"]: m for m in db.get_current_tender_matches(
+        org, limit=MAX_TENDER_ROWS_PER_ORG, upload_id=upload_id)}
     # An item name with no letters or digits (a "-----" spacer row that made it
-    # through the pipeline) normalises to "", which is the not-stocked
-    # sentinel. Left in, a typed value that also normalises to "" would resolve
-    # to that item and then be stored AS the sentinel: the user picks a real
-    # item and the screen reads back "we do not stock this". Dropped here, the
-    # same rule build_rows applies to the tender side of the pairing.
+    # through the pipeline) normalises to "", which would then match any other
+    # value that also normalises to nothing. Dropped here, the same rule
+    # build_rows applies to the tender side of the pairing.
     by_key = {k: n for k, n in
               ((normalise_match_key(n), n) for n in _org_item_names(org)) if k}
-    matched = not_stocked = undecided = unknown = 0
+    changed = cleared = unknown = stale = 0
 
     for r in rows:
-        key    = r["match_key"]
-        choice = request.form.get("match__" + key)
-        if choice is None:
+        key   = r["match_key"]
+        typed = request.form.get("item__" + key)
+        if typed is None:
             continue                      # row was not on the submitted page
-        if choice == "__other__":
-            choice = request.form.get("other__" + key, "")
-        choice = choice.strip()
-        if not choice:
-            db.delete_tender_match(org, key)
-            undecided += 1
+        typed = typed.strip()
+        existing = saved.get(key)
+        stored = (existing["inventory_item"] or "") if existing else ""
+        if typed == stored:
+            continue                      # unchanged browser echo is not a decision
+        # What the page actually SHOWED when it rendered. Comparing only against
+        # the value stored NOW is not enough: if a pairing appears between render
+        # and submit (a re-upload, or the first run completing so auto-pairing can
+        # finally fire), an untouched blank box looks like a deliberate clear and
+        # gets written as a permanent human decision nobody made. A mismatch means
+        # the row moved underneath this page, so skip it and let them resubmit
+        # against what is actually there. This does not re-trust the browser: the
+        # field can only ever cause a write to be SKIPPED, never widened, so
+        # forging it costs the sender their own edit and nothing else.
+        orig = request.form.get("orig__" + key)
+        if orig is None or orig.strip() != stored:
+            stale += 1
             continue
-        if choice == "__none__":
-            # Cannot collide with a real item: a candidate's radio value is a
-            # raw inventory item name, and normalise_match_key strips
-            # non-alphanumerics, so no stored key can ever be this literal.
+        if not typed:
+            if not existing or not existing["inventory_key"]:
+                continue                  # untouched blank or an existing clear
+            # Stored as a decision ("we do not stock this"), NOT deleted. A
+            # deleted row is indistinguishable from one nobody has seen, so the
+            # next upload of the same sheet would re-guess it and silently put
+            # back the pairing this person just took out. get_matched_tender_
+            # commitments filters an empty inventory_key, so it still adds zero.
             db.save_tender_match(org, key, r["item_name"], "", "",
                                  session.get("email", ""))
-            not_stocked += 1
+            cleared += 1
             continue
-        if len(choice) > 300:
+        if len(typed) > 300:
             unknown += 1
             continue
-        canonical = by_key.get(normalise_match_key(choice))
+        canonical = by_key.get(normalise_match_key(typed))
         if canonical is None:
             unknown += 1
             continue
+        canonical_key = normalise_match_key(canonical)
+        if existing and canonical_key == existing["inventory_key"]:
+            continue                      # same item with case or spacing drift
         db.save_tender_match(org, key, r["item_name"], canonical,
-                             normalise_match_key(canonical),
+                             canonical_key,
                              session.get("email", ""))
-        matched += 1
+        changed += 1
 
     counts = []
-    if matched:
-        counts.append(f"{matched} matched")
-    if not_stocked:
-        counts.append(f"{not_stocked} marked not stocked")
-    if undecided:
-        counts.append(f"{undecided} left undecided")
+    if changed:
+        counts.append(f"{changed} pairing{'' if changed == 1 else 's'} updated")
+    if cleared:
+        counts.append(f"{cleared} cleared")
     if counts:
         flash("Saved: " + ", ".join(counts) + ".", "success")
     if unknown:
         flash(f"{unknown} row{'' if unknown == 1 else 's'} could not be saved: "
-              f"that item name is not on your item list. Pick one of the names "
-              f"offered, or type it exactly as it appears in your inventory.",
+              f"that item name is not on your item list. Type it exactly as it "
+              f"appears in your inventory, or leave it blank to add nothing.",
               "error")
-    return redirect(url_for("tenders_match"))
+    # A skipped stale row is otherwise completely silent: nothing increments and
+    # no flash fires, so someone whose tab was open across a deploy would click
+    # Save, watch the page reload, and never learn their edit was discarded.
+    if stale:
+        flash(f"{stale} row{'' if stale == 1 else 's'} "
+              f"{'was' if stale == 1 else 'were'} not saved because this page "
+              f"was out of date. Reload the page and try again.", "error")
+    return redirect(url_for("tenders_page"))
 
 
 # ── Expiry (lot tracking) ────────────────────────────────────────────────────

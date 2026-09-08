@@ -27,6 +27,7 @@ import json
 import tempfile
 import types
 from datetime import date, timedelta
+from html.parser import HTMLParser
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
@@ -71,6 +72,120 @@ def _check(name, cond, detail=""):
     print(("ok: " if cond else "FAIL: ") + name + (f"  [{detail}]" if detail and not cond else ""))
     if not cond:
         _FAILED = True
+
+
+class _TenderFormParser(HTMLParser):
+    """Collect the real correction forms and every named input they render."""
+
+    def __init__(self):
+        super().__init__()
+        self.forms = []
+        self._current = None
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if tag == "form":
+            action = attrs.get("action", "")
+            self._current = {} if action.endswith("/tenders/match") else None
+        elif tag == "input" and self._current is not None:
+            name = attrs.get("name")
+            if name:
+                self._current[name] = attrs.get("value", "")
+
+    def handle_endtag(self, tag):
+        if tag == "form" and self._current is not None:
+            self.forms.append(self._current)
+            self._current = None
+
+
+_VOID_TAGS = {"area", "base", "br", "col", "embed", "hr", "img", "input",
+              "link", "meta", "param", "source", "track", "wbr"}
+
+
+class _RecommendationSourceParser(HTMLParser):
+    """Read source text only inside one recommendation card's audit block."""
+
+    def __init__(self, item):
+        super().__init__()
+        self.item = item
+        self.card_depth = 0
+        self.source_depth = 0
+        self.text = []
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        classes = set((attrs.get("class") or "").split())
+        if not self.card_depth:
+            if tag == "div" and "rec-card" in classes and attrs.get("data-item") == self.item:
+                self.card_depth = 1
+            return
+
+        if tag not in _VOID_TAGS:
+            self.card_depth += 1
+        if tag == "div" and "rec-tender-line" in classes:
+            self.source_depth = 1
+        elif self.source_depth and tag not in _VOID_TAGS:
+            self.source_depth += 1
+
+    def handle_endtag(self, tag):
+        if not self.card_depth:
+            return
+        if self.source_depth:
+            self.source_depth -= 1
+        self.card_depth -= 1
+
+    def handle_data(self, data):
+        if self.source_depth:
+            self.text.append(data)
+
+
+class _TableRowParser(HTMLParser):
+    """Collect visible text per table row so print assertions stay row-scoped."""
+
+    def __init__(self):
+        super().__init__()
+        self.depth = 0
+        self.current = []
+        self.rows = []
+
+    def handle_starttag(self, tag, attrs):
+        if not self.depth:
+            if tag == "tr":
+                self.depth = 1
+                self.current = []
+            return
+        if tag not in _VOID_TAGS:
+            self.depth += 1
+
+    def handle_endtag(self, tag):
+        if not self.depth:
+            return
+        self.depth -= 1
+        if not self.depth:
+            self.rows.append(" ".join(" ".join(self.current).split()))
+            self.current = []
+
+    def handle_data(self, data):
+        if self.depth:
+            self.current.append(data)
+
+
+def _tender_forms(html):
+    parser = _TenderFormParser()
+    parser.feed(html)
+    return parser.forms
+
+
+def _recommendation_source_text(html, item):
+    parser = _RecommendationSourceParser(item)
+    parser.feed(html)
+    return " ".join(" ".join(parser.text).split())
+
+
+def _printed_row_text(html, item):
+    parser = _TableRowParser()
+    parser.feed(html)
+    return next((row for row in parser.rows if item in row), "")
 
 
 # ── Fixtures. Invented brands only: the repo is public ───────────────────────
@@ -167,10 +282,58 @@ def _upload(client, csv_text, customer="NORDVIK CATERING", filename="tenders.csv
                        content_type="multipart/form-data", follow_redirects=True)
 
 
-def _confirm(client, key, value):
-    """Post one decision through the real route, the way the screen would."""
-    return client.post("/tenders/match", data={"match__" + key: value},
-                       follow_redirects=True)
+def _sheet(item, qty):
+    """A one-row tender sheet. Built here so no case hand-writes CSV."""
+    return f"Item Description,Tender Qty{chr(10)}{item},{qty}{chr(10)}"
+
+
+def _upload_id_for_key(org, key):
+    ids = [r["upload_id"] for r in db.get_tender_commitments(org)
+           if r["match_key"] == key]
+    return max(ids) if ids else 0
+
+
+def _seed_tender_upload(org, item_rows, customer="NORDVIK CATERING",
+                        filename="seeded.csv"):
+    """Store a finished tender upload without exercising the upload matcher."""
+    upload_id = db.create_tender_upload(org, filename, "tester@example.com", customer)
+    rows = [{
+        "customer": customer,
+        "item_name": item,
+        "match_key": normalise_match_key(item),
+        "quantity": qty,
+        "period_start": PERIOD_START,
+        "period_end": PERIOD_END,
+        "qty_basis": "per_month",
+    } for item, qty in item_rows]
+    db.save_tender_rows(org, upload_id, rows)
+    db.finalise_tender_upload(org, upload_id, len(rows), 0, "[]")
+    return upload_id
+
+
+def _confirm(client, key, value, org="OrgAlpha"):
+    """Correct one pairing through the real route, the way the page would.
+
+    An empty value clears it, which the route records as a decision rather
+    than a deletion so a later upload cannot silently re-guess it.
+    """
+    # Post the form the page actually rendered, with one field changed. Building
+    # the payload by hand skipped the hidden orig__ fields, which meant these
+    # tests exercised a request no browser can send.
+    u_id = _upload_id_for_key(org, key)
+    form = next((f for f in _tender_forms(
+        client.get("/tenders").data.decode("utf-8", "replace"))
+        if f.get("upload_id") == str(u_id)), None)
+    data = dict(form) if form else {"upload_id": str(u_id)}
+    if form is None:
+        # No form rendered (a viewer, or corrections unavailable). Supply the
+        # orig__ from stored state so the request still reaches the auth guard
+        # instead of being killed early by the stale-form guard.
+        current = next((m for m in db.get_tender_matches(org)
+                        if m["tender_key"] == key), None)
+        data["orig__" + key] = (current["inventory_item"] or "") if current else ""
+    data["item__" + key] = value
+    return client.post("/tenders/match", data=data, follow_redirects=True)
 
 
 def _qty_input(html, item):
@@ -225,58 +388,85 @@ SID_A = _seed_session(ALPHA_ID, "OrgAlpha")
 SID_B = _seed_session(BRAVO_ID, "OrgBravo")
 
 
-# ── 1. Unconfirmed adds zero ─────────────────────────────────────────────────
-# The sheet is uploaded and the text fuzzy-matches an item, but nobody has
-# confirmed anything. Nothing may reach the order quantity.
+# ── 1. A guess is a guess, and it is always disclosed ────────────────────────
+# The pairing is now made automatically at upload, so "adds nothing until
+# confirmed" is no longer the contract. The contract is that whatever the guess
+# produced is PRINTED beside the quantity, on both surfaces a person orders
+# from. That source line is the only thing between a wrong guess and a wrong
+# order, so it is what these tests defend.
 
 _upload(alpha, TENDER_CSV)
-_check("an unconfirmed sheet contributes no add-on",
-       appmod._tender_addon_map("OrgAlpha") == {},
+_check("uploading pairs the row without anyone being asked",
+       appmod._tender_addon_map("OrgAlpha").get(normalise_match_key(SAUCE), {}).get("qty") == 100.0,
        detail=str(appmod._tender_addon_map("OrgAlpha")))
 
 r = alpha.get(f"/results/{SID_A}")
 _html = r.data.decode("utf-8", "replace")
-_check("an unconfirmed sheet renders no gold split",
-       'class="qty-tender"' not in _html)
-_val, _orig = _qty_input(_html, SAUCE)
-_check("the unconfirmed page still shows the plain base quantity",
-       _val == "200 CTN", detail=str(_val))
+_source_block = _recommendation_source_text(_html, SAUCE)
+_check("1a the results page names the tender line the quantity came from",
+       T_SAUCE in _source_block,
+       detail="source line missing from the recommendation card's audit block")
+_check("1b the gold split renders", 'class="qty-tender"' in _html)
 
-# The matcher can see it, which is what makes the silence above meaningful.
-_idx = tenders.build_match_index([SAUCE, MILK, COD, OATS])
-_check("the matcher WOULD have proposed it, so the zero is the guard not luck",
-       bool(tenders.propose_matches(T_SAUCE, _idx)))
+r = alpha.get(f"/results/{SID_A}/print")
+_print = r.data.decode("utf-8", "replace")
+_print_row = _printed_row_text(_print, SAUCE)
+_check("1c the PRINTED sheet names the tender line too",
+       "from: " + T_SAUCE in _print_row,
+       detail="literal source line missing from the item's printed row")
+_check("1d the printed sheet still spells out the split",
+       "200 + 100 tender" in _print)
+_check("1e the printed sheet does not rely on colour alone",
+       "tender" in _print)
+
+# A line nothing in the item list comes close to must pair with nothing and add
+# nothing. Silence is the correct answer here: guessing anyway is what puts a
+# quantity against the wrong product.
+_upload(alpha, "Item Description,Tender Qty\nZZQQ UNMATCHABLE THING,44\n",
+        filename="nomatch.csv")
+_check("1f a line with no plausible item adds nothing",
+       all(v["qty"] != 44.0 for v in appmod._tender_addon_map("OrgAlpha").values()),
+       detail=str(appmod._tender_addon_map("OrgAlpha")))
+_check("1g and it is not stored as a pairing at all",
+       all(m["tender_key"] != normalise_match_key("ZZQQ UNMATCHABLE THING")
+           for m in db.get_tender_matches("OrgAlpha")),
+       detail=str(db.get_tender_matches("OrgAlpha")))
 
 
 # ── 2. Org isolation on every surface ────────────────────────────────────────
 
 _upload(bravo, TENDER_CSV)
-_confirm(bravo, K_SAUCE, SAUCE)
-_check("org B's own confirmation lands",
+_check("org B's own upload pairs for org B",
        appmod._tender_addon_map("OrgBravo").get(normalise_match_key(SAUCE), {}).get("qty") == 100.0,
        detail=str(appmod._tender_addon_map("OrgBravo")))
-_check("org B's confirmed tender never reaches org A's add-on map",
-       appmod._tender_addon_map("OrgAlpha") == {},
-       detail=str(appmod._tender_addon_map("OrgAlpha")))
 
-r = alpha.get(f"/results/{SID_A}")
-_check("org B's tender never renders on org A's results page",
-       'class="qty-tender"' not in r.data.decode("utf-8", "replace"))
-r = alpha.get(f"/results/{SID_A}/print")
-_check("org B's tender never renders on org A's printed sheet",
-       b"tender" not in r.data.lower())
-r = alpha.get(f"/results/{SID_A}/export.csv")
-_csv_a = r.data.decode("utf-8", "replace")
-_check("org A's CSV carries an empty Tender Add-On column",
-       "Tender Add-On" in _csv_a and ",100," not in _csv_a,
-       detail=_csv_a[:200])
+# Org A has its own identical sheet, so the isolation test cannot lean on
+# "org A has nothing". Prove it by the SOURCE instead: org B's customer name
+# must never appear on org A's pages.
+_upload(bravo, f"Item Description,Tender Qty\n{T_MILK},70\n",
+        customer="KESTREL BANQUET", filename="bravo_only.csv")
+_check("org B's second sheet lands for org B",
+       any(m["tender_key"] == K_MILK for m in db.get_tender_matches("OrgBravo")))
+_check("org B's row never appears in org A's matches",
+       all(m["tender_key"] != K_MILK for m in db.get_tender_matches("OrgAlpha")),
+       detail=str(db.get_tender_matches("OrgAlpha")))
+
+for _path, _label in ((f"/results/{SID_A}", "results page"),
+                      (f"/results/{SID_A}/print", "printed sheet"),
+                      (f"/results/{SID_A}/export.csv", "CSV")):
+    _body = alpha.get(_path).data.decode("utf-8", "replace")
+    _check(f"org B's customer never appears on org A's {_label}",
+           "KESTREL BANQUET" not in _body)
 
 # A cross-org POST naming org A's tender key must write nothing for org A.
-bravo.post("/tenders/match", data={"match__" + K_SAUCE: SAUCE,
-                                   "org_name": "OrgAlpha"}, follow_redirects=True)
-_check("a POST from org B writes no match for org A",
-       db.get_tender_matches("OrgAlpha") == [],
-       detail=str(db.get_tender_matches("OrgAlpha")))
+_before = {m["tender_key"]: m["inventory_item"] for m in db.get_tender_matches("OrgAlpha")}
+bravo.post("/tenders/match", data={
+    "upload_id": str(_upload_id_for_key("OrgBravo", K_SAUCE)),
+    "item__" + K_SAUCE: MILK, "org_name": "OrgAlpha"
+}, follow_redirects=True)
+_after = {m["tender_key"]: m["inventory_item"] for m in db.get_tender_matches("OrgAlpha")}
+_check("a POST from org B changes nothing for org A", _before == _after,
+       detail=f"{_before} -> {_after}")
 
 
 # ── 3. A blank org key is refused before any query runs ──────────────────────
@@ -318,37 +508,40 @@ _check("the DAL refuses a blank org on write",
 
 # ── 4. A viewer cannot confirm anything ──────────────────────────────────────
 
-_confirm(viewer, K_SAUCE, SAUCE)
-_check("a viewer POST stores no match",
-       db.get_tender_matches("OrgAlpha") == [],
-       detail=str(db.get_tender_matches("OrgAlpha")))
+def _pairs(org="OrgAlpha"):
+    """Current pairings as {tender key: (item, who decided it)}."""
+    return {m["tender_key"]: (m["inventory_item"], m["confirmed_by"])
+            for m in db.get_tender_matches(org)}
+
+
+_before = _pairs()
+_confirm(viewer, K_SAUCE, MILK)
+_check("a viewer POST changes no pairing", _pairs() == _before,
+       detail=f"{_before} -> {_pairs()}")
 
 
 # ── 5. A typed name that does not resolve stores nothing ─────────────────────
 # Free text from a browser must never land in the database as an item name.
 
-alpha.post("/tenders/match", data={"match__" + K_SAUCE: "__other__",
-                                   "other__" + K_SAUCE: "TOTALLY MADE UP ITEM"},
-           follow_redirects=True)
-_check("an unresolvable typed item stores nothing",
-       db.get_tender_matches("OrgAlpha") == [],
-       detail=str(db.get_tender_matches("OrgAlpha")))
+_before = _pairs()
+_confirm(alpha, K_SAUCE, "TOTALLY MADE UP ITEM")
+_check("an unresolvable typed item changes nothing", _pairs() == _before,
+       detail=f"{_before} -> {_pairs()}")
 
-alpha.post("/tenders/match", data={"match__" + K_SAUCE: "__other__",
-                                   "other__" + K_SAUCE: "x" * 400},
-           follow_redirects=True)
-_check("an over-long typed item stores nothing",
-       db.get_tender_matches("OrgAlpha") == [])
+_confirm(alpha, K_SAUCE, "x" * 400)
+_check("an over-long typed item changes nothing", _pairs() == _before,
+       detail=f"{_before} -> {_pairs()}")
 
 # A typed name that DOES resolve is stored in the canonical spelling, so the
-# rejection above is the guard rather than the route simply never saving.
-alpha.post("/tenders/match", data={"match__" + K_SAUCE: "__other__",
-                                   "other__" + K_SAUCE: "padimas oyster  sauce 500ml"},
-           follow_redirects=True)
-_m = db.get_tender_matches("OrgAlpha")
+# rejections above are the guard rather than the route simply never saving.
+db.save_tender_match("OrgAlpha", K_SAUCE, T_SAUCE, MILK,
+                     normalise_match_key(MILK), appmod.TENDER_MATCH_AUTO)
+_confirm(alpha, K_SAUCE, "padimas oyster  sauce 500ml")
 _check("a resolvable typed item is stored in the canonical spelling",
-       len(_m) == 1 and _m[0]["inventory_item"] == SAUCE,
-       detail=str(_m))
+       _pairs().get(K_SAUCE, ("", ""))[0] == SAUCE, detail=str(_pairs().get(K_SAUCE)))
+_check("and a human correction is no longer marked as a guess",
+       _pairs().get(K_SAUCE, ("", ""))[1] != appmod.TENDER_MATCH_AUTO,
+       detail=str(_pairs().get(K_SAUCE)))
 
 
 # ── 6. Dates: only a live contract contributes ───────────────────────────────
@@ -420,7 +613,7 @@ _check("an item a human zeroed produces no split", _zeroed is None,
 # ── 11. A tender line that normalises to nothing is refused at the door ──────
 # A name like "***" or a "-----" spacer row has no letters or digits, so its
 # match key is empty. Stored, it could never be matched and never even be
-# decided (the confirm screen skips empty keys), yet it would still count
+# decided (the correction form skips empty keys), yet it would still count
 # toward the unmatched banner. A warning that cannot reach zero stops being
 # read, which is the same failure the not-stocked sentinel exists to prevent.
 
@@ -434,13 +627,15 @@ _check("11b the junk row is reported back to the user, not silently dropped",
 _check("11c the junk row never inflates the unmatched count",
        db.count_unmatched_tender_commitments("OrgAlpha", TODAY_ISO) == _unmatched_pre,
        detail=str(db.count_unmatched_tender_commitments("OrgAlpha", TODAY_ISO)))
-alpha.post("/tenders/match", data={"match__": SAUCE}, follow_redirects=True)
+alpha.post("/tenders/match", data={
+    "upload_id": str(_upload_id_for_key("OrgAlpha", K_SAUCE)), "item__": SAUCE
+}, follow_redirects=True)
 _check("11d an empty-key decision is never saved",
        all(m["tender_key"] for m in db.get_tender_matches("OrgAlpha")),
        detail=str(db.get_tender_matches("OrgAlpha")))
 
 # Rows written BEFORE the ingest guard existed are still in the live database
-# and cannot be re-parsed. The confirm screen skips an empty key, so counting
+# and cannot be re-parsed. The correction form skips an empty key, so counting
 # one would nag forever about a row nobody can decide. Written straight to the
 # table on purpose: it is the only way to reproduce a legacy row.
 _legacy_upload = db.create_tender_upload("OrgAlpha", "legacy.csv", "NORDVIK CATERING")
@@ -476,7 +671,10 @@ _check("11f the oversized row is reported back to the user",
 
 # A name right on the limit still imports, so the cap is a boundary and not a
 # blanket refusal.
-_ok_name = "PADIMAS " * 24 + "OATS"            # under the cap
+# Deliberately unlike any fixture item: this case is about the LENGTH cap, and
+# a name the matcher can pair would add a phantom quantity to every add-on
+# assertion below it.
+_ok_name = "ZQXJV " * 24 + "WIDGET"            # under the cap
 _upload(alpha, f"Item Description,Tender Qty\n{_ok_name},7\n", filename="okname.csv")
 _check("11g a long but legal item name still imports",
        any(x["item_name"] == _ok_name for x in db.get_tender_commitments("OrgAlpha")),
@@ -544,33 +742,52 @@ _check("12i the blur save path does not compound it either",
        _val4 == "200 CTN", detail=str(_val4))
 
 
-# ── 13. The sentinel: "we do not stock this" versus "not decided yet" ────────
-# Both add zero, but only one of them is a decision. If they were the same
-# thing, the unmatched banner could never reach zero and would become wallpaper.
+# ── 13. Clearing a pairing is a DECISION, not a deletion ─────────────────────
+# This is the trap in an automatic pairing. If clearing simply deleted the row,
+# the cleared state would be indistinguishable from one nobody has seen, and
+# the next upload of the same sheet would re-guess it and silently put back the
+# quantity the user just took out. That is a wrong number on a purchase order,
+# arriving without anybody touching anything.
 
-_upload(alpha, f"Item Description,Tender Qty\n{T_OATS},80\n", filename="oats.csv")
-_unmatched_before = db.count_unmatched_tender_commitments("OrgAlpha", TODAY_ISO)
-_check("an undecided row counts as unmatched", _unmatched_before >= 1,
-       detail=str(_unmatched_before))
+_upload(alpha, _sheet(T_OATS, 80), filename="oats.csv")
+_check("13a uploading pairs the oats line on its own",
+       appmod._tender_addon_map("OrgAlpha").get(normalise_match_key(OATS), {}).get("qty") == 80.0,
+       detail=str(appmod._tender_addon_map("OrgAlpha")))
 
-_confirm(alpha, K_OATS, "__none__")
-_check("13a a not-stocked decision adds zero",
+_confirm(alpha, K_OATS, "")
+_check("13b clearing it stops it contributing",
        normalise_match_key(OATS) not in appmod._tender_addon_map("OrgAlpha"),
        detail=str(appmod._tender_addon_map("OrgAlpha")))
-_check("13b a not-stocked decision IS stored",
+_check("13c the clearing is STORED as a decision, not deleted",
        any(m["tender_key"] == K_OATS and m["inventory_key"] == ""
            for m in db.get_tender_matches("OrgAlpha")),
        detail=str(db.get_tender_matches("OrgAlpha")))
-_check("13c a not-stocked decision clears the unmatched count for that row",
-       db.count_unmatched_tender_commitments("OrgAlpha", TODAY_ISO) < _unmatched_before,
-       detail=str(db.count_unmatched_tender_commitments("OrgAlpha", TODAY_ISO)))
+_check("13d and it is attributed to the person, not to the guesser",
+       all(m["confirmed_by"] != appmod.TENDER_MATCH_AUTO
+           for m in db.get_tender_matches("OrgAlpha") if m["tender_key"] == K_OATS),
+       detail=str(db.get_tender_matches("OrgAlpha")))
 
-# Clearing it again must put the row back into the unmatched count, or the
-# banner would be a one-way latch.
-_confirm(alpha, K_OATS, "")
-_check("13d clearing a decision returns the row to the unmatched count",
-       db.count_unmatched_tender_commitments("OrgAlpha", TODAY_ISO) >= _unmatched_before,
+# The load-bearing one: re-upload the same sheet and the cleared line must
+# stay cleared.
+_upload(alpha, _sheet(T_OATS, 80), filename="oats2.csv")
+_check("13e a re-upload does NOT silently re-guess a cleared line",
+       normalise_match_key(OATS) not in appmod._tender_addon_map("OrgAlpha"),
+       detail=str(appmod._tender_addon_map("OrgAlpha")))
+
+# A decided row, either way, must not sit in the unmatched count nagging. The
+# count is not zero here and should not be: earlier cases uploaded lines that
+# genuinely pair with nothing, and those SHOULD be flagged. What matters is
+# that a line somebody has ruled on is not among them, or the banner becomes a
+# number that never goes down and stops being read.
+_decided_keys = {m["tender_key"] for m in db.get_tender_matches("OrgAlpha")}
+_live_keys = {r["match_key"] for r in db.get_tender_commitments("OrgAlpha")
+              if r["period_end"] >= TODAY_ISO}
+_check("13f the unmatched count is exactly the lines nobody has ruled on",
+       db.count_unmatched_tender_commitments("OrgAlpha", TODAY_ISO)
+       == len([k for k in _live_keys if k and k not in _decided_keys]),
        detail=str(db.count_unmatched_tender_commitments("OrgAlpha", TODAY_ISO)))
+_check("13g and the cleared line is not one of them", K_OATS in _decided_keys,
+       detail=str(sorted(_decided_keys)))
 
 
 # ── 14. Uploading the same sheet twice must not double the add-on ────────────
@@ -665,6 +882,447 @@ _check("17c an item that DOES have a recommendation stays in the split",
        'class="qty-tender"' in _html)
 
 
+# ── 20. Upload matching stops at 200 distinct tender keys ────────────────────
+# The file and all 201 valid rows may be stored, but only the server-selected
+# first 200 may reach fuzzy matching or acquire automatic mapping rows.
+
+CAP_ORG = "OrgCap"
+CAP_ITEM = "VANMARK WAREHOUSE ITEM 1KG"
+CAP_ID = _make_user("cap@example.com", CAP_ORG)
+cap = _client(CAP_ID, "cap@example.com", CAP_ORG)
+_seed_session(CAP_ID, CAP_ORG, recs=[], inventory=[{
+    "item": CAP_ITEM, "status": "LOW", "spoilage_risk": "NONE",
+    "days_of_supply": 10, "category": "DRY", "stock": "2 CTN",
+    "observation": "low",
+}])
+_cap_names = [f"VANMARK CONTRACT LINE {n:03d} 1KG" for n in range(1, 202)]
+_cap_csv = "Item Description,Tender Qty\n" + "".join(
+    f"{name},{n}\n" for n, name in enumerate(_cap_names, 1))
+_cap_seen = []
+_orig_auto_match = tenders.auto_match
+
+
+def _recording_auto_match(rows, index, *args, **kwargs):
+    _cap_seen.extend(r["match_key"] for r in rows)
+    return {r["match_key"]: CAP_ITEM for r in rows}
+
+
+tenders.auto_match = _recording_auto_match
+try:
+    _upload(cap, _cap_csv, customer="VANMARK CATERING", filename="cap.csv")
+finally:
+    tenders.auto_match = _orig_auto_match
+
+_cap_matches = {m["tender_key"] for m in db.get_tender_matches(CAP_ORG)}
+_check("20a all 201 valid tender rows are stored",
+       len(db.get_tender_commitments(CAP_ORG)) == 201,
+       detail=str(len(db.get_tender_commitments(CAP_ORG))))
+_check("20b auto_match receives exactly 200 distinct rows, not 201",
+       len(_cap_seen) == 200 and len(set(_cap_seen)) == 200,
+       detail=f"received {len(_cap_seen)} rows and {len(set(_cap_seen))} keys")
+_check("20c the 201st key never gets an automatic mapping",
+       normalise_match_key(_cap_names[200]) not in _cap_matches,
+       detail=f"stored mappings: {len(_cap_matches)}")
+_cap_upload = _upload_id_for_key(CAP_ORG, normalise_match_key(_cap_names[200]))
+_cap_form = next(f for f in _tender_forms(
+    cap.get("/tenders").data.decode("utf-8", "replace"))
+    if f.get("upload_id") == str(_cap_upload))
+_cap_fields = {k for k in _cap_form if k.startswith("item__")}
+_check("20d the 201st key has no rendered correction input",
+       len(_cap_fields) == 200
+       and "item__" + normalise_match_key(_cap_names[200]) not in _cap_fields,
+       detail=f"rendered {len(_cap_fields)} controls")
+cap.post("/tenders/match", data={
+    "upload_id": str(_cap_upload),
+    # Carries the orig__ the page would have rendered for an unmapped key, so
+    # the stale-form guard passes it through and the 200-row boundary is what
+    # actually rejects it. Without this the request dies one branch earlier and
+    # the test would stay green with the boundary removed.
+    "orig__" + normalise_match_key(_cap_names[200]): "",
+    "item__" + normalise_match_key(_cap_names[200]): CAP_ITEM,
+}, follow_redirects=True)
+_check("20e a forged 201st correction field is ignored",
+       all(m["tender_key"] != normalise_match_key(_cap_names[200])
+           for m in db.get_tender_matches(CAP_ORG)),
+       detail="the unrendered boundary key acquired a mapping")
+
+
+# ── 21. Posting one correction form unchanged is a complete no-op ───────────
+# Parse the actual HTML form, including its hidden upload id and every named
+# item input. This catches a browser echo being mistaken for a human decision.
+
+NOOP_ORG = "OrgNoop"
+NOOP_ID = _make_user("noop@example.com", NOOP_ORG)
+noop = _client(NOOP_ID, "noop@example.com", NOOP_ORG)
+_seed_session(NOOP_ID, NOOP_ORG, recs=[], inventory=[{
+    "item": SAUCE, "status": "LOW", "spoilage_risk": "NONE",
+    "days_of_supply": 10, "category": "DRY", "stock": "2 CTN",
+    "observation": "low",
+}])
+_noop_blank = "QXZV UNMATCHED CONTRACT LINE"
+_noop_csv = ("Item Description,Tender Qty\n"
+             f"{T_SAUCE},10\n{_noop_blank},20\n")
+_orig_auto_match = tenders.auto_match
+
+
+def _one_guess(rows, index, *args, **kwargs):
+    return {K_SAUCE: SAUCE}
+
+
+tenders.auto_match = _one_guess
+try:
+    _upload(noop, _noop_csv, customer="PADIMAS CATERING", filename="noop.csv")
+finally:
+    tenders.auto_match = _orig_auto_match
+
+_noop_upload = _upload_id_for_key(NOOP_ORG, K_SAUCE)
+_noop_page = noop.get("/tenders").data.decode("utf-8", "replace")
+_noop_forms = _tender_forms(_noop_page)
+_noop_form = next((f for f in _noop_forms
+                   if f.get("upload_id") == str(_noop_upload)), None)
+_blank_key = normalise_match_key(_noop_blank)
+_check("21a the real correction form carries its upload id and both inputs",
+       _noop_form is not None
+       and _noop_form.get("item__" + K_SAUCE) == SAUCE
+       and _noop_form.get("item__" + _blank_key) == "",
+       detail=str(_noop_form))
+if _noop_form is not None:
+    noop.post("/tenders/match", data=dict(_noop_form), follow_redirects=True)
+_noop_matches = {m["tender_key"]: m for m in db.get_tender_matches(NOOP_ORG)}
+_check("21b posting the form exactly as rendered keeps the guess automatic",
+       _noop_matches.get(K_SAUCE, {}).get("confirmed_by") == appmod.TENDER_MATCH_AUTO,
+       detail=str(_noop_matches.get(K_SAUCE)))
+_check("21c the untouched blank still has no mapping row",
+       _blank_key not in _noop_matches, detail=str(_noop_matches.get(_blank_key)))
+
+
+# ── 22. Upload forms cannot change each other's keys ─────────────────────────
+
+CROSS_ORG = "OrgCrossUpload"
+CROSS_ID = _make_user("cross@example.com", CROSS_ORG)
+cross = _client(CROSS_ID, "cross@example.com", CROSS_ORG)
+_seed_session(CROSS_ID, CROSS_ORG, recs=[], inventory=[{
+    "item": SAUCE, "status": "LOW", "spoilage_risk": "NONE",
+    "days_of_supply": 10, "category": "DRY", "stock": "2 CTN",
+    "observation": "low",
+}, {
+    "item": MILK, "status": "LOW", "spoilage_risk": "NONE",
+    "days_of_supply": 10, "category": "DRY", "stock": "2 CTN",
+    "observation": "low",
+}])
+_cross_a = _seed_tender_upload(CROSS_ORG, [(T_SAUCE, 10)],
+                                 filename="cross-a.csv")
+_cross_b = _seed_tender_upload(CROSS_ORG, [(T_MILK, 20)],
+                                 filename="cross-b.csv")
+db.save_tender_match(CROSS_ORG, K_SAUCE, T_SAUCE, SAUCE,
+                     normalise_match_key(SAUCE), appmod.TENDER_MATCH_AUTO)
+db.save_tender_match(CROSS_ORG, K_MILK, T_MILK, MILK,
+                     normalise_match_key(MILK), appmod.TENDER_MATCH_AUTO)
+_cross_forms = _tender_forms(cross.get("/tenders").data.decode("utf-8", "replace"))
+_cross_by_upload = {int(f["upload_id"]): f for f in _cross_forms
+                    if f.get("upload_id", "").isdigit()}
+_cross_a_fields = {k for k in _cross_by_upload.get(_cross_a, {})
+                   if k.startswith("item__")}
+_cross_b_fields = {k for k in _cross_by_upload.get(_cross_b, {})
+                   if k.startswith("item__")}
+_check("22a each upload renders its own bounded correction controls",
+       _cross_a_fields == {"item__" + K_SAUCE}
+       and _cross_b_fields == {"item__" + K_MILK},
+       detail=f"A={_cross_a_fields}, B={_cross_b_fields}")
+_before_b = next(m for m in db.get_tender_matches(CROSS_ORG)
+                 if m["tender_key"] == K_MILK)
+_forged = dict(_cross_by_upload[_cross_a])
+# A forger inventing the item field invents the orig field too, and picks the
+# value that gets furthest. The POST reads `saved` scoped to upload A, so K_MILK
+# has no entry there and its `stored` is "". Supplying "" therefore clears the
+# stale-form guard, and the per-upload row scoping is what actually rejects it.
+# Supplying B's real rendered value instead would be stopped one branch earlier
+# and this test would stay green with the scoping removed.
+_forged["orig__" + K_MILK] = ""
+_forged["item__" + K_MILK] = SAUCE
+cross.post("/tenders/match", data=_forged, follow_redirects=True)
+_after_b = next(m for m in db.get_tender_matches(CROSS_ORG)
+                if m["tender_key"] == K_MILK)
+_check("22b a forged upload B field posted through upload A is ignored",
+       (_after_b["inventory_key"], _after_b["confirmed_by"])
+       == (_before_b["inventory_key"], _before_b["confirmed_by"]),
+       detail=f"{dict(_before_b)} -> {dict(_after_b)}")
+
+
+# ── 23. A field after the rendered limit is ignored even when forged ────────
+
+LIMIT_ORG = "OrgLimit"
+LIMIT_ID = _make_user("limit@example.com", LIMIT_ORG)
+limit_client = _client(LIMIT_ID, "limit@example.com", LIMIT_ORG)
+_seed_session(LIMIT_ID, LIMIT_ORG, recs=[], inventory=[{
+    "item": SAUCE, "status": "LOW", "spoilage_risk": "NONE",
+    "days_of_supply": 10, "category": "DRY", "stock": "2 CTN",
+    "observation": "low",
+}])
+_limit_names = ["BROOKVALE ALPHA CONTRACT 1L",
+                "BROOKVALE BRAVO CONTRACT 1L",
+                "BROOKVALE CHARLIE CONTRACT 1L"]
+_limit_upload = _seed_tender_upload(
+    LIMIT_ORG, [(name, 10 + i) for i, name in enumerate(_limit_names)],
+    filename="limit.csv")
+_limit_extra_key = normalise_match_key(_limit_names[2])
+_orig_match_rows = appmod.MAX_MATCH_ROWS
+appmod.MAX_MATCH_ROWS = 2
+try:
+    _limit_forms = _tender_forms(
+        limit_client.get("/tenders").data.decode("utf-8", "replace"))
+    _limit_form = next(f for f in _limit_forms
+                       if f.get("upload_id") == str(_limit_upload))
+    _limit_fields = {k for k in _limit_form if k.startswith("item__")}
+    limit_client.post("/tenders/match", data={
+        "upload_id": str(_limit_upload),
+        # Same reason as 20e: reach the row cap, not the stale-form guard.
+        "orig__" + _limit_extra_key: "",
+        "item__" + _limit_extra_key: SAUCE,
+    }, follow_redirects=True)
+finally:
+    appmod.MAX_MATCH_ROWS = _orig_match_rows
+
+_check("23a only the first two distinct keys render item inputs",
+       len(_limit_fields) == 2 and "item__" + _limit_extra_key not in _limit_fields,
+       detail=str(_limit_fields))
+_check("23b a forged field for the unrendered third key is ignored",
+       all(m["tender_key"] != _limit_extra_key
+           for m in db.get_tender_matches(LIMIT_ORG)),
+       detail=str(db.get_tender_matches(LIMIT_ORG)))
+
+
+# ── 24. Orphan history cannot hide or overwrite a current human decision ────
+
+PRESERVE_ORG = "OrgPreserve"
+PRESERVE_ID = _make_user("preserve@example.com", PRESERVE_ORG)
+preserve = _client(PRESERVE_ID, "preserve@example.com", PRESERVE_ORG)
+_seed_session(PRESERVE_ID, PRESERVE_ORG, recs=[], inventory=[{
+    "item": SAUCE, "status": "LOW", "spoilage_risk": "NONE",
+    "days_of_supply": 10, "category": "DRY", "stock": "2 CTN",
+    "observation": "low",
+}, {
+    "item": MILK, "status": "LOW", "spoilage_risk": "NONE",
+    "days_of_supply": 10, "category": "DRY", "stock": "2 CTN",
+    "observation": "low",
+}])
+_preserve_tender = "VANMARK LEGACY CONTRACT 500ML"
+_preserve_key = normalise_match_key(_preserve_tender)
+for _orphan_key in ("aaa orphan mapping", "aab orphan mapping"):
+    db.save_tender_match(PRESERVE_ORG, _orphan_key, _orphan_key, SAUCE,
+                         normalise_match_key(SAUCE), "preserve@example.com")
+_seed_tender_upload(PRESERVE_ORG, [(_preserve_tender, 15)],
+                    filename="preserve-old.csv")
+db.save_tender_match(PRESERVE_ORG, _preserve_key, _preserve_tender, MILK,
+                     normalise_match_key(MILK), "preserve@example.com")
+_historical_first = db.get_tender_matches(PRESERVE_ORG, limit=2)
+_current_tight = db.get_current_tender_matches(PRESERVE_ORG, limit=1)
+_check("24a orphan mappings really sort ahead in the historical read",
+       len(_historical_first) == 2
+       and all(m["tender_key"].startswith("aa") for m in _historical_first),
+       detail=str(_historical_first))
+_check("24b a tight current-only read still returns the human mapping",
+       len(_current_tight) == 1
+       and _current_tight[0]["tender_key"] == _preserve_key
+       and _current_tight[0]["confirmed_by"] == "preserve@example.com",
+       detail=str(_current_tight))
+
+_orig_auto_match = tenders.auto_match
+_orig_save_match = db.save_tender_match
+_orig_tender_limit = appmod.MAX_TENDER_ROWS_PER_ORG
+_preserve_save_calls = []
+
+
+def _wrong_reupload_guess(rows, index, *args, **kwargs):
+    return {_preserve_key: SAUCE}
+
+
+def _record_preserve_save(*args, **kwargs):
+    _preserve_save_calls.append(args)
+    return _orig_save_match(*args, **kwargs)
+
+
+tenders.auto_match = _wrong_reupload_guess
+db.save_tender_match = _record_preserve_save
+# One existing row plus this re-upload fits exactly. A historical read capped
+# at two would contain only the two orphans and miss the human mapping.
+appmod.MAX_TENDER_ROWS_PER_ORG = 2
+try:
+    _preserve_response = _upload(
+        preserve, _sheet(_preserve_tender, 15),
+        customer="VANMARK CATERING", filename="preserve-new.csv")
+finally:
+    tenders.auto_match = _orig_auto_match
+    db.save_tender_match = _orig_save_match
+    appmod.MAX_TENDER_ROWS_PER_ORG = _orig_tender_limit
+
+_preserved = next(m for m in db.get_tender_matches(PRESERVE_ORG)
+                  if m["tender_key"] == _preserve_key)
+_check("24c re-upload performs no write over a preserved human decision",
+       _preserve_save_calls == [], detail=str(_preserve_save_calls))
+_check("24d the human item and attribution survive the wrong fresh guess",
+       _preserved["inventory_key"] == normalise_match_key(MILK)
+       and _preserved["confirmed_by"] == "preserve@example.com",
+       detail=str(dict(_preserved)))
+_check("24e the flash counts that preserved human mapping as paired",
+       b"1 of 1 distinct tender item name has a stored pairing" in _preserve_response.data,
+       detail=_preserve_response.data.decode("utf-8", "replace")[:300])
+
+
+# ── 25. Partial automatic saves are reported from persisted state ───────────
+
+PARTIAL_ORG = "OrgPartial"
+PARTIAL_ID = _make_user("partial@example.com", PARTIAL_ORG)
+partial = _client(PARTIAL_ID, "partial@example.com", PARTIAL_ORG)
+_seed_session(PARTIAL_ID, PARTIAL_ORG, recs=[], inventory=[{
+    "item": SAUCE, "status": "LOW", "spoilage_risk": "NONE",
+    "days_of_supply": 10, "category": "DRY", "stock": "2 CTN",
+    "observation": "low",
+}, {
+    "item": MILK, "status": "LOW", "spoilage_risk": "NONE",
+    "days_of_supply": 10, "category": "DRY", "stock": "2 CTN",
+    "observation": "low",
+}])
+_partial_one = "BROOKVALE PARTIAL CONTRACT 1L"
+_partial_two = "PADIMAS PARTIAL CONTRACT 500ML"
+_partial_keys = {normalise_match_key(_partial_one), normalise_match_key(_partial_two)}
+_orig_auto_match = tenders.auto_match
+_orig_save_match = db.save_tender_match
+_partial_calls = []
+
+
+def _two_guesses(rows, index, *args, **kwargs):
+    return {r["match_key"]: (MILK if "BROOKVALE" in r["item_name"] else SAUCE)
+            for r in rows}
+
+
+def _fail_second_save(*args, **kwargs):
+    _partial_calls.append(args)
+    if len(_partial_calls) == 2:
+        raise RuntimeError("injected second-save failure")
+    return _orig_save_match(*args, **kwargs)
+
+
+tenders.auto_match = _two_guesses
+db.save_tender_match = _fail_second_save
+try:
+    _partial_response = _upload(
+        partial,
+        ("Item Description,Tender Qty\n"
+         f"{_partial_one},10\n{_partial_two},20\n"),
+        customer="BROOKVALE CATERING", filename="partial.csv")
+finally:
+    tenders.auto_match = _orig_auto_match
+    db.save_tender_match = _orig_save_match
+
+_partial_current = db.get_current_tender_matches(
+    PARTIAL_ORG, limit=appmod.MAX_TENDER_ROWS_PER_ORG)
+_check("25a the injected failure occurs after exactly one committed save",
+       len(_partial_calls) == 2 and len(_partial_current) == 1
+       and _partial_current[0]["tender_key"] in _partial_keys,
+       detail=f"calls={len(_partial_calls)}, current={_partial_current}")
+_check("25b the flash reports one of two paired from persisted state",
+       b"1 of 2 distinct tender item names has a stored pairing" in _partial_response.data
+       and b"1 name is unpaired or cleared and adds nothing" in _partial_response.data,
+       detail=_partial_response.data.decode("utf-8", "replace")[:400])
+
+
+# ── 26. Duplicate commitment rows count one distinct paired key ─────────────
+
+DUPCOUNT_ORG = "OrgDuplicateCount"
+DUPCOUNT_ID = _make_user("dupcount@example.com", DUPCOUNT_ORG)
+dupcount = _client(DUPCOUNT_ID, "dupcount@example.com", DUPCOUNT_ORG)
+_seed_session(DUPCOUNT_ID, DUPCOUNT_ORG, recs=[], inventory=[{
+    "item": SAUCE, "status": "LOW", "spoilage_risk": "NONE",
+    "days_of_supply": 10, "category": "DRY", "stock": "2 CTN",
+    "observation": "low",
+}])
+_orig_auto_match = tenders.auto_match
+tenders.auto_match = _one_guess
+try:
+    _dupcount_response = _upload(
+        dupcount,
+        ("Item Description,Tender Qty\n"
+         f"{T_SAUCE},10\n{T_SAUCE},20\n"),
+        customer="PADIMAS CATERING", filename="duplicate-count.csv")
+finally:
+    tenders.auto_match = _orig_auto_match
+
+_check("26a both duplicate commitment rows are stored, so the count test is live",
+       len(db.get_tender_commitments(DUPCOUNT_ORG)) == 2,
+       detail=str(len(db.get_tender_commitments(DUPCOUNT_ORG))))
+_check("26b the flash reports one of one distinct tender item name paired",
+       b"1 of 1 distinct tender item name has a stored pairing" in _dupcount_response.data,
+       detail=_dupcount_response.data.decode("utf-8", "replace")[:300])
+_check("26c the duplicate row is not falsely reported as unmatched",
+       b"unpaired or cleared" not in _dupcount_response.data,
+       detail=_dupcount_response.data.decode("utf-8", "replace")[:300])
+
+
+# ── 27. Every contributing raw source survives all three order surfaces ──────
+
+SOURCE_ORG = "OrgSources"
+SOURCE_ID = _make_user("sources@example.com", SOURCE_ORG)
+sources_client = _client(SOURCE_ID, "sources@example.com", SOURCE_ORG)
+SOURCE_SID = _seed_session(SOURCE_ID, SOURCE_ORG,
+                           recs=[_rec(SAUCE, "200 CTN")],
+                           inventory=[INVENTORY[0]])
+_source_one = "PADIMAS SAUCE CONTRACT 500ML"
+_source_two = "VANMARK SAUCE RESERVE 500ML"
+_seed_tender_upload(SOURCE_ORG, [(_source_one, 30), (_source_two, 70)],
+                    customer="KESTREL CATERING", filename="sources.csv")
+for _source in (_source_one, _source_two):
+    db.save_tender_match(SOURCE_ORG, normalise_match_key(_source), _source,
+                         SAUCE, normalise_match_key(SAUCE), appmod.TENDER_MATCH_AUTO)
+
+_source_html = sources_client.get(
+    f"/results/{SOURCE_SID}").data.decode("utf-8", "replace")
+_source_card = _recommendation_source_text(_source_html, SAUCE)
+_check("27a both raw sources occur inside the recommendation card audit block",
+       all(source in _source_card for source in (_source_one, _source_two)),
+       detail=_source_card)
+
+_source_print = sources_client.get(
+    f"/results/{SOURCE_SID}/print").data.decode("utf-8", "replace")
+_source_print_row = _printed_row_text(_source_print, SAUCE)
+_check("27b the printed item row retains a literal from line for every source",
+       all("from: " + source in _source_print_row
+           for source in (_source_one, _source_two))
+       and _source_print_row.count("from:") == 2,
+       detail=_source_print_row)
+
+_source_csv = list(csv.DictReader(io.StringIO(sources_client.get(
+    f"/results/{SOURCE_SID}/export.csv").data.decode("utf-8", "replace"))))
+_source_csv_row = next((row for row in _source_csv if row.get("Item") == SAUCE), {})
+_source_csv_cell = _source_csv_row.get("Tender Source", "")
+_check("27c the CSV Tender Source cell contains every raw source",
+       all(source in _source_csv_cell for source in (_source_one, _source_two)),
+       detail=_source_csv_cell)
+
+
+# ── 28. A formula-shaped tender source is neutralised in the CSV ─────────────
+
+FORMULA_ORG = "OrgFormulaSource"
+FORMULA_ID = _make_user("formula-source@example.com", FORMULA_ORG)
+formula_client = _client(FORMULA_ID, "formula-source@example.com", FORMULA_ORG)
+FORMULA_SID = _seed_session(FORMULA_ID, FORMULA_ORG,
+                            recs=[_rec(SAUCE, "200 CTN")],
+                            inventory=[INVENTORY[0]])
+_formula_source = "=2+3 KESTREL SAUCE CONTRACT"
+_seed_tender_upload(FORMULA_ORG, [(_formula_source, 25)],
+                    customer="KESTREL CATERING", filename="formula-source.csv")
+db.save_tender_match(FORMULA_ORG, normalise_match_key(_formula_source),
+                     _formula_source, SAUCE, normalise_match_key(SAUCE),
+                     appmod.TENDER_MATCH_AUTO)
+_formula_rows = list(csv.DictReader(io.StringIO(formula_client.get(
+    f"/results/{FORMULA_SID}/export.csv").data.decode("utf-8", "replace"))))
+_formula_cell = next(row for row in _formula_rows
+                     if row.get("Item") == SAUCE).get("Tender Source", "")
+_check("28 the CSV source cell neutralises a formula-shaped tender line",
+       _formula_cell.startswith("'=") and not _formula_cell.startswith("="),
+       detail=_formula_cell)
+
+
 # ── 18. A degenerate INVENTORY name cannot collide with the sentinel ─────────
 # Runs last on purpose: it seeds a newer completed session, and _org_item_names
 # reads the most recent one, so anything after this would see this item list.
@@ -684,13 +1342,23 @@ SID_DEGEN = _seed_session(
                {"item": SAUCE, "status": "LOW", "spoilage_risk": "NONE",
                 "days_of_supply": 11, "category": "DRY", "stock": "24 CTN",
                 "observation": "low"}])
-_check("18a the degenerate name really is in the item universe, so this is live",
-       "-----" in appmod._org_item_names("OrgAlpha"),
+_check("18a the degenerate name is dropped from the item universe at the source",
+       "-----" not in appmod._org_item_names("OrgAlpha"),
        detail=str(appmod._org_item_names("OrgAlpha")))
+_check("18a2 the real item beside it survives, so the filter is not too greedy",
+       SAUCE in appmod._org_item_names("OrgAlpha"),
+       detail=str(appmod._org_item_names("OrgAlpha")))
+# The automatic pairing reads the same list, so it cannot pick the spacer and
+# write the "adds nothing" sentinel while the page reports a match.
+_check("18a3 the pairing index cannot offer the spacer either",
+       all(c["name"] != "-----" for c in tenders.propose_matches(
+           "-----", tenders.build_match_index(appmod._org_item_names("OrgAlpha")),
+           min_score=0.0)))
 
 db.delete_tender_match("OrgAlpha", K_SAUCE)
-alpha.post("/tenders/match", data={"match__" + K_SAUCE: "__other__",
-                                   "other__" + K_SAUCE: "***"},
+alpha.post("/tenders/match", data={
+    "upload_id": str(_upload_id_for_key("OrgAlpha", K_SAUCE)),
+    "item__" + K_SAUCE: "***"},
            follow_redirects=True)
 _saved = [m for m in db.get_tender_matches("OrgAlpha") if m["tender_key"] == K_SAUCE]
 _check("18b a value normalising to nothing never resolves to the spacer item",
@@ -704,29 +1372,108 @@ _check("18c and it is certainly never stored as the not-stocked sentinel",
 # show the collision is real. Without this, 18b and 18c would pass just as
 # happily against a route that had no filter at all, and the guard could be
 # removed with the suite staying green.
-_unfiltered = {normalise_match_key(n): n for n in appmod._org_item_names("OrgAlpha")}
-_check("18d unfiltered, a value normalising to nothing DOES resolve to the "
-       "spacer, so the filter is the guard and not a coincidence",
-       _unfiltered.get(normalise_match_key("***")) == "-----",
-       detail=str(_unfiltered.get(normalise_match_key("***"))))
+_raw = [str(e.get("item") or "").strip()
+        for e in json.loads(db.query(
+            "SELECT inventory_report FROM analysis_results WHERE session_id=?",
+            (SID_DEGEN,))[0]["inventory_report"])]
+_check("18d the spacer IS in the raw report, so the filter is the guard and "
+       "not a coincidence", "-----" in _raw, detail=str(_raw))
 
 
-# ── 19. The below-threshold fallback path stays cheap too ────────────────────
-# Case 11h times the path where candidates clear MATCH_MIN_SCORE. The confirm
-# screen also calls propose_matches a SECOND time with min_score=0.0 whenever
-# the first call finds nothing, which is the pathological row shape: broad but
-# weak token overlap. Time that path, not just the easy one.
+# ── 29. A mapping that appears between render and submit is not clobbered ────
+# The no-op check compares what was typed against the value stored NOW. If a
+# pairing lands after the page was built (a re-upload, or the org's first run
+# completing so auto_match can finally fire), an untouched blank box is a
+# different value from the fresh mapping. Without the rendered-value guard the
+# route reads that as a deliberate clear and writes the permanent "we do not
+# stock this" sentinel under the name of someone who never touched the row.
 
-_weak_index = tenders.build_match_index(
-    [f"PADIMAS CARTON CASE PACK VARIANT {n} ASSORTED RETAIL" for n in range(5000)])
-_t0 = time.time()
-for _ in range(25):
-    _none = tenders.propose_matches("CARTON PACK", _weak_index)
-    if not _none:
-        tenders.propose_matches("CARTON PACK", _weak_index, min_score=0.0)
-_elapsed = time.time() - _t0
-_check("19 the below-threshold fallback path stays bounded",
-       _elapsed < 10.0, detail=f"{_elapsed:.2f}s")
+RACE_ORG = "OrgRace"
+RACE_ID = _make_user("race@example.com", RACE_ORG)
+race = _client(RACE_ID, "race@example.com", RACE_ORG)
+_seed_session(RACE_ID, RACE_ORG, recs=[], inventory=[
+    {"item": MILK, "status": "LOW", "spoilage_risk": "NONE",
+     "days_of_supply": 10, "category": "DRY", "stock": "2 CTN",
+     "observation": "low"},
+    {"item": SAUCE, "status": "LOW", "spoilage_risk": "NONE",
+     "days_of_supply": 10, "category": "DRY", "stock": "2 CTN",
+     "observation": "low"},
+])
+
+
+def _no_guess(rows, index, *args, **kwargs):
+    return {}
+
+
+tenders.auto_match = _no_guess
+try:
+    _upload(race, "Item Description,Tender Qty\n" f"{T_MILK},40\n",
+            customer="NORDVIK CATERING", filename="race.csv")
+finally:
+    tenders.auto_match = _orig_auto_match
+
+_race_upload = _upload_id_for_key(RACE_ORG, K_MILK)
+_race_form = next((f for f in _tender_forms(race.get("/tenders").data.decode(
+    "utf-8", "replace")) if f.get("upload_id") == str(_race_upload)), None)
+_check("29a the unmatched row renders blank and carries what it rendered",
+       _race_form is not None
+       and _race_form.get("item__" + K_MILK) == ""
+       and _race_form.get("orig__" + K_MILK) == "",
+       detail=str(_race_form))
+
+# The race. A pairing lands after that page was built and before it is posted.
+_MILK_KEY = normalise_match_key(MILK)
+db.save_tender_match(RACE_ORG, K_MILK, T_MILK, MILK, _MILK_KEY,
+                     appmod.TENDER_MATCH_AUTO)
+_race_resp = None
+if _race_form is not None:
+    _race_resp = race.post("/tenders/match", data=dict(_race_form),
+                           follow_redirects=True)
+_race_saved = {m["tender_key"]: m for m in db.get_tender_matches(RACE_ORG)}
+_check("29b a stale blank does not clear a mapping that appeared after render",
+       _race_saved.get(K_MILK, {}).get("inventory_key") == _MILK_KEY,
+       detail=str(_race_saved.get(K_MILK)))
+_check("29c and nobody is credited with a decision they never made",
+       (_race_saved.get(K_MILK, {}).get("confirmed_by") or "")
+       == appmod.TENDER_MATCH_AUTO,
+       detail=str(_race_saved.get(K_MILK)))
+# Skipping is the safe outcome, but a SILENT skip is its own bug: the user
+# clicks Save, the page reloads, and nothing tells them the edit was dropped.
+# Without this check the flash could be deleted and the suite would stay green.
+_check("29f the user is told the page was out of date, not left guessing",
+       _race_resp is not None
+       and "out of date" in _race_resp.data.decode("utf-8", "replace"),
+       detail="no stale-form flash rendered on the reloaded page")
+
+# Mirror case: the lost update. A colleague corrects the row, then the stale tab
+# posts a value of its own. It must not win, and it must not take the credit.
+db.save_tender_match(RACE_ORG, K_MILK, T_MILK, MILK, _MILK_KEY,
+                     "colleague@example.com")
+_stale = dict(_race_form or {})
+_stale["item__" + K_MILK] = SAUCE
+race.post("/tenders/match", data=_stale, follow_redirects=True)
+_race_after = {m["tender_key"]: m for m in db.get_tender_matches(RACE_ORG)}
+_check("29d a stale tab cannot overwrite a colleague's newer correction",
+       _race_after.get(K_MILK, {}).get("inventory_key") == _MILK_KEY
+       and (_race_after.get(K_MILK, {}).get("confirmed_by") or "")
+       == "colleague@example.com",
+       detail=str(_race_after.get(K_MILK)))
+
+# The guard must not seize up the normal path: posting against what the page
+# actually showed still works. Without this, deleting the whole correction
+# feature would pass 29a to 29d.
+_fresh_form = next((f for f in _tender_forms(race.get("/tenders").data.decode(
+    "utf-8", "replace")) if f.get("upload_id") == str(_race_upload)), None)
+if _fresh_form is not None:
+    _fresh_form["item__" + K_MILK] = SAUCE
+    race.post("/tenders/match", data=dict(_fresh_form), follow_redirects=True)
+_race_final = {m["tender_key"]: m for m in db.get_tender_matches(RACE_ORG)}
+_check("29e a correction posted against the current render still saves",
+       _race_final.get(K_MILK, {}).get("inventory_key")
+       == normalise_match_key(SAUCE)
+       and (_race_final.get(K_MILK, {}).get("confirmed_by") or "")
+       == "race@example.com",
+       detail=str(_race_final.get(K_MILK)))
 
 
 if _FAILED:

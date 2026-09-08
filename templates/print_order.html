@@ -80,6 +80,16 @@
               {%- if r._tender.base %}{{ r._tender.base }} + {% else %}+ {% endif -%}
               {{ r._tender.add }} tender
             </div>
+            {# The pairing between a tender line and this item was GUESSED, not
+               confirmed by anyone, so the line it came from is printed here.
+               This is the only thing standing between a wrong guess and a wrong
+               order, and the person reading this sheet is the one who can catch
+               it. Do not remove it to save a row of space. #}
+            {% for source in r._tender.sources %}
+            <div class="note">from: {{ source.tender_item }}
+              {%- if source.customer %} ({{ source.customer }}){% endif -%}
+            </div>
+            {% endfor %}
           {% endif %}
           {% if r.edited_quantity and r.edited_quantity != r.suggested_quantity %}
             <div class="note">AI suggested: {{ r.suggested_quantity }}</div>

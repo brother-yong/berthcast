@@ -57,16 +57,18 @@
   </section>
 
   <div class="alert alert-info" style="margin-top:14px;">
-    Matched rows are added on top of your order quantities. A row counts only once you
-    have decided which of your items it is.
+    Tender quantities are added on top of your order quantities, and shown in gold on
+    the results page and the printed order sheet. We match each tender line to one of
+    your items automatically, because tender sheets use your customer's item names.
+    The line it matched is printed next to the quantity, so check it before you order.
   </div>
 
   {% if unmatched_count %}
   <div class="alert alert-info" style="margin-top:14px; border-color:rgba(230,180,80,0.42);">
     {{ unmatched_count }} tender row{{ '' if unmatched_count == 1 else 's' }}
-    {{ 'has' if unmatched_count == 1 else 'have' }} not been reviewed yet, so they add
-    nothing to your order quantities.
-    <a href="{{ url_for('tenders_match') }}">Match them to your items →</a>
+    could not be matched to one of your items, so
+    {{ 'it adds' if unmatched_count == 1 else 'they add' }} nothing to your order
+    quantities. Open the sheet below to set them yourself.
   </div>
   {% endif %}
 
@@ -147,6 +149,11 @@
   {% endif %}
 
   {% if uploads %}
+  {# ONE datalist for the page. A few hundred names is about 20KB here; a
+     <select> repeated per row would be many times that. #}
+  <datalist id="org-items">
+    {% for name in item_names %}<option value="{{ name }}"></option>{% endfor %}
+  </datalist>
   <h2 style="font-size:16px; margin-top:26px;">Uploaded sheets</h2>
   {% for u in uploads %}
   {% set rows = rows_by_upload.get(u.id, []) %}
@@ -186,12 +193,22 @@
       {% endif %}
 
       {% if rows %}
+      {# The pairing is guessed at upload, so this column is a correction, not a
+         step anyone has to complete. A text box with the org's own item list
+         behind it, rather than a select: the list runs to hundreds of names and
+         repeating that per row would be megabytes of markup. #}
+      {% if session.role != 'viewer' and corrections_available %}
+      <form method="POST" action="{{ url_for('tenders_match_save') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="upload_id" value="{{ u.id }}">
+      {% endif %}
       <div style="overflow-x:auto; margin-top:12px;">
         <table class="data-table">
           <thead>
             <tr>
-              <th>Item</th><th>Quantity</th><th>Basis</th><th>Per month</th>
-              <th>From</th><th>To</th><th>Matched to</th><th>Status</th>
+              <th>Item on the tender sheet</th><th>Quantity</th><th>Basis</th>
+              <th>Per month</th><th>From</th><th>To</th>
+              <th>Your item</th><th>Status</th>
             </tr>
           </thead>
           <tbody>
@@ -203,21 +220,22 @@
               <td>{{ r.monthly_display }}</td>
               <td>{{ r.period_start }}</td>
               <td>{{ r.period_end }}</td>
-              {# Three values, not two: "not reviewed" and "not stocked" are
-                 different answers, and a binary column made them look the same. #}
               <td>
-                {% if r.match and r.match.inventory_key %}
-                  {{ r.match.inventory_item }}
-                  {% if r.match.confirmed_at %}
-                  <span class="t-tag">{{ r.match.confirmed_at[:10] }}</span>
-                  {% endif %}
-                {% elif r.match %}
-                  <span style="color:var(--muted);">not stocked</span>
-                  {% if r.match.confirmed_at %}
-                  <span class="t-tag">{{ r.match.confirmed_at[:10] }}</span>
-                  {% endif %}
-                {% else %}
-                  <span style="color:var(--muted);">not reviewed</span>
+                {% set opt = match_options.get(r.match_key, {}) %}
+                {% set current = r.match or {} %}
+                {% if session.role != 'viewer' and corrections_available and r.match_editable %}
+                <input type="hidden" name="orig__{{ r.match_key }}"
+                       value="{{ opt.chosen or '' }}">
+                <input type="text" class="tm-item" name="item__{{ r.match_key }}"
+                       list="org-items" maxlength="300"
+                       value="{{ opt.chosen or '' }}"
+                       placeholder="not matched, adds nothing"
+                       aria-label="Your item for {{ r.item_name }}">
+                {% elif current.inventory_key %}{{ current.inventory_item }}
+                {% else %}<span style="color:var(--muted);">not matched</span>
+                {% endif %}
+                {% if current.inventory_key and current.confirmed_by == 'auto' %}
+                <span class="t-tag">our guess</span>
                 {% endif %}
               </td>
               <td>
@@ -230,6 +248,16 @@
           </tbody>
         </table>
       </div>
+      {% if session.role != 'viewer' and corrections_available %}
+      <button type="submit" class="btn btn-outline" style="margin-top:10px;">
+        Save item matches
+      </button>
+      <span style="color:var(--muted); font-size:13px; margin-left:8px;">
+        Clear a box to stop that line adding anything. Corrections are available
+        for the first {{ match_row_limit }} distinct item names in this sheet.
+      </span>
+      </form>
+      {% endif %}
       {% endif %}
 
       {% if session.role != 'viewer' %}
