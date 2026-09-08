@@ -24,6 +24,7 @@ cookies*.txt
 # personal info, never upload
 MEMORY.md
 CLAUDE.md
+AGENTS.md
 
 # Stray client exports / design scratch that sometimes land here — never upload
 fixtures/berthcast_orders_*.csv
