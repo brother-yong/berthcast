@@ -7,7 +7,7 @@ own licence, reproduced/linked below. berthcast's own "All rights reserved"
 | File | Library | Version | Licence |
 |---|---|---|---|
 | `marked.min.js` | marked | 9.1.6 | MIT |
-| `purify.min.js` | DOMPurify | 3.0.9 | Apache-2.0 OR MPL-2.0 |
+| `purify.min.js` | DOMPurify | 3.4.15 | Apache-2.0 OR MPL-2.0 |
 | `highlight.min.js` | highlight.js | 11.9.0 | BSD-3-Clause |
 | `github-dark.min.css` | highlight.js (theme) | 11.9.0 | BSD-3-Clause |
 
@@ -27,7 +27,7 @@ Software. THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
 
 ## DOMPurify — Apache-2.0 OR MPL-2.0
 Copyright (c) Cure53 and other contributors.
-Full text: https://github.com/cure53/DOMPurify/blob/3.0.9/LICENSE
+Full text: https://github.com/cure53/DOMPurify/blob/3.4.15/LICENSE
 Dual-licensed; berthcast redistributes under the Apache License 2.0.
 
 ## highlight.js and its github-dark theme — BSD-3-Clause

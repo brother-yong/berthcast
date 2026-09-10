@@ -1538,13 +1538,15 @@ def user_settings():
                         flash("That email is already registered.", "error")
                     else:
                         temp_pw = secrets.token_urlsafe(10)
+                        inviter = db.query("SELECT trial_ends_at FROM users WHERE id=?", (session["user_id"],))
                         db.execute(
                             """INSERT INTO users
                                (email, password_hash, org_name, model, tier,
-                                email_verified, role, analyses_used, chat_messages_used)
-                               VALUES (?,?,?,?,?,1,?,0,0)""",
+                                email_verified, role, analyses_used, chat_messages_used, trial_ends_at)
+                               VALUES (?,?,?,?,?,1,?,0,0,?)""",
                             (inv_email, generate_password_hash(temp_pw), org,
-                             session["model"], session.get("tier", "enterprise"), inv_role)
+                             session["model"], session.get("tier", "enterprise"), inv_role,
+                             inviter[0]["trial_ends_at"])
                         )
                         login_url = url_for("login", _external=True)
                         threading.Thread(
@@ -2911,7 +2913,7 @@ def results(upload_session_id):
         if not isinstance(rec, dict) or rec.get("error"):
             continue
         _normalise_confidence(rec)
-        rec["_order_by"]      = _compute_order_by(rec)
+        rec["_order_by"]      = _compute_order_by(rec, as_of=generated_at)
         rec["_conf_reasons"]  = _confidence_reasons(rec)
         rec["_effective_qty"]      = _effective_qty(rec)
         rec["_effective_supplier"] = _effective_supplier(rec)
@@ -3075,10 +3077,10 @@ def _status_by_item_map(upload_session_id):
         return {}
 
 
-def _order_by_text(rec):
+def _order_by_text(rec, as_of=None):
     """Order-by text shared by every order sheet so they stay consistent: an
     overdue date becomes 'ASAP', a future date shows as-is, unknown shows '—'."""
-    ob = _compute_order_by(rec)
+    ob = _compute_order_by(rec, as_of=as_of)
     if ob.get("status") == "overdue":
         return "ASAP"
     return ob.get("order_by_date") or "—"
@@ -3110,7 +3112,7 @@ def print_results(upload_session_id):
     sheet has to carry the items they haven't approved on screen yet.
     """
     _verify_session_owner(upload_session_id)
-    ar = db.query("SELECT recommendations_json FROM analysis_results WHERE session_id=?", (upload_session_id,))
+    ar = db.query("SELECT recommendations_json, created_at FROM analysis_results WHERE session_id=?", (upload_session_id,))
     if not ar:
         flash("No results found.", "error")
         return redirect(url_for("dashboard"))
@@ -3132,7 +3134,7 @@ def print_results(upload_session_id):
         _normalise_confidence(r)
         r["_effective_qty"]      = _effective_qty(r)
         r["_effective_supplier"] = _effective_supplier(r)
-        r["_order_by"]           = _compute_order_by(r)
+        r["_order_by"]           = _compute_order_by(r, as_of=ar[0].get("created_at"))
         r["_current_stock"]      = stock_map.get(str(r.get("item", "")).strip())
         r["_order_covers"]       = _order_covers_months(r)
         r["_tender"] = _tender_split(
@@ -3155,7 +3157,7 @@ def export_csv(upload_session_id):
         return redirect(url_for("results", upload_session_id=upload_session_id))
     import csv, io
     _verify_session_owner(upload_session_id)
-    ar = db.query("SELECT recommendations_json FROM analysis_results WHERE session_id=?", (upload_session_id,))
+    ar = db.query("SELECT recommendations_json, created_at FROM analysis_results WHERE session_id=?", (upload_session_id,))
     if not ar:
         flash("No results found.", "error")
         return redirect(url_for("dashboard"))
@@ -3228,7 +3230,7 @@ def export_csv(upload_session_id):
             add_on,
             _safe(tender_source),
             _safe(_effective_supplier(r)),
-            _order_by_text(r),
+            _order_by_text(r, as_of=ar[0].get("created_at")),
             runway,
             covers if covers else "",
             _safe(r.get("note", "")),

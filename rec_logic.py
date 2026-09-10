@@ -52,7 +52,7 @@ def _effective_supplier(rec):
     return rec.get("supplier", "")
 
 
-def _compute_order_by(rec):
+def _compute_order_by(rec, as_of=None):
     """Compute when the user must place this order to avoid a stockout.
 
     Returns a dict with:
@@ -73,8 +73,14 @@ def _compute_order_by(rec):
     if dos is None or lt is None:
         return {"order_by_date": None, "buffer_days": None, "status": "unknown"}
 
+    if not isinstance(as_of, datetime):
+        try:
+            as_of = datetime.fromisoformat(as_of)
+        except (TypeError, ValueError):
+            as_of = datetime.utcnow()
+
     buffer_days = int(round(dos - lt))
-    order_by = datetime.utcnow() + timedelta(days=buffer_days)
+    order_by = as_of + timedelta(days=buffer_days)
     order_by_date = order_by.strftime("%d %b %Y")
 
     if buffer_days < 0:

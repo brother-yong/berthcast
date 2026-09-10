@@ -2,6 +2,7 @@ import sqlite3
 import json
 import os
 import re
+import threading
 
 # DB lives on the Render persistent disk in prod (DB_PATH env var points to a
 # file on the mounted disk, e.g. /var/data/berthai.db). For local dev, defaults
@@ -1049,20 +1050,26 @@ def get_conversion_status(session_id: int) -> dict:
         return {}
 
 
+# ponytail: process-local lock is enough on one gunicorn worker.
+# Two or more workers would need a DB-level transaction instead.
+_CONV_STATUS_LOCK = threading.Lock()
+
+
 def set_conversion_status(session_id: int, slot: str, status: str, rows_count: int = 0,
                           error: str = "", readback: dict = None, token: str = ""):
-    current = get_conversion_status(session_id)
-    entry = {"status": status, "rows": rows_count, "error": error}
-    if readback:
-        entry["readback"] = readback
-    if token:
-        # Ownership token for in-flight conversions: a background thread only
-        # writes its terminal status while its token still owns the slot (see
-        # app._start_processing) — a remove or re-upload replaces the token.
-        entry["token"] = token
-    current[slot] = entry
-    execute("UPDATE upload_sessions SET conversion_status_json=? WHERE id=?",
-            (json.dumps(current), session_id))
+    with _CONV_STATUS_LOCK:
+        current = get_conversion_status(session_id)
+        entry = {"status": status, "rows": rows_count, "error": error}
+        if readback:
+            entry["readback"] = readback
+        if token:
+            # Ownership token for in-flight conversions: a background thread only
+            # writes its terminal status while its token still owns the slot (see
+            # app._start_processing). A remove or re-upload replaces the token.
+            entry["token"] = token
+        current[slot] = entry
+        execute("UPDATE upload_sessions SET conversion_status_json=? WHERE id=?",
+                (json.dumps(current), session_id))
 
 
 def table_exists(table_name: str) -> bool:
