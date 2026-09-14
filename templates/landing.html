@@ -50,322 +50,156 @@
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400..700;1,6..72,400..700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-  <style>
-  :root{
-    --green-deep:#05140A; --green-900:#081C0F; --green-800:#0D2818; --green-700:#12351F;
-    --gold:#C9A227; --gold-light:#DcBE63;
-    --ivory:#F3EFDF; --ivory-dim:rgba(243,239,223,.66); --ivory-faint:rgba(243,239,223,.42);
-    --moss:#8FBC8F; --crit:#E89A92; --amber:#E6B450;
-    --gold-line:rgba(201,162,39,.22); --hair:rgba(243,239,223,.12);
-    --serif:'Newsreader', Georgia, serif;
-    --sans:'Inter', system-ui, sans-serif;
-  }
-  *{margin:0;padding:0;box-sizing:border-box}
-  html{scroll-behavior:smooth}
-  body{ background:var(--green-deep); color:var(--ivory); font-family:var(--sans); font-weight:400;
-        line-height:1.6; -webkit-font-smoothing:antialiased; position:relative; overflow-x:hidden; font-size:16px; }
-  img{max-width:100%;display:block}
-  a{ color:var(--gold); text-decoration:none; }
-
-  .wrap{ position:relative; z-index:2; max-width:1180px; margin:0 auto; padding-left:40px; padding-right:40px; }
-
-  /* section eyebrow — plain uppercase gold, Design-style (no leading rule) */
-  .kicker{ font-family:var(--sans); font-size:11px; font-weight:600; letter-spacing:.17em;
-           text-transform:uppercase; color:var(--gold); }
-  /* nav — frosted glass bar, stays put while the page scrolls under it */
-  .topbar{ position:sticky; top:0; z-index:10; background:rgba(5,20,10,.55);
-           -webkit-backdrop-filter:blur(14px); backdrop-filter:blur(14px);
-           border-bottom:1px solid var(--hair); }
-  nav{ max-width:1180px; margin:0 auto; padding:14px 40px;
-       display:flex; align-items:center; justify-content:space-between; }
-  .brand{ display:inline-flex; align-items:center; text-decoration:none; }
-  .brand img{ height:44px; width:auto; }
-  .nav-right{ display:flex; align-items:center; gap:6px; }
-  .nav-link{ font-family:var(--sans); font-size:13px; color:var(--ivory-dim); text-decoration:none; padding:8px 14px; transition:color .2s; }
-  .nav-link:hover{ color:var(--gold); }
-  .btn{ font-family:var(--sans); font-weight:600; text-decoration:none; cursor:pointer; border-radius:9px;
-        display:inline-flex; align-items:center; gap:8px; border:1px solid transparent; transition:all .2s; }
-  .btn-nav{ background:transparent; color:var(--ivory); font-size:13px; padding:9px 16px; border-color:var(--gold-line); }
-  .btn-nav:hover{ border-color:var(--gold); color:var(--gold); }
-  .btn-primary{ background:var(--gold); color:var(--green-deep); font-size:15px; padding:14px 26px; }
-  .btn-primary:hover{ background:var(--gold-light); }
-
-  /* hamburger — every page reachable from the corner, no scrolling to the footer */
-  .menu{ position:relative; }
-  .menu summary{ list-style:none; cursor:pointer; display:inline-flex; align-items:center;
-                 padding:10px 12px; border:1px solid var(--gold-line); border-radius:9px;
-                 color:var(--ivory); transition:all .2s; }
-  .menu summary::-webkit-details-marker{ display:none; }
-  .menu summary:hover, .menu[open] summary{ border-color:var(--gold); color:var(--gold); }
-  .menu-panel{ position:absolute; right:0; top:calc(100% + 10px); min-width:190px; z-index:20;
-               background:rgba(5,20,10,.88); -webkit-backdrop-filter:blur(14px); backdrop-filter:blur(14px);
-               border:1px solid var(--gold-line); border-radius:10px; padding:8px;
-               display:flex; flex-direction:column; }
-  .menu-panel a{ color:var(--ivory-dim); font-size:14px; text-decoration:none; padding:9px 12px; border-radius:7px; }
-  .menu-panel a:hover{ color:var(--gold); background:rgba(201,162,39,.08); }
-  .menu-panel hr{ border:none; border-top:1px solid var(--hair); margin:6px 4px; }
-
-  /* hero — full-bleed warehouse aisle, headline in the dark left third.
-     negative top margin bleeds the image up behind the frosted nav;
-     ponytail: -76px tracks the topbar height (14px*2 padding + 44px logo) */
-  .hero{ position:relative; z-index:2; margin-top:-76px; min-height:100vh; background:var(--green-deep);
-         display:flex; align-items:center; overflow:hidden; }
-  .hero-bg{ position:absolute; inset:0; width:100%; height:100%; object-fit:cover; object-position:center; z-index:0; }
-  /* left-dark fade keeps the headline legible; bottom fade blends into the page */
-  .hero-veil{ position:absolute; inset:0; z-index:1; pointer-events:none; background:
-      linear-gradient(to right, var(--green-deep) 0%, rgba(5,20,10,.95) 22%, rgba(5,20,10,.72) 42%, rgba(5,20,10,.30) 62%, rgba(5,20,10,.20) 100%),
-      linear-gradient(to bottom, rgba(5,20,10,.55) 0%, rgba(5,20,10,0) 26%, rgba(5,20,10,0) 60%, rgba(5,20,10,.88) 90%, var(--green-deep) 100%); }
-  .hero-inner{ position:relative; z-index:3; max-width:1180px; width:100%; margin:0 auto; padding:150px 40px 120px; }
-  .hero-copy{ max-width:600px; }
-  h1.hero-title{ font-family:var(--serif); font-weight:500; font-size:clamp(38px,5.3vw,76px); line-height:1.0;
-                 letter-spacing:-.018em; color:var(--ivory); }
-  .hero-sub{ font-size:18.5px; color:var(--ivory-dim); line-height:1.58; margin-top:26px; max-width:33em; }
-  .hero-ctas{ display:flex; gap:22px; flex-wrap:wrap; margin-top:38px; align-items:center; }
-  .hero-note{ font-size:13.5px; color:var(--ivory-faint); }
-
-  /* the scan line — one gold sweep down the aisle on load (JS-driven), then still */
-  .hero-scan{ position:absolute; left:0; right:0; top:0; height:64px; z-index:2; opacity:0;
-              transform:translateY(-80px) skewY(-2.2deg); will-change:transform,opacity; pointer-events:none; }
-  .hero-scan::before{ content:''; position:absolute; left:0; right:0; bottom:0; height:64px;
-              background:linear-gradient(to bottom, rgba(201,162,39,0) 0%, rgba(201,162,39,.06) 100%); }
-  .hero-scan::after{ content:''; position:absolute; left:0; right:0; bottom:0; height:1.5px;
-              background:linear-gradient(to right, rgba(201,162,39,0) 26%, rgba(201,162,39,.18) 36%, rgba(201,162,39,.92) 62%, rgba(201,162,39,.45) 88%, rgba(201,162,39,0) 100%); }
-
-  /* section headings shared by problem / how / what */
-  .sec-h2{ font-family:var(--serif); font-weight:400; font-size:clamp(32px,3.6vw,46px); line-height:1.05;
-           letter-spacing:-.012em; color:var(--ivory); }
-
-  /* problem — where the money leaks out */
-  .leak{ padding:clamp(64px,8vw,104px) 0; border-top:1px solid var(--gold-line); }
-  .leak-grid{ display:flex; flex-wrap:wrap; gap:clamp(40px,5vw,80px); }
-  .leak-head{ flex:0.72 1 260px; }
-  .leak-head .sec-h2{ margin-top:18px; }
-  .leak-body{ flex:1.28 1 420px; min-width:0; }
-  .leak-body p{ font-size:clamp(19px,1.6vw,23px); line-height:1.5; color:var(--ivory);
-                padding:28px 0; border-bottom:1px solid var(--hair); }
-  .leak-body p:first-child{ padding-top:0; }
-  .leak-body p:last-child{ border-bottom:none; padding-bottom:0; }
-
-  /* how it works */
-  .how{ padding:clamp(64px,8vw,104px) 0; border-top:1px solid var(--gold-line); }
-  .how .sec-h2{ max-width:20em; margin:18px 0 56px; }
-  .how-steps{ display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:clamp(36px,4vw,48px); }
-  .step{ padding-top:24px; border-top:1px solid rgba(201,162,39,.28); }
-  .step__n{ font-family:var(--serif); font-weight:400; font-size:44px; line-height:1; color:var(--gold); }
-  .step h3{ font-family:var(--serif); font-weight:400; font-size:26px; line-height:1.18; color:var(--ivory); margin:20px 0 12px; }
-  .step p{ font-size:15px; line-height:1.62; color:var(--ivory-dim); }
-
-  /* what you get — three cards split by hairline gold gaps */
-  .what{ padding:clamp(64px,8vw,104px) 0; border-top:1px solid var(--gold-line); }
-  .what .sec-h2{ max-width:20em; margin:18px 0 56px; }
-  .what-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(270px,1fr)); gap:1px;
-              background:var(--gold-line); border:1px solid var(--gold-line); border-radius:4px; overflow:hidden; }
-  .wcard{ background:var(--green-800); padding:36px 32px 32px; display:flex; flex-direction:column; }
-  .wcard h3{ font-family:var(--serif); font-weight:400; font-size:29px; line-height:1.12; color:var(--ivory); }
-  .wcard p{ font-size:15px; line-height:1.62; color:var(--ivory-dim); margin-top:14px; flex:1; }
-  .wchips{ display:flex; flex-wrap:wrap; gap:8px; margin-top:28px; }
-  .chip{ font-size:11px; font-weight:500; letter-spacing:.05em; padding:5px 10px; border-radius:2px;
-         border:1px solid var(--gold-line); color:var(--ivory-dim); }
-  .chip.crit{ border-color:rgba(232,154,146,.4); color:var(--crit); }
-  .chip.low{ border-color:rgba(230,180,80,.4); color:var(--amber); }
-  .chip.ok{ border-color:rgba(143,188,143,.4); color:var(--moss); }
-  .chip.gold{ border-color:rgba(201,162,39,.4); color:var(--gold); }
-
-  /* who it's for */
-  .who{ background:var(--green-800); border-top:1px solid var(--gold-line); border-bottom:1px solid var(--gold-line); }
-  .who-grid{ display:flex; flex-wrap:wrap; gap:clamp(40px,5vw,80px); align-items:center; padding:clamp(64px,8vw,96px) 0; }
-  .who-head{ flex:1.15 1 400px; min-width:0; }
-  .who-head h2{ font-family:var(--serif); font-weight:400; font-size:clamp(34px,4vw,54px); line-height:1.04;
-                letter-spacing:-.014em; color:var(--ivory); margin-top:18px; }
-  .who-note{ font-size:17px; line-height:1.65; color:var(--ivory-dim); border-left:1px solid rgba(201,162,39,.35);
-             padding-left:32px; flex:0.85 1 300px; min-width:0; }
-
-  /* pilot cta */
-  .pilot{ padding:clamp(72px,9vw,120px) 0; }
-  .pilot-grid{ display:flex; flex-wrap:wrap; gap:clamp(40px,5vw,72px); align-items:flex-end; }
-  .pilot h2{ font-family:var(--serif); font-weight:400; font-size:clamp(40px,5.4vw,76px); line-height:.99;
-             letter-spacing:-.018em; color:var(--ivory); flex:1.05 1 320px; }
-  .pilot-side{ flex:0.95 1 340px; min-width:0; }
-  .pilot-side p{ font-size:18px; line-height:1.6; color:var(--ivory-dim); }
-  .pilot-side .btn{ margin-top:32px; }
-
-  /* footer */
-  footer.site{ border-top:1px solid var(--gold-line); padding:40px 0; }
-  .foot{ max-width:1180px; margin:0 auto; padding:0 40px; display:flex; align-items:center; justify-content:space-between; gap:20px; flex-wrap:wrap; }
-  .foot img{ height:34px; }
-  .foot .colophon{ order:3; flex-basis:100%; text-align:center; margin-top:8px; }
-  .foot-links{ display:flex; gap:22px; flex-wrap:wrap; }
-  .foot-links a{ font-size:13px; color:var(--ivory-dim); text-decoration:none; }
-  .foot-links a:hover{ color:var(--gold); }
-  .colophon{ font-family:var(--serif); font-style:italic; color:var(--ivory-faint); font-size:15px; }
-
-  @media (max-width:900px){
-    .how-steps,.what-grid{ grid-template-columns:1fr; }
-    nav,.wrap,.foot{ padding-left:22px; padding-right:22px; }
-    .hero{ min-height:100svh; }
-    .hero-inner{ padding:120px 22px 80px; }
-    .nav-link{ display:none; }
-    .foot{ flex-direction:column; align-items:flex-start; gap:14px; }
-    .foot .colophon{ text-align:left; margin-top:0; }
-  }
-  @media (prefers-reduced-motion: reduce){ html{ scroll-behavior:auto; } }
-  </style>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500&family=Inter:wght@400;500;600&display=swap">
+<style>
+html{scroll-behavior:auto}
+body{margin:0;background:#191A17}
+#landing{--bc-ground:#191A17;--bc-surface:#252621;--bc-gold:#CE956E;--bc-ivory:#EAE2D2;--bc-muted:#BAB5A8;--bc-rule:rgba(234,226,210,.18);background:var(--bc-ground);color:var(--bc-ivory);font:400 16px/1.65 Inter,Arial,sans-serif;container-type:inline-size;isolation:isolate;overflow-wrap:break-word;color-scheme:dark}
+#landing *{box-sizing:border-box}
+#landing :is(h1,h2,h3,p,ol){margin:0}
+#landing :is(h1,h2,h3){color:var(--bc-ivory);font-family:Newsreader,Georgia,serif;font-style:normal;font-weight:400;letter-spacing:-.02em}
+#landing a{color:inherit;text-decoration:none;text-underline-offset:5px}
+#landing a:focus-visible{outline:2px solid var(--bc-gold);outline-offset:5px}
+#landing ::selection{background:var(--bc-gold);color:var(--bc-ground)}
+#landing .bc-e-scene{position:relative;isolation:isolate}
+#landing .bc-e-photo{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:62% center;z-index:-2}
+#landing .bc-e-veil{position:absolute;inset:0;pointer-events:none;z-index:-1;background:linear-gradient(90deg,#191A17 0%,rgba(25,26,23,.94) 24%,rgba(25,26,23,.71) 44%,rgba(25,26,23,.28) 69%,rgba(25,26,23,.16) 100%),linear-gradient(0deg,#191A17 0%,rgba(25,26,23,.66) 12%,transparent 35%,rgba(25,26,23,.33) 100%)}
+#landing .bc-e-nav{display:flex;justify-content:space-between;align-items:center;gap:24px;padding:14px 5.5%;border-bottom:1px solid var(--bc-rule);background:rgba(25,26,23,.62)}
+#landing .bc-e-logo{display:block;height:46px;width:auto;max-width:180px}
+#landing .bc-e-navlinks{display:flex;align-items:center;gap:27px;font-size:12px;color:var(--bc-muted)}
+#landing .bc-e-navlinks a{padding:9px 0;white-space:nowrap}
+#landing .bc-e-navlinks a:hover{color:var(--bc-ivory)}
+#landing .bc-e-navlinks .bc-e-signin{color:var(--bc-ivory);padding:8px 14px;border:1px solid rgba(206,149,110,.37);border-radius:4px}
+#landing .bc-e-hero{padding:34px 5.5% 67px}
+#landing .bc-e-audience{font-size:14px;line-height:1.6;color:var(--bc-muted)}
+#landing h1{font-size:clamp(44px,6.35cqi,76px);font-weight:500;line-height:1.01;max-width:8.6em;letter-spacing:-.02em;margin-top:16px;text-wrap:pretty}
+#landing .bc-e-intro{font-size:17px;line-height:1.65;max-width:34em;color:var(--bc-muted);margin-top:28px}
+#landing .bc-e-primary{display:inline-flex;justify-content:center;align-items:center;min-height:46px;padding:12px 22px;border-radius:4px;background:var(--bc-gold);color:var(--bc-ground);font-size:13px;font-weight:600;transition:background .18s ease-out}
+#landing .bc-e-primary:hover{background:#DFA882}
+#landing .bc-e-hero .bc-e-primary{margin-top:29px}
+#landing .bc-e-helper{font-size:12px;line-height:1.6;color:var(--bc-muted);margin-top:14px}
+#landing .bc-e-body{padding:0 5.5%}
+#landing .bc-e-output{display:grid;grid-template-columns:minmax(0,.92fr) minmax(0,1.5fr);gap:70px;padding:48px 0;border-top:1px solid var(--bc-rule);align-items:start}
+#landing .bc-e-output h2{font-size:clamp(32px,3.8cqi,45px);line-height:1.09;max-width:12em}
+#landing .bc-e-output p{font-size:16px;line-height:1.8;color:var(--bc-muted);max-width:65ch;padding-top:3px}
+#landing .bc-e-workflow{border-top:1px solid var(--bc-rule);display:grid;grid-template-columns:minmax(0,.92fr) minmax(0,1.5fr);gap:70px;padding:60px 0 66px}
+#landing .bc-e-workflow h2{font-size:43px;line-height:1.07}
+#landing .bc-e-workflow-intro{font-size:16px;line-height:1.65;color:var(--bc-muted);margin-top:15px;max-width:20em}
+#landing .bc-e-steps{padding:0;list-style:none;counter-reset:bc-e-step}
+#landing .bc-e-step{display:grid;grid-template-columns:27px minmax(0,1fr);column-gap:20px;counter-increment:bc-e-step;padding:0 0 28px}
+#landing .bc-e-step + .bc-e-step{border-top:1px solid var(--bc-rule);padding-top:27px}
+#landing .bc-e-step:last-child{padding-bottom:0}
+#landing .bc-e-step::before{content:counter(bc-e-step,decimal-leading-zero);font-size:12px;color:var(--bc-gold);line-height:1.5;padding-top:5px}
+#landing .bc-e-step h3{font-size:27px;line-height:1.15;letter-spacing:-.015em}
+#landing .bc-e-step p{margin-top:10px;font-size:14px;line-height:1.8;color:var(--bc-muted);max-width:60ch}
+#landing .bc-e-close{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:65px;align-items:center;padding:55px 5.5% 58px;border-top:1px solid rgba(206,149,110,.3);background:var(--bc-surface)}
+#landing .bc-e-close h2{font-size:clamp(38px,4.6cqi,56px);line-height:1.06;max-width:11em}
+#landing .bc-e-close p{font-size:16px;line-height:1.75;color:var(--bc-muted);max-width:35em}
+#landing .bc-e-close .bc-e-primary{margin-top:26px}
+#landing .bc-e-footer{display:flex;justify-content:space-between;align-items:flex-start;gap:30px;padding:29px 5.5%;border-top:1px solid var(--bc-rule);font-size:12px;color:var(--bc-muted)}
+#landing .bc-e-footlinks{display:flex;justify-content:flex-end;flex-wrap:wrap;column-gap:21px;row-gap:10px;max-width:500px}
+#landing .bc-e-footlinks a:hover{text-decoration:underline}
+@container(max-width:800px){
+ #landing .bc-e-navlinks{gap:19px}
+ #landing .bc-e-navlinks .bc-e-secondarynav{display:none}
+ #landing h1{font-size:clamp(44px,7.7cqi,63px);max-width:8.65em}
+ #landing .bc-e-intro{font-size:16px;max-width:32em}
+ #landing .bc-e-output,#landing .bc-e-workflow{column-gap:35px;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr)}
+ #landing .bc-e-output h2{font-size:33px}
+ #landing .bc-e-output p{font-size:15px}
+ #landing .bc-e-workflow h2{font-size:36px}
+ #landing .bc-e-close{gap:34px}
+ #landing .bc-e-close p{font-size:15px}
+}
+@container(max-width:560px){
+ #landing .bc-e-nav{gap:10px;padding-top:11px;padding-bottom:11px}
+ #landing .bc-e-logo{height:40px;max-width:140px}
+ #landing .bc-e-navlinks .bc-e-howlink{display:none}
+ #landing .bc-e-navlinks{gap:12px}
+ #landing .bc-e-hero{padding-top:29px;padding-bottom:46px}
+ #landing .bc-e-audience{font-size:12px}
+ #landing h1{font-size:clamp(39px,9.5cqi,53px);max-width:10.8em;margin-top:17px;line-height:1.04;letter-spacing:-.018em}
+ #landing .bc-e-photo{object-position:64% center}
+ #landing .bc-e-veil{background:linear-gradient(90deg,rgba(25,26,23,.96),rgba(25,26,23,.69)),linear-gradient(0deg,#191A17,transparent 38%)}
+ #landing .bc-e-intro{margin-top:25px;line-height:1.75}
+ #landing .bc-e-output{grid-template-columns:1fr;gap:18px;padding:35px 0}
+ #landing .bc-e-output h2{font-size:35px;max-width:11em}
+ #landing .bc-e-output p{padding:0}
+ #landing .bc-e-workflow{grid-template-columns:1fr;gap:31px;padding:39px 0 42px}
+ #landing .bc-e-workflow h2{font-size:35px}
+ #landing .bc-e-workflow-intro{margin-top:12px}
+ #landing .bc-e-step{column-gap:13px}
+ #landing .bc-e-step h3{font-size:26px}
+ #landing .bc-e-step p{font-size:14px}
+ #landing .bc-e-close{grid-template-columns:1fr;gap:22px;padding-top:39px;padding-bottom:42px}
+ #landing .bc-e-close h2{font-size:39px;max-width:10em}
+ #landing .bc-e-footer{flex-direction:column;gap:21px}
+ #landing .bc-e-footlinks{justify-content:flex-start;font-size:12px}
+}
+@media(prefers-reduced-motion:reduce){
+ #landing .bc-e-primary{transition:none}
+}
+</style>
 </head>
 <body>
-
-<header class="topbar"><nav>
-  <a class="brand" href="{{ url_for('landing') }}"><img src="{{ url_for('static', filename='logo-dark.png') }}" alt="berthcast"></a>
-  <div class="nav-right">
-    <a class="nav-link" href="#how">How it works</a>
-    <a class="nav-link" href="#what">What you get</a>
-    <a class="nav-link" href="#who">Who it's for</a>
-    <a class="nav-link" href="{{ url_for('pricing') }}">Pricing</a>
-    <a class="btn btn-nav" href="{{ url_for('login') }}">Sign in</a>
-    <details class="menu">
-      <summary aria-label="Menu">
-        <svg width="18" height="14" viewBox="0 0 18 14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M1 1h16M1 7h16M1 13h16"/></svg>
-      </summary>
-      <div class="menu-panel">
-        <a href="#how">How it works</a>
-        <a href="#what">What you get</a>
-        <a href="#who">Who it's for</a>
-        <a href="{{ url_for('pricing') }}">Pricing</a>
-        <a href="{{ url_for('about') }}">About</a>
-        <a href="{{ url_for('data_promise') }}">Your data</a>
-        <a href="{{ url_for('contact') }}">Contact</a>
-        <hr>
-        <a href="{{ url_for('terms') }}">Terms</a>
-        <a href="{{ url_for('privacy') }}">Privacy</a>
-        <hr>
-        <a href="{{ url_for('login') }}">Sign in</a>
-      </div>
-    </details>
-  </div>
-</nav></header>
-<script>
-(function(){
-  var m = document.querySelector('.menu');
-  if (!m) return;
-  // close the dropdown on any click outside it, or after picking a link
-  document.addEventListener('click', function(e){
-    if (m.open && !m.contains(e.target)) m.open = false;
-  });
-  m.querySelectorAll('a').forEach(function(a){
-    a.addEventListener('click', function(){ m.open = false; });
-  });
-})();
-</script>
-
-<!-- HERO -->
-<section class="hero" id="top">
-  <!-- onerror hides the img so a missing file leaves a clean dark hero, not a broken icon -->
-  <img class="hero-bg" src="{{ url_for('static', filename='hero-warehouse.jpg') }}" alt="Warehouse aisle stacked with cased goods" onerror="this.style.display='none'">
-  <div class="hero-veil"></div>
-  <div class="hero-scan" id="heroScan"></div>
-  <div class="hero-inner">
-    <div class="hero-copy">
-      <h1 class="hero-title">Every stockout is a lost sale. Every over-order is cash with an expiry date.</h1>
-      <p class="hero-sub">berthcast reads the inventory, sales and purchase-order files you already export, and flags both.</p>
-      <div class="hero-ctas">
-        <a class="btn btn-primary" href="{{ url_for('contact') }}">Book a pilot</a>
-        <span class="hero-note">For food and beverage distributors. Nothing to install.</span>
-      </div>
+<div id="landing" aria-label="berthcast landing page">
+ <div class="bc-e-scene" id="top">
+  <img class="bc-e-photo" src="{{ url_for('static', filename='hero-warehouse.jpg') }}" alt="">
+  <div class="bc-e-veil" aria-hidden="true"></div>
+  <nav class="bc-e-nav" aria-label="Main navigation">
+   <a href="{{ url_for('landing') }}" aria-label="berthcast home"><img class="bc-e-logo" src="{{ url_for('static', filename='logo-dark.png') }}" alt="berthcast"></a>
+   <div class="bc-e-navlinks">
+    <a class="bc-e-secondarynav" href="#what">What you get</a>
+    <a class="bc-e-howlink" href="#how">How it works</a>
+    <a href="{{ url_for('pricing') }}">Pricing</a>
+    <a class="bc-e-signin" href="{{ url_for('login') }}">Sign in</a>
+   </div>
+  </nav>
+  <section class="bc-e-hero" aria-labelledby="bc-e-title">
+   <p class="bc-e-audience" id="who">For food and beverage distributors</p>
+   <h1 id="bc-e-title">Every stockout is a lost sale. Every over-order is cash with an expiry date.</h1>
+   <p class="bc-e-intro">berthcast reads your inventory, sales and purchase-order exports, flags stockout risks and overstock, and suggests order quantities for you to review.</p>
+   <a class="bc-e-primary" href="{{ url_for('contact') }}">Discuss a pilot</a>
+   <p class="bc-e-helper">Excel or CSV. Nothing to install.</p>
+  </section>
+ </div>
+ <main>
+  <div class="bc-e-body">
+   <section class="bc-e-output" id="what" aria-labelledby="bc-e-stock">
+    <h2 id="bc-e-stock">See which stock needs attention.</h2>
+    <p>The report flags items at risk of running out and items with excess stock, with a reason for each assessment.</p>
+   </section>
+   <section class="bc-e-output" aria-labelledby="bc-e-orders">
+    <h2 id="bc-e-orders">Suggested orders, grouped by supplier.</h2>
+    <p>Suggested quantities account for sales, supplier lead times and stock already on order. Adjust the quantities, approve the order and print it by supplier.</p>
+   </section>
+   <section class="bc-e-workflow" id="how" aria-labelledby="bc-e-how-title">
+    <div>
+     <h2 id="bc-e-how-title">How it works</h2>
+     <p class="bc-e-workflow-intro">Start with the files you already export.</p>
     </div>
+    <ol class="bc-e-steps">
+     <li class="bc-e-step"><div><h3>Upload your files</h3><p>Use your inventory, sales, purchase-order and supplier exports in Excel or CSV. berthcast detects the columns automatically.</p></div></li>
+     <li class="bc-e-step"><div><h3>Confirm the item matches</h3><p>Confirm suggested matches for items named differently across your files, and check the supplier lead times the report will use.</p></div></li>
+     <li class="bc-e-step"><div><h3>Review and approve your order</h3><p>Check the suggested quantities against what you know, change any of them, then approve and print the order grouped by supplier.</p></div></li>
+    </ol>
+   </section>
   </div>
-</section>
-<script>
-(function(){
-  var scan = document.getElementById('heroScan');
-  var hero = scan && scan.closest('.hero');
-  if (!scan || !hero || !scan.animate) return;
-  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-  var h = hero.offsetHeight;
-  // one gold sweep down the aisle, then the page is still
-  scan.animate([
-    { transform:'translateY(-80px) skewY(-2.2deg)', opacity:0 },
-    { transform:'translateY(' + (h*0.10) + 'px) skewY(-2.2deg)', opacity:1, offset:0.12 },
-    { transform:'translateY(' + (h*0.86) + 'px) skewY(-2.2deg)', opacity:1, offset:0.8 },
-    { transform:'translateY(' + (h+40) + 'px) skewY(-2.2deg)', opacity:0 }
-  ], { duration:800, delay:140, easing:'cubic-bezier(0.33,0.9,0.2,1)', fill:'both' });
-})();
-</script>
-
-<!-- PROBLEM -->
-<section class="leak"><div class="wrap leak-grid">
-  <div class="leak-head">
-    <div class="kicker">The problem</div>
-    <h2 class="sec-h2">Where the money leaks out.</h2>
+  <section class="bc-e-close" id="pilot" aria-labelledby="bc-e-pilot-title">
+   <h2 id="bc-e-pilot-title">See what it finds in your stock.</h2>
+   <div><p>We'll run berthcast on your own exports and walk through the report with you, line by line.</p><a class="bc-e-primary" href="{{ url_for('contact') }}">Discuss a pilot</a></div>
+  </section>
+ </main>
+ <footer class="bc-e-footer">
+  <p>Inventory operations for food distributors</p>
+  <div class="bc-e-footlinks">
+   <a href="{{ url_for('about') }}">About</a>
+   <a href="{{ url_for('data_promise') }}">Your data</a>
+   <a href="{{ url_for('contact') }}">Contact</a>
+   <a href="{{ url_for('terms') }}">Terms</a>
+   <a href="{{ url_for('privacy') }}">Privacy</a>
   </div>
-  <div class="leak-body">
-    <p>A stockout costs the sale, and often the customer with it, because the line was ordered a week too late.</p>
-    <p>Overstock is the reverse. Cash sits in the warehouse, and on chilled and frozen lines it walks out as waste.</p>
-    <p>Both happen for the same reason. The reorder logic lives in one person's head and one spreadsheet, and neither scales with the catalogue.</p>
-  </div>
-</div></section>
-
-<!-- HOW -->
-<section class="how" id="how"><div class="wrap">
-  <div class="kicker">How it works</div>
-  <h2 class="sec-h2">Three steps, from your files to a decision.</h2>
-  <div class="how-steps">
-    <div class="step"><div class="step__n">01</div><h3>Upload your files</h3><p>Inventory, sales and purchase orders, exactly as they come out of your system. No column mapping, no template to fill in.</p></div>
-    <div class="step"><div class="step__n">02</div><h3>It cleans them, then scores every line</h3><p>berthcast merges the same item spelled three different ways, then scores every line on stock health against its demand and its supplier's real lead time.</p></div>
-    <div class="step"><div class="step__n">03</div><h3>Get the report and the order</h3><p>A stock-health report plus exact purchase recommendations, with quantities you can review, adjust, approve and print.</p></div>
-  </div>
-</div></section>
-
-<!-- WHAT YOU GET -->
-<section class="what" id="what"><div class="wrap">
-  <div class="kicker">What you get</div>
-  <h2 class="sec-h2">Three outputs, every run.</h2>
-  <div class="what-grid">
-    <div class="wcard">
-      <h3>Stock-health report</h3>
-      <p>What is critical, what is running low, what is healthy, and what is sitting overstocked or dead, with the reasoning attached to each line.</p>
-      <div class="wchips"><span class="chip crit">Critical</span><span class="chip low">Low</span><span class="chip ok">Healthy</span><span class="chip">Dead</span></div>
-    </div>
-    <div class="wcard">
-      <h3>Purchase recommendations</h3>
-      <p>What to order and how much, sized to cover demand until the stock actually lands, factoring in the supplier's lead time and what is already in transit.</p>
-      <div class="wchips"><span class="chip gold">Quantity</span><span class="chip gold">Lead time</span><span class="chip gold">In transit</span></div>
-    </div>
-    <div class="wcard">
-      <h3>Supplier reliability</h3>
-      <p>Promised lead times measured against what was actually delivered, so the quantities reflect the suppliers who turn up, not the ones who say they will.</p>
-      <div class="wchips"><span class="chip ok">Promised vs delivered</span></div>
-    </div>
-  </div>
-</div></section>
-
-<!-- WHO IT'S FOR -->
-<section class="who" id="who"><div class="wrap who-grid">
-  <div class="who-head">
-    <div class="kicker">Who it's for</div>
-    <h2>Mid-market food &amp; beverage distributors in Southeast Asia.</h2>
-  </div>
-  <p class="who-note">If your catalogue has outgrown the spreadsheet it is managed in, your exports never line up, and the reorder call still rests on one person's judgement, berthcast was built for you.</p>
-</div></section>
-
-<!-- PILOT CTA -->
-<section class="pilot" id="pilot"><div class="wrap pilot-grid">
-  <h2>Book a pilot.</h2>
-  <div class="pilot-side">
-    <p>Send us your inventory, sales and purchase-order exports. We'll run berthcast on your own data and walk you through what it finds, line by line.</p>
-    <a class="btn btn-primary" href="{{ url_for('contact') }}">Book a pilot</a>
-  </div>
-</div></section>
-
-<!-- FOOTER -->
-<footer class="site"><div class="foot">
-  <img src="{{ url_for('static', filename='logo-dark.png') }}" alt="berthcast">
-  <span class="colophon">Inventory operations for food distributors</span>
-  <div class="foot-links">
-    <a href="{{ url_for('about') }}">About</a><a href="{{ url_for('data_promise') }}">Your data</a>
-    <a href="{{ url_for('pricing') }}">Pricing</a><a href="{{ url_for('contact') }}">Contact</a>
-    <a href="{{ url_for('terms') }}">Terms</a><a href="{{ url_for('privacy') }}">Privacy</a>
-    <a href="{{ url_for('login') }}">Sign in</a>
-  </div>
-</div></footer>
+ </footer>
+</div>
 </body>
 </html>

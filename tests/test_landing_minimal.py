@@ -1,16 +1,19 @@
-"""The landing page: warehouse-photo hero with one gold scan-line sweep, plus
-the trimmed sections. Locks in what stays deleted (features grid, screenshots,
-stats strip, problem pull-quotes, the old count-up report card) so it can't
-creep back.
+"""The editorial landing page keeps navigation, original assets and search
+metadata intact while explaining reviewable stock and order recommendations.
 
 Run: python tests/test_landing_minimal.py
 """
+import json
 import os
 import sys
+import tempfile
 import types
+from html.parser import HTMLParser
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
+_tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+os.environ["DB_PATH"] = os.path.join(_tmp.name, "landing.db")
 os.environ.setdefault("ANTHROPIC_API_KEY", "dummy-key-not-used")
 
 if "anthropic" not in sys.modules:
@@ -36,48 +39,87 @@ def _check(c, m):
         F.append(m)
 
 
+class _Page(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.ids = []
+        self.links = []
+        self.images = []
+        self.meta = {}
+        self.headlines = 0
+        self.schema = []
+        self._schema = None
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if attrs.get("id"):
+            self.ids.append(attrs["id"])
+        if tag == "a":
+            self.links.append(attrs)
+        elif tag == "img":
+            self.images.append(attrs)
+        elif tag == "meta":
+            self.meta[attrs.get("name", attrs.get("property"))] = attrs.get("content")
+        elif tag == "h1":
+            self.headlines += 1
+        elif tag == "script" and attrs.get("type") == "application/ld+json":
+            self._schema = ""
+
+    def handle_data(self, data):
+        if self._schema is not None:
+            self._schema += data
+
+    def handle_endtag(self, tag):
+        if tag == "script" and self._schema is not None:
+            self.schema.append(json.loads(self._schema))
+            self._schema = None
+
+
 r = client.get("/")
 html = r.get_data(as_text=True)
 _check(r.status_code == 200, "landing returns 200")
+page = _Page()
+page.feed(html)
 
-# what stays
-_check("Every stockout is a" in html, "hero headline kept")
-_check("from the files you already export" in html, "hero sub kept")
-_check('class="hero-bg"' in html, "warehouse hero image present")
-_check('id="heroScan"' in html, "gold scan-line present")
-_check("Where the money leaks out" in html, "problem section present")
-_check("How it works" in html, "how-it-works section kept")
-_check("Three outputs, every run" in html, "what-you-get section present")
-_check("Who it's for" in html, "who-it's-for section present")
-_check("Book a pilot" in html, "pilot CTA present")
+_check(page.headlines == 1 and "cash with an expiry date" in html, "one original hero headline")
+_check("Confirm suggested matches" in html, "item matching requires human confirmation")
+_check("suggests order quantities for you to review" in html, "order quantities presented as reviewable suggestions")
+_check("Promised lead times measured against what was actually delivered" not in html,
+       "unsupported supplier delivery claim removed")
+_check(html.count("Discuss a pilot") == 2, "consistent pilot action in hero and closing section")
 
-# AEO/GEO: machine-readable schema so answer engines describe berthcast right.
-_check('application/ld+json' in html, "JSON-LD structured data present")
-_check('"SoftwareApplication"' in html, "SoftwareApplication schema present")
-_check('"Organization"' in html, "Organization schema present")
-# Deleting this un-verifies the site in Google Search Console — lock it in.
-_check('google-site-verification' in html, "GSC verification tag present")
+# Keep the actual ownership token, not just an empty tag with the same name.
+_check(page.meta.get("google-site-verification") == "kQ1R_XtpFZEqkk07CEU33YtyLmDMeAP-adI1qeUHclM",
+       "Google Search Console ownership preserved")
+schema_types = {node.get("@type") for schema in page.schema for node in schema.get("@graph", [])}
+_check({"Organization", "SoftwareApplication"} <= schema_types, "valid organization and software search schema")
+_check('rel="canonical" href="https://berthcast.com/"' in html, "canonical URL preserved")
+_check(page.meta.get("og:image") == "https://berthcast.com/static/logo.png", "social sharing image preserved")
 
-# what must be GONE
-_check("feat-grid" not in html, "features grid deleted")
-_check("screenshot-inventory" not in html, "screenshots section deleted")
-_check("strip-inner" not in html, "stats strip deleted")
-_check("running-head" not in html, "old running head gone")
-_check("pullquote" not in html, "old pull-quote layout gone")
-_check("snapQty" not in html, "hero report card + count-up script gone")
-_check("stampIn" not in html, "card animations gone")
-_check("srlist" not in html, "old ranked-sort list gone")
-_check("ex-num" not in html, "old worked-example panel gone")
+_check(len(page.ids) == len(set(page.ids)), "page anchor IDs are unique")
+for link in page.links:
+    href = link.get("href", "")
+    if href.startswith("#"):
+        _check(href[1:] in page.ids, f"section link resolves: {href}")
+    else:
+        _check(href.startswith("/") and not href.startswith("//"), f"page link stays on this host: {href}")
+        _check("target" not in link, f"ordinary navigation stays in the same tab: {href}")
 
-# nav: exactly the kept links
-_check('href="#how"' in html, "nav links to #how")
-_check("#features" not in html, "features nav link gone")
+hrefs = {link.get("href") for link in page.links}
+_check({"/", "/pricing", "/login", "/about", "/data", "/contact", "/terms", "/privacy"} <= hrefs,
+       "all public page destinations remain reachable")
+_check({"top", "how", "what", "who", "pilot"} <= set(page.ids), "existing section bookmarks preserved")
+_check(sum(link.get("href") == "/contact" for link in page.links) == 3,
+       "both pilot actions and footer contact point to the contact form")
 
-# hamburger menu: every page reachable without scrolling to the footer
-_check("menu-panel" in html, "hamburger menu present")
-for page in ("/terms", "/privacy", "/about", "/contact"):
-    _check(f'href="{page}"' in html and html.index(f'href="{page}"') < html.index("<footer"),
-           f"{page} reachable from the top menu (not just the footer)")
+image_sources = {image.get("src") for image in page.images}
+_check(image_sources == {"/static/logo-dark.png", "/static/hero-warehouse.jpg"}, "original local logo and warehouse assets used")
+for src in sorted(image_sources):
+    _check(client.get(src).status_code == 200, f"image loads: {src}")
+
+for removed in ("feat-grid", "screenshot-inventory", "strip-inner", "running-head",
+                "pullquote", "snapQty", "stampIn", "srlist", "ex-num", "heroScan"):
+    _check(removed not in html, f"obsolete demo or animation remains absent: {removed}")
 
 if F:
     print("\nSOME TESTS FAILED")
