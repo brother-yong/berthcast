@@ -1571,6 +1571,7 @@ input:-webkit-autofill:focus {
 .badge-healthy, .badge-none { background: rgba(143,188,143,0.16); color: #8FBC8F; }
 .badge-low, .badge-medium { background: rgba(201,162,39,0.18); color: var(--brass-2); }
 .badge-critical, .badge-high { background: rgba(232,154,146,0.16); color: #E89A92; }
+.badge-review { background: rgba(230,180,80,0.16); color: #E6B450; }
 
 /* upload slots */
 .upload-slot.done { background: rgba(143,188,143,0.08); }

@@ -143,7 +143,7 @@ def _rules_claude(model, system, user, max_tokens=4096):
         if "Months of supply:" in line:
             supply = float(line.split("Months of supply:")[1].split("|")[0].strip())
         if no_data:
-            status = "DEAD" if stock == 0 else "HEALTHY"
+            status = "REVIEW" if stock == 0 else "HEALTHY"
         elif sold > 0 and stock == 0:
             status = "CRITICAL"
         elif supply is not None and supply < 1:
@@ -352,9 +352,9 @@ _check(f"e2e: annotated EMMENTHAL gets a real quantity ({_exp_emm} KG), not 'ver
        str(_exp_emm) in _emm_qty, detail=_emm_qty)
 _check("e2e: EMMENTHAL supplier filled down through the merged cell",
        recs.get("AMMERLAND EMMENTHAL CHEESE WHEEL", {}).get("supplier") == "AMMERLAND")
-_check("e2e: no-sales display stand stays out of recommendations (DEAD)",
+_check("e2e: no-sales display stand stays out of recommendations (REVIEW)",
        "OLD DISPLAY STAND" not in recs
-       and report.get("OLD DISPLAY STAND", {}).get("status") == "DEAD")
+       and report.get("OLD DISPLAY STAND", {}).get("status") == "REVIEW")
 _check("e2e: stocked no-sales bracket is HEALTHY, not dead",
        report.get("SPARE SHELF BRACKET", {}).get("status") == "HEALTHY")
 _check("e2e: no 12-month assumption note (period was inferred)",

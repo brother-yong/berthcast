@@ -49,11 +49,14 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
         session_id, org_name, config, progress_emit=progress_emit
     )
 
-    # Strip dead SKUs first — they must never reach the recommendation agent
-    live_items = [r for r in inventory_report if r.get("status") != "DEAD"]
-    dead_count = len(inventory_report) - len(live_items)
+    # Missing sales cannot support an order quantity, even via the spoilage fallback.
+    live_items = [r for r in inventory_report if r.get("status") not in ("DEAD", "REVIEW")]
+    dead_count = sum(1 for r in inventory_report if r.get("status") == "DEAD")
+    review_count = sum(1 for r in inventory_report if r.get("status") == "REVIEW")
     if dead_count:
         _emit(progress_emit, f"Excluded {dead_count} dead SKUs from recommendations")
+    if review_count:
+        _emit(progress_emit, f"Excluded {review_count} items needing a sales match from recommendations")
 
     actionable = [
         r for r in live_items
@@ -62,7 +65,10 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
     ]
 
     if not actionable:
-        _emit(progress_emit, "No items need attention right now — inventory looks healthy")
+        if review_count:
+            _emit(progress_emit, "No automatic reorder recommendations; check the items needing a sales match")
+        else:
+            _emit(progress_emit, "No items need attention right now — inventory looks healthy")
         return []
 
     _emit(progress_emit, f"Filtered to {len(actionable)} items needing attention")

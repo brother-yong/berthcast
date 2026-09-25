@@ -38,8 +38,10 @@ if "anthropic" not in sys.modules:
 import database as db                       # noqa: E402
 import agents.shared as shared              # noqa: E402
 import agents.inventory as inv_mod          # noqa: E402
+import agents.recommendation as rec_mod       # noqa: E402
 from agents.verifier import expected_status, verify_inventory_report  # noqa: E402
 from agents.shared import normalise_match_key  # noqa: E402
+from agents.orchestrator import _summarise_inventory  # noqa: E402
 
 _FAILED = False
 
@@ -65,7 +67,7 @@ _check("no LT: supply 3.1 -> HEALTHY",   expected_status(3.1, None, 100, 500) ==
 # Mandated overrides.
 _check("sold > 0 and stock = 0 -> CRITICAL, ignores supply",
        expected_status(None, None, 0, 500) == "CRITICAL")
-_check("no sales data + stock 0 -> DEAD", expected_status(None, None, 0, None) == "DEAD")
+_check("no sales data + stock 0 -> REVIEW", expected_status(None, None, 0, None) == "REVIEW")
 _check("no sales data + stock > 0 -> HEALTHY", expected_status(None, None, 5, None) == "HEALTHY")
 # Where the rules leave judgment to Claude: no expectation.
 _check("no sales data + negative stock -> None (rules silent)",
@@ -88,6 +90,8 @@ report = [
      "days_of_supply": 0},                                     # sold 500, stock 0 -> CRITICAL
     {"item": "LEGIT DEAD", "status": "DEAD", "spoilage_risk": "HIGH",
      "days_of_supply": 0},                                     # data says 0 sold: Claude's call
+    {"item": "NORDVIK TEST MIX", "status": "DEAD", "spoilage_risk": "HIGH",
+     "days_of_supply": 999, "observation": "This item no longer sells"},
     {"item": "NOT IN MAP", "status": "HEALTHY"},               # unknown: untouched
     "not a dict",                                              # ignored
 ]
@@ -96,6 +100,7 @@ n_st, n_dos, n_sp = verify_inventory_report(report, _inputs(**{
     "RIGHT LOW":       {"months_supply": 2.0, "lt_months": None, "stock": 200, "total_sold": 1200},
     "DEAD WITH SALES": {"months_supply": 0.0, "lt_months": None, "stock": 0,   "total_sold": 500},
     "LEGIT DEAD":      {"months_supply": None, "lt_months": None, "stock": 80, "total_sold": 0},
+    "NORDVIK TEST MIX": {"months_supply": None, "lt_months": None, "stock": 0, "total_sold": None},
 }))
 _by = {r["item"]: r for r in report if isinstance(r, dict)}
 _check("wrong HEALTHY corrected to CRITICAL",
@@ -109,9 +114,19 @@ _check("legitimate DEAD (data shows 0 sold) untouched",
        _by["LEGIT DEAD"]["status"] == "DEAD")
 _check("legitimate DEAD gets spoilage forced to NONE (prompt mandate)",
        _by["LEGIT DEAD"]["spoilage_risk"] == "NONE")
+_check("unmatched zero-stock item becomes REVIEW with no invented supply or spoilage",
+       _by["NORDVIK TEST MIX"]["status"] == "REVIEW"
+       and _by["NORDVIK TEST MIX"]["days_of_supply"] is None
+       and _by["NORDVIK TEST MIX"]["spoilage_risk"] == "NONE",
+       detail=str(_by["NORDVIK TEST MIX"]))
+_check("unmatched zero-stock observation asks for a sales match, not a demand verdict",
+       "sales" in _by["NORDVIK TEST MIX"]["observation"].lower()
+       and "match" in _by["NORDVIK TEST MIX"]["observation"].lower()
+       and "no longer sells" not in _by["NORDVIK TEST MIX"]["observation"].lower())
 _check("item not in inputs map untouched", _by["NOT IN MAP"]["status"] == "HEALTHY")
-_check("status fix count = 2", n_st == 2, detail=str((n_st, n_dos, n_sp)))
-_check("spoilage fix count = 1", n_sp == 1, detail=str((n_st, n_dos, n_sp)))
+_check("status fix count = 3", n_st == 3, detail=str((n_st, n_dos, n_sp)))
+_check("missing sales clears invented supply", n_dos == 1, detail=str((n_st, n_dos, n_sp)))
+_check("spoilage fix count = 2", n_sp == 2, detail=str((n_st, n_dos, n_sp)))
 
 # days_of_supply: exact/close figures stay; wild ones are recomputed.
 _check("dos exactly supply*30 untouched", _by["RIGHT LOW"]["days_of_supply"] == 60)
@@ -140,6 +155,7 @@ for r in [
     ("GOUDA BLOCK",       "2000", "KG"),   # 6.7 mo supply -> HEALTHY
     ("BUTTER PKT",        "0",    "PKT"),  # sold>0, stock 0 -> CRITICAL mandated
     ("OLD DISPLAY STAND", "40",   "PCS"),  # no sales data, stock>0 -> HEALTHY mandated
+    ("NORDVIK TEST MIX", "0",    "BOX"),  # no matching sales, worth staff review
 ]:
     db.execute(f"INSERT INTO inventory_{SID} VALUES (?,?,?)", r)
 db.execute(f'CREATE TABLE sales_{SID} ("item_name" TEXT, "qty" TEXT, "date" TEXT)')
@@ -160,6 +176,7 @@ _WRONG = {
     "GOUDA BLOCK":       ("HEALTHY", 200),   # correct, dos within tolerance of 201
     "BUTTER PKT":        ("DEAD", 0),
     "OLD DISPLAY STAND": ("DEAD", 0),
+    "NORDVIK TEST MIX": ("DEAD", 999),
 }
 
 
@@ -196,8 +213,46 @@ _check("BUTTER: DEAD-with-sales corrected to CRITICAL",
 _check("display stand: no-data DEAD corrected to HEALTHY (never dead on missing data)",
        _rep.get("OLD DISPLAY STAND", {}).get("status") == "HEALTHY",
        detail=str(_rep.get("OLD DISPLAY STAND")))
+_check("unmatched zero-stock product: DEAD corrected to REVIEW",
+       _rep.get("NORDVIK TEST MIX", {}).get("status") == "REVIEW"
+       and _rep.get("NORDVIK TEST MIX", {}).get("days_of_supply") is None
+       and _rep.get("NORDVIK TEST MIX", {}).get("spoilage_risk") == "NONE",
+       detail=str(_rep.get("NORDVIK TEST MIX")))
 _check("safety-check correction announced in progress",
        any("Safety check: corrected" in l for l in _log), detail=str(_log[-6:]))
+
+
+# ── 4. Review status is visible in progress, but never reaches order sizing ──
+_summary = _summarise_inventory(list(_rep.values()))
+_check("inventory progress card counts items needing sales match",
+       "1 needs sales match" in _summary, detail=_summary)
+_summary_many = _summarise_inventory([{"status": "REVIEW"}, {"status": "REVIEW"}])
+_check("inventory progress card uses plural for several sales matches",
+       "2 need sales matches" in _summary_many, detail=_summary_many)
+
+_rec_prompt = []
+
+
+def _capture_recommendation_prompt(model, system, user, max_tokens=4096):
+    _rec_prompt.append(user)
+    return "[]"
+
+
+rec_mod._call_claude = _capture_recommendation_prompt
+_rec_log = []
+_recs = rec_mod.run_recommendation_agent(SID, "m", [
+    {"item": "NORDVIK TEST MIX", "category": "GENERAL", "stock": 0,
+     "status": "REVIEW", "spoilage_risk": "HIGH", "days_of_supply": None,
+     "observation": "Sales name needs checking"},
+    {"item": "EDAM CHEESE WHEEL", "category": "GENERAL", "stock": 300,
+     "status": "LOW", "spoilage_risk": "NONE", "days_of_supply": 30,
+     "observation": "Low stock"},
+], {}, progress_emit=_rec_log.append)
+_check("LOW item still reaches recommendation model",
+       _rec_prompt and "Item: EDAM CHEESE WHEEL" in _rec_prompt[0], detail=str(_rec_prompt)[:200])
+_check("REVIEW item excluded even when model marks high spoilage",
+       _rec_prompt and "Item: NORDVIK TEST MIX" not in _rec_prompt[0],
+       detail=str(_rec_prompt)[:200])
 
 if _FAILED:
     print("\nSOME TESTS FAILED")

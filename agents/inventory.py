@@ -1,6 +1,6 @@
 """Agent 2 — the inventory health check.
 
-Classifies every item as HEALTHY / LOW / CRITICAL / DEAD with spoilage risk and
+Classifies every item as HEALTHY / LOW / CRITICAL / DEAD / REVIEW with spoilage risk and
 days-of-supply, using lead-time-aware thresholds. Moved verbatim from agents.py.
 """
 
@@ -613,7 +613,7 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
         "optional revenue, 'Months of supply' (stock ÷ avg monthly sales), and optionally "
         "'Lead time' (days and months the supplier takes to deliver).\n\n"
         "For each item, determine:\n"
-        "1. Status: HEALTHY / LOW / CRITICAL / DEAD\n"
+        "1. Status: HEALTHY / LOW / CRITICAL / DEAD / REVIEW\n"
         "2. Spoilage risk: HIGH / MEDIUM / LOW / NONE\n"
         "3. Days of supply (use Months of supply × 30 when provided, otherwise estimate)\n"
         "4. A one-line plain English observation\n\n"
@@ -633,8 +633,9 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
         "new or seasonal). Once DEAD, set spoilage_risk = NONE.\n"
         "  - 'no sales data in upload' means the sales file did not cover this item. "
         "That is missing data, NOT proof the item doesn't sell.\n"
-        "    - no sales data AND stock = 0: mark DEAD, but the observation MUST say sales "
-        "data was missing and that the item should be included in the sales export if it still sells.\n"
+        "    - no sales data AND stock = 0: mark REVIEW, with days_of_supply = null "
+        "and spoilage_risk = NONE. Say the sales name needs matching and pack units "
+        "need confirming before rerunning. Do not infer demand or an order quantity.\n"
         "    - no sales data AND stock > 0: mark HEALTHY, observation noting demand can't be "
         "judged from this upload. NEVER mark these DEAD.\n\n"
         "UNREADABLE STOCK — the stock cell was blank or not a number:\n"

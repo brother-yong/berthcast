@@ -56,6 +56,8 @@ assert names[-1] == "Unknown supplier", f"blank-supplier group not last: {names}
 from jinja2 import Environment, FileSystemLoader  # noqa: E402
 
 env = Environment(loader=FileSystemLoader(os.path.join(ROOT, "templates")))
+# ponytail: stub for app.py's date filter; this test checks grouping, not dates.
+env.filters["dmy"] = str
 html = env.get_template("print_order.html").render(
     groups=groups, total=len(flat), org_name="Test Co"
 )

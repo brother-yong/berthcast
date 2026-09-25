@@ -6,7 +6,8 @@
   <style>
     body { font-family: Arial, sans-serif; font-size: 14px; color: #111; margin: 32px; }
     h1   { font-size: 20px; margin-bottom: 4px; }
-    .sub { color: #666; margin-bottom: 24px; font-size: 13px; }
+    .sub { color: #666; margin-bottom: 10px; font-size: 13px; }
+    .stock-warning { margin: 0 0 20px; font-size: 13px; }
     table { width: 100%; border-collapse: collapse; margin-top: 16px; }
     th { background: #f3f4f6; padding: 10px 12px; text-align: left; font-size: 12px;
          text-transform: uppercase; letter-spacing: .4px; border-bottom: 2px solid #ddd; }
@@ -30,10 +31,11 @@
   <h1>berthcast — Purchase Order Sheet</h1>
   <div class="sub">
     {{ org_name }} &nbsp;|&nbsp;
-    Prepared: <script>document.write(new Date().toLocaleDateString('en-SG', {day:'2-digit',month:'short',year:'numeric'}))</script>
+    Analysis run: {{ analysis_created_at | dmy }}
     &nbsp;|&nbsp; {{ total }} item(s)
     &nbsp;|&nbsp; {{ groups | length }} supplier(s)
   </div>
+  <p class="stock-warning">Stock is a snapshot from this analysis. Check current ERP stock before ordering.</p>
 
   {% if total %}
   {% set ns = namespace(n=0) %}
@@ -43,8 +45,8 @@
         <th>#</th>
         <th>Ordered</th>
         <th>Item</th>
-        <th>On hand</th>
-        <th>Qty to order</th>
+        <th>On hand at analysis</th>
+        <th>Suggested qty</th>
         <th>Supplier</th>
         <th>Order by</th>
         <th>Current stock lasts</th>
@@ -72,6 +74,8 @@
         <td>{{ r._current_stock if r._current_stock not in (None, '') else '—' }}</td>
         <td>
           <strong>{% if r._tender and r._tender.total %}{{ r._tender.total }}{% else %}{{ r._effective_qty or r.suggested_quantity }}{% endif %}</strong>
+          <div class="note">Action: {% if r.recommended_action %}{{ r.recommended_action | upper }}{% else %}Not recorded{% endif %}</div>
+          <div class="note">Decision: {% if r.approved %}Approved{% elif r.dismissed %}Dismissed{% else %}Pending{% endif %}</div>
           {% if r._tender %}
             {# This sheet gets photocopied, so the word "tender" carries the
                meaning: colour is never the only signal. Darker than the app's

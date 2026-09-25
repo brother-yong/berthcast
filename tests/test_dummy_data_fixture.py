@@ -121,7 +121,7 @@ def _status_for(line):
     sold_key = next((k for k in f if k.startswith("Total sold")), None)
     sold_val = f.get(sold_key, "")
     if "no sales data" in sold_val:
-        return "HEALTHY" if stock > 0 else "DEAD"
+        return "HEALTHY" if stock > 0 else "REVIEW"
     if _num(sold_val) == 0:
         return "DEAD"
     ms = _num(f["Months of supply"]) if "Months of supply" in f else 999.0
@@ -222,8 +222,8 @@ _check("item with sales but zero sold -> DEAD",
        status.get("RETIRED PRALINE SPREAD 250G") == "DEAD")
 _check("stocked item absent from sales -> HEALTHY, never DEAD",
        status.get("NEW LAUNCH OAT MILK BARISTA 1L") == "HEALTHY")
-_check("zero-stock item absent from sales -> DEAD",
-       status.get("DISCONTINUED USB GADGET") == "DEAD")
+_check("zero-stock item absent from sales -> REVIEW",
+       status.get("DISCONTINUED USB GADGET") == "REVIEW")
 
 # Split rows merged into one, stock summed (100 + 150 = 250).
 _anchor = [r for r in report if r.get("item") == "ANCHOR PROFESSIONAL UNSALTED BUTTER 5KG"]
@@ -254,6 +254,8 @@ _check("healthy item gets NO reorder",
        "SUNRICE PREMIUM JASMINE RICE 5KG" not in rec_by)
 _check("dead SKU never reaches recommendations",
        "RETIRED PRALINE SPREAD 250G" not in rec_by)
+_check("unmatched zero-stock SKU never reaches recommendations",
+       "DISCONTINUED USB GADGET" not in rec_by)
 
 
 if _FAILED:

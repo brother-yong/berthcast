@@ -440,12 +440,13 @@ def _dmy(value):
 def _status_label(value):
     """Friendly, plain-English label for an inventory status. DISPLAY ONLY — the
     stored value is unchanged, so all logic, filters and data attributes keep
-    using CRITICAL/LOW/HEALTHY/DEAD."""
+    using CRITICAL/LOW/HEALTHY/DEAD/REVIEW."""
     return {
         "CRITICAL": "Critical",
         "LOW":      "Running low",
         "HEALTHY":  "Well stocked",
         "DEAD":     "Not selling",
+        "REVIEW":   "Needs sales match",
         "NORMAL":   "OK",
     }.get((value or "").upper(), (value or "").title())
 
@@ -3106,7 +3107,7 @@ def _order_covers_months(rec):
 @app.route("/results/<int:upload_session_id>/print")
 @login_required
 def print_results(upload_session_id):
-    """Render a print-ready sheet of every recommendation, approved ones marked.
+    """Render a print-ready sheet of every recommendation and saved decision.
 
     Approved-only until 21 Jul 2026: staff decide on paper with a pen, so the
     sheet has to carry the items they haven't approved on screen yet.
@@ -3144,7 +3145,8 @@ def print_results(upload_session_id):
     groups = _group_recs_by_supplier(printable, _status_by_item_map(upload_session_id))
     return render_template("print_order.html", groups=groups, total=len(printable),
                            approved_count=sum(1 for r in printable if r.get("approved")),
-                           org_name=session["org_name"])
+                           org_name=session["org_name"],
+                           analysis_created_at=ar[0].get("created_at"))
 
 
 @app.route("/results/<int:upload_session_id>/export.csv")

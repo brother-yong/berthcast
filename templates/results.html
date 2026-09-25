@@ -75,6 +75,8 @@
     }
     .clarity.clean .clarity-head { color: var(--success); margin-bottom: 0; }
   </style>
+  {% set review_items = inventory | selectattr('status', 'equalto', 'REVIEW') | list %}
+  {% set review_count = review_items | length %}
   {% if gaps or data_notes %}
   <div class="clarity">
     <div class="clarity-head"><span>&#9888;</span>{{ "Add these to sharpen your results" if (gaps | length) + (data_notes | length) > 1 else "One thing to add" }}</div>
@@ -87,9 +89,20 @@
       {% endfor %}
     </ul>
   </div>
-  {% elif recommendations | rejectattr('error') | list %}
+  {% elif not review_count and recommendations | rejectattr('error') | list %}
   <div class="clarity clean">
     <div class="clarity-head"><span>&#10003;</span>Data complete — full confidence in these recommendations</div>
+  </div>
+  {% endif %}
+
+  {% if review_count %}
+  <div class="clarity" role="status">
+    <div class="clarity-head"><span>&#9888;</span>{{ review_count }} item{{ 's' if review_count != 1 }} need{{ 's' if review_count == 1 }} a sales match</div>
+    <p style="margin:0; font-size:14px; color:var(--text);">
+      These had zero on hand in the uploaded inventory, but no matching sales history.
+      They are not on the order list. Check the product name and pack unit before rerunning.
+      <button class="remove-link" onclick="showTab('tab-review', document.getElementById('review-tab-btn'))">View items</button>
+    </p>
   </div>
   {% endif %}
 
@@ -102,6 +115,14 @@
     <button class="tab-btn" onclick="showTab('tab-inv', this)">
       Inventory health
     </button>
+    {% if review_count %}
+    <button id="review-tab-btn" class="tab-btn" onclick="showTab('tab-review', this)">
+      Needs sales match
+      <span style="margin-left:6px; background:rgba(230,180,80,0.18); color:var(--warning);
+                   font-size:11px; padding:1px 7px; border-radius:10px;
+                   font-weight:600;">{{ review_count }}</span>
+    </button>
+    {% endif %}
     {% if dead_count %}
     <button id="dead-tab-btn" class="tab-btn" onclick="showTab('tab-dead', this)">
       Not selling
@@ -202,7 +223,7 @@
              class="btn btn-outline btn-sm" title="Download as CSV for Excel">CSV</a>
           <a href="{{ url_for('print_results', upload_session_id=upload_session_id) }}"
              target="_blank" class="btn btn-outline btn-sm"
-             title="Print, or choose 'Save as PDF' to download your approved orders">Print / PDF</a>
+             title="Print every recommendation for paper review, or save as PDF">Print / PDF</a>
           </div>
         </div>
 
@@ -544,7 +565,8 @@
 
   <!-- ── INVENTORY HEALTH TAB ── -->
   <div id="tab-inv" style="display:none; margin-top: 24px;">
-    {% set live_items = inventory | rejectattr('status', 'equalto', 'DEAD') | list %}
+    {% set live_items = inventory | rejectattr('status', 'equalto', 'DEAD')
+                                  | rejectattr('status', 'equalto', 'REVIEW') | list %}
     {% if live_items %}
     {% if high_sp %}
     <p class="inv-spoilage-note">{{ high_sp }} item{{ 's' if high_sp != 1 }} at high spoilage risk.</p>
@@ -587,10 +609,43 @@
     {% endif %}
     {% else %}
     <div class="card" style="margin-top: 24px;">
-      <p style="color:var(--muted);">No active inventory data to display.</p>
+      <p style="color:var(--muted);">No classified inventory items to display. Check the Needs sales match tab for missing history.</p>
     </div>
     {% endif %}
   </div>
+
+  <!-- No matched sales record does not prove an item stopped selling. Keep
+       these visible for staff without feeding them into an automatic order. -->
+  {% if review_count %}
+  <div id="tab-review" style="display:none; margin-top: 24px;">
+    <div class="card" style="margin-bottom:16px; background:var(--paper-2);">
+      <p style="font-size:14px; color:var(--muted); margin:0;">
+        These {{ review_count }} item{{ 's' if review_count != 1 }} had zero on hand in this analysis,
+        but the sales file did not match their names. Check whether they still sell,
+        link each sales name to the exact inventory item, and confirm pack units before rerunning.
+        No order quantity was calculated for them.
+      </p>
+    </div>
+    <label for="review-search" style="display:block; margin-bottom:8px; font-size:14px;">Search items needing a match</label>
+    <input id="review-search" type="search" class="mc-search" autocomplete="off"
+           placeholder="Search product name" oninput="filterReviewItems(this.value)">
+    <span id="review-visible-count" style="margin-left:10px; color:var(--muted); font-size:13px;">{{ review_count }} of {{ review_count }} items</span>
+    <div class="card" style="overflow-x:auto; margin-top:12px;">
+      <table id="review-table" class="data-table data-table-ledger">
+        <thead><tr><th>Item</th><th>On hand at analysis</th><th>Check</th></tr></thead>
+        <tbody>
+          {% for item in review_items %}
+          <tr>
+            <td>{{ item.item }}</td>
+            <td>{{ item.stock }}</td>
+            <td style="color:var(--muted); font-size:14px;">{{ item.observation }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
 
   <!-- ── DEAD SKUs TAB ── -->
   {% if dead_count %}
@@ -798,6 +853,18 @@ function showTab(tabId, btn) {
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   document.getElementById(tabId).style.display = 'block';
   btn.classList.add('active');
+}
+
+function filterReviewItems(value) {
+  const query = value.trim().toLowerCase();
+  let visible = 0;
+  document.querySelectorAll('#review-table tbody tr').forEach(row => {
+    const match = row.cells[0].textContent.toLowerCase().includes(query);
+    row.style.display = match ? '' : 'none';
+    if (match) visible += 1;
+  });
+  const counter = document.getElementById('review-visible-count');
+  if (counter) counter.textContent = `${visible} of {{ review_count }} items`;
 }
 
 // ── Row expand / collapse ──

@@ -56,6 +56,7 @@ def _build_chat_context(user_id: int, org_name: str, detailed: bool = False) -> 
     critical   = [i for i in inventory if isinstance(i, dict) and i.get("status") == "CRITICAL"]
     low        = [i for i in inventory if isinstance(i, dict) and i.get("status") == "LOW"]
     dead       = [i for i in inventory if isinstance(i, dict) and i.get("status") == "DEAD"]
+    review     = [i for i in inventory if isinstance(i, dict) and i.get("status") == "REVIEW"]
     healthy    = [i for i in inventory if isinstance(i, dict) and i.get("status") == "HEALTHY"]
     valid_recs = [r for r in recs if isinstance(r, dict) and not r.get("error")]
     pending    = [r for r in valid_recs if not r.get("approved") and not r.get("dismissed")]
@@ -63,11 +64,13 @@ def _build_chat_context(user_id: int, org_name: str, detailed: bool = False) -> 
     high_risk  = [r for r in valid_recs if r.get("supplier_risk") == "HIGH"]
 
     lines = [
-        f"=== {org_name} — LIVE INVENTORY DATA (analysis date: {analysis_date}) ===",
+        f"=== {org_name}: SAVED INVENTORY SNAPSHOT (analysis date: {analysis_date}) ===",
         f"Total items tracked: {total}",
-        f"CRITICAL: {len(critical)} | LOW: {len(low)} | HEALTHY: {len(healthy)} | DEAD: {len(dead)}",
+        f"CRITICAL: {len(critical)} | LOW: {len(low)} | HEALTHY: {len(healthy)} | DEAD: {len(dead)} | REVIEW: {len(review)}",
         f"Recommendations: {len(valid_recs)} total, {len(pending)} pending review, {len(approved)} approved",
     ]
+    if review:
+        lines.append(f"Zero-stock items needing a sales match (REVIEW): {len(review)}. Check the exact item and pack unit before ordering; no quantity was calculated for them.")
     if high_risk:
         lines.append(f"High-risk supplier items: {len(high_risk)}")
 
@@ -105,6 +108,10 @@ def _build_chat_context(user_id: int, org_name: str, detailed: bool = False) -> 
             detail_lines.append(f"\nDEAD SKUs ({len(dead)}):")
             for item in dead[:20]:
                 detail_lines.append(f"  • {item.get('item', '?')} — {item.get('observation', '')}")
+        if review:
+            detail_lines.append(f"\nNEEDS SALES MATCH ({len(review)}; first {min(len(review), 20)} shown):")
+            for item in review[:20]:
+                detail_lines.append(f"  • {item.get('item', '?')}: zero on hand; verify the exact sales name and pack unit")
         if approved:
             detail_lines.append(f"\nAPPROVED ORDERS ({len(approved)}):")
             for rec in approved[:20]:
@@ -153,17 +160,17 @@ Files to upload: inventory (stock on hand) and sales history are required. A sup
 
 Running an analysis: click "New Analysis" in the top navigation → upload files → fill the short context form (anything unusual this period) → review possible duplicate items → run. Takes a minute or two; a live progress screen shows findings as they appear.
 
-Results page: recommendations grouped by supplier, most urgent first. Red left edge = critical, amber = low. Each row shows item, quantity, order-by date (red if overdue). Click a row to expand full detail — the reasoning, confidence, and what happens if you don't act. The ✓ button approves, ✕ dismisses. In the expanded panel you can edit quantity or supplier before approving. The dashed note field on each row saves automatically.
+Results page: recommendations grouped by supplier, most urgent first. Red left edge means critical; amber means low. Each row shows item, quantity and order-by date (red if overdue). Click a row to expand the reasoning, confidence and consequences. The ✓ button approves, ✕ dismisses. In the expanded panel you can edit quantity or supplier before approving. The dashed note field on each row saves automatically. The "Needs sales match" tab lists zero-stock items whose sales names could not be linked to inventory. Staff must confirm the exact item and pack unit; those items have no automatic order quantity.
 
 Logging outcomes (important): after approving, the row asks "Did you place this order?" — later, mark whether the stockout was avoided or happened. This is what builds supplier reliability scores and the ROI numbers; if nobody logs outcomes, those stay empty.
 
-Getting the order sheet out: the "Print / PDF" button prints approved items (choose "Save as PDF" in the print dialog for a PDF file). The "CSV" button downloads a spreadsheet for Excel.
+Getting the order sheet out: the "Print / PDF" button prints all recommendations for paper review, including pending and dismissed items. It shows the saved analysis date, stock snapshot, action and on-screen decision. Check current stock before ordering. Choose "Save as PDF" in the print dialog for a PDF file. The "CSV" button downloads approved items only for Excel.
 
 Dashboard: past analyses, most recent first. Open any old run, or compare two runs to see what changed between them.
 
 Suppliers page: every detected supplier with a 0–100 reliability score. Everyone starts at 50; scores move as outcomes are logged. The search box filters the table.
 
-Chat (you): you see the latest completed analysis only — not older runs. The "Analysis context" toggle gives you more detail (low-stock lists, dead SKUs, supplier profiles). You cannot place orders or change data.
+Chat (you): you see the latest completed analysis only. The "Analysis context" toggle gives you more detail (low-stock lists, dead SKUs, items needing a sales match, supplier profiles). You cannot place orders or change data.
 
 Settings: edit supplier profiles — lead time in days and delay likelihood. Filling these in sharpens reorder timing, especially for slow import suppliers."""
 

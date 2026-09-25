@@ -1,8 +1,8 @@
 """The print sheet is the paper half of the ordering loop: staff carry it,
 tick what they ordered, and write the PO number and ETA on it by hand.
 
-Asserts it prints EVERY recommendation (not just approved ones), marks the
-approved ones, and provides both the tick box and the write-in space.
+Asserts it prints EVERY recommendation with its saved action and decision,
+and provides both the tick box and the write-in space.
 
 Run with: python tests/test_print_order_sheet.py
 """
@@ -59,9 +59,14 @@ recs = [
      "reason": "Tight stock.", "approved": True},
     {"item": "PADIMAS JASMINE RICE 5KG", "supplier": "Kessington Trading",
      "supplier_type": "local", "lead_time_days": 21, "days_of_supply": 9,
-     "recommended_action": "REORDER", "suggested_quantity": "60 BAG",
+     "recommended_action": "HOLD", "suggested_quantity": "60 BAG",
      "confidence": "MEDIUM", "supplier_risk": "None", "flags": [],
-     "reason": "Steady sales."},
+     "reason": "Steady sales.", "dismissed": True},
+    {"item": "BROOKVALE OAT DRINK 1L", "supplier": "Kessington Trading",
+     "supplier_type": "local", "lead_time_days": 21, "days_of_supply": 30,
+     "recommended_action": "MONITOR", "suggested_quantity": "12 CTN",
+     "confidence": "MEDIUM", "supplier_risk": "None", "flags": [],
+     "reason": "Watch stock."},
     {"error": "recommendation agent failed"},
 ]
 inv = [
@@ -69,11 +74,15 @@ inv = [
      "days_of_supply": 12, "category": "FROZEN", "stock": "38 CTN", "observation": "low"},
     {"item": "PADIMAS JASMINE RICE 5KG", "status": "LOW", "spoilage_risk": "NONE",
      "days_of_supply": 9, "category": "DRY", "stock": "6 BAG", "observation": "low"},
+    {"item": "BROOKVALE OAT DRINK 1L", "status": "HEALTHY", "spoilage_risk": "NONE",
+     "days_of_supply": 30, "category": "DRY", "stock": "25 CTN", "observation": "steady"},
 ]
 db.execute(
     "INSERT INTO analysis_results (session_id, inventory_report, recommendations_json) VALUES (?,?,?)",
     (sid, json.dumps(inv), json.dumps(recs)),
 )
+db.execute("UPDATE analysis_results SET created_at=? WHERE session_id=?",
+           ("2026-04-17 09:30:00", sid))
 
 client = flask_app.test_client()
 with client.session_transaction() as s:
@@ -88,18 +97,36 @@ with client.session_transaction() as s:
 resp = client.get(f"/results/{sid}/print")
 html = resp.get_data(as_text=True)
 
+
+def _item_row_contains(item, *phrases):
+    start = html.find(f"<strong>{item}</strong>")
+    if start < 0:
+        return False
+    end = html.find("</tr>", start)
+    return end >= 0 and all(phrase in html[start:end] for phrase in phrases)
+
+
 checks = {
     "page returns 200": resp.status_code == 200,
     "approved item printed": "BROOKVALE PRAWN MEAT 400G 12X" in html,
     "UNapproved item printed too": "PADIMAS JASMINE RICE 5KG" in html,
+    "pending item printed too": "BROOKVALE OAT DRINK 1L" in html,
     "failed rec never printed": "recommendation agent failed" not in html,
-    # Staff judge on paper now — no on-screen "approved" state leaks onto the print.
-    "no approved tag on print": html.count("approved-tag") == 0,
-    "no 'approved on screen' header text": "approved on screen" not in html,
+    "saved analysis date shown": "Analysis run: 17/04/2026" in html,
+    "reopen date not substituted": "new Date()" not in html,
+    "stock identified as snapshot": "On hand at analysis" in html,
+    "current ERP stock check stated": "Check current ERP stock before ordering" in html,
+    "quantity is a suggestion": "Suggested qty" in html,
+    "approved REORDER row labelled": _item_row_contains(
+        "BROOKVALE PRAWN MEAT 400G 12X", "Action: REORDER", "Decision: Approved"),
+    "dismissed HOLD row labelled": _item_row_contains(
+        "PADIMAS JASMINE RICE 5KG", "Action: HOLD", "Decision: Dismissed"),
+    "pending MONITOR row labelled": _item_row_contains(
+        "BROOKVALE OAT DRINK 1L", "Action: MONITOR", "Decision: Pending"),
     "tick-box column header": "Ordered" in html,
-    "one tick box per item": html.count('class="tickbox"') == 2,
+    "one tick box per item": html.count('class="tickbox"') == 3,
     "write-in column header": "PO no. / ETA" in html,
-    "one write-in cell per item": html.count('class="writein"') == 2,
+    "one write-in cell per item": html.count('class="writein"') == 3,
     "landscape page rule present": "landscape" in html,
     "both suppliers grouped": html.count("group-head") >= 2,
 }

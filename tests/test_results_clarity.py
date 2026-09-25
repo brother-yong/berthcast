@@ -55,6 +55,8 @@ def _check(name, cond, detail=""):
 _check("status_label maps DEAD -> Not selling", appmod._status_label("DEAD") == "Not selling")
 _check("status_label maps LOW -> Running low", appmod._status_label("LOW") == "Running low")
 _check("status_label maps HEALTHY -> Well stocked", appmod._status_label("HEALTHY") == "Well stocked")
+_check("status_label maps REVIEW -> Needs sales match",
+       appmod._status_label("REVIEW") == "Needs sales match")
 _check("conf_label maps INSUFFICIENT_DATA -> Need more data",
        appmod._conf_label("INSUFFICIENT_DATA") == "Need more data")
 
@@ -75,6 +77,9 @@ inventory = [
      "spoilage_risk": "LOW", "days_of_supply": 400, "observation": "fine"},
     {"item": "Old Sardines", "category": "Dry", "stock": "12 CTN", "status": "DEAD",
      "spoilage_risk": "LOW", "days_of_supply": 0, "observation": "no sales"},
+    {"item": "NORDVIK APRICOT MIX 500G", "category": "Dry", "stock": "0 BOX", "status": "REVIEW",
+     "spoilage_risk": "NONE", "days_of_supply": None,
+     "observation": "No matching sales record; check before ordering."},
 ]
 recs = [
     {"item": "Frozen Salmon", "supplier": "AMMERLAND", "supplier_type": "import", "approved": True,
@@ -106,6 +111,12 @@ _check("shows 'Running low'", "Running low" in html)
 _check("shows 'Well stocked'", "Well stocked" in html)
 _check("shows 'Not selling'", "Not selling" in html)
 _check("does NOT show raw 'DEAD' badge text", ">DEAD<" not in html)
+_check("unmatched zero-stock item has a searchable review tab",
+       'id="tab-review"' in html and 'id="review-search"' in html
+       and "NORDVIK APRICOT MIX 500G" in html)
+_check("review status is not mislabeled as not selling", ">REVIEW<" not in html
+       and "Needs sales match" in html)
+_check("review item suppresses data-complete claim", "Data complete" not in html)
 
 # "What do I do now" summary
 _check("summary line: items to order", "to order" in html)

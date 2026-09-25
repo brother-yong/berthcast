@@ -31,7 +31,7 @@ def expected_status(months_supply, lt_months, stock, total_sold):
     compares stock against a number.
 
     total_sold is None when the sales file did not cover the item at all
-    (missing data, not a real zero) — the prompt mandates DEAD at zero stock
+    (missing data, not a real zero) — the prompt mandates REVIEW at zero stock
     and HEALTHY otherwise, never a demand judgment. months_supply / lt_months
     are the 1-decimal figures printed into the prompt (None when absent)."""
     if stock is None:
@@ -40,7 +40,7 @@ def expected_status(months_supply, lt_months, stock, total_sold):
         return "LOW" if (total_sold or 0) > 0 else "HEALTHY"
     if total_sold is None:
         if stock == 0:
-            return "DEAD"
+            return "REVIEW"
         if stock > 0:
             return "HEALTHY"
         return None  # negative stock is normalised to None upstream (agents/inventory.py); unreachable here
@@ -83,11 +83,21 @@ def verify_inventory_report(report, inputs_by_key):
             r["_status_corrected"] = True
             n_status += 1
 
+        if exp == "REVIEW":
+            # Missing sales cannot establish demand or days of supply.
+            if r.get("days_of_supply") is not None:
+                n_dos += 1
+            r["days_of_supply"] = None
+            r["observation"] = (
+                "No matching sales record in this upload. Staff should match "
+                "the sales name and confirm pack units before rerunning."
+            )
+
         # days_of_supply must be months-of-supply x 30 when supply is known.
         # Tolerance allows Claude's own rounding; beyond it, the arithmetic
         # figure wins (it feeds the order-by date on the results page).
         ms = inp.get("months_supply")
-        if ms is not None and str(r.get("status") or "").upper() != "DEAD":
+        if ms is not None and str(r.get("status") or "").upper() not in ("DEAD", "REVIEW"):
             exp_dos = ms * 30
             try:
                 cur_dos = float(r.get("days_of_supply"))
@@ -97,8 +107,8 @@ def verify_inventory_report(report, inputs_by_key):
                 r["days_of_supply"] = round(exp_dos)
                 n_dos += 1
 
-        # Prompt mandate: once DEAD, spoilage risk is NONE.
-        if str(r.get("status") or "").upper() == "DEAD" and \
+        # Neither a dead item nor one with unmatched sales has a spoilage forecast.
+        if str(r.get("status") or "").upper() in ("DEAD", "REVIEW") and \
                 str(r.get("spoilage_risk") or "").strip().upper() != "NONE":
             r["spoilage_risk"] = "NONE"
             n_spoil += 1

@@ -26,10 +26,12 @@ def _summarise_inventory(report):
     critical = sum(1 for r in report if isinstance(r, dict) and r.get("status") == "CRITICAL")
     low      = sum(1 for r in report if isinstance(r, dict) and r.get("status") == "LOW")
     dead     = sum(1 for r in report if isinstance(r, dict) and r.get("status") == "DEAD")
+    review   = sum(1 for r in report if isinstance(r, dict) and r.get("status") == "REVIEW")
     parts = [f"{total} items reviewed"]
     if critical: parts.append(f"{critical} critical")
     if low:      parts.append(f"{low} low")
     if dead:     parts.append(f"{dead} dead")
+    if review:   parts.append(f"{review} need{'s' if review == 1 else ''} sales match{'es' if review != 1 else ''}")
     return " · ".join(parts)
 
 

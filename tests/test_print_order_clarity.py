@@ -2,10 +2,10 @@
 
 a regional food distributor staff couldn't read the printed order: the quantity column was ambiguous
 (order vs on-hand), the order-by dates had all passed, and "stock runway" was unclear.
-The fix makes the print sheet, the PDF, and the CSV all show the SAME columns:
-  #  Item  On hand  Qty to order  Supplier  Order by  Current stock lasts  Notes
-with an overdue date shown as "ASAP", a new current-stock column joined from the
-inventory report, and only human-typed notes (the AI reasoning prose is dropped).
+The print sheet labels its stock and quantities as saved suggestions, while
+the approved-only CSV retains its order quantity columns. An overdue date
+shows as "ASAP". Stock comes from the inventory report, and only human-typed
+notes appear (the AI reasoning prose is dropped).
 
 Drives the three export routes through Flask's test client. Run:
     python tests/test_print_order_clarity.py
@@ -97,8 +97,8 @@ with client.session_transaction() as s:
 r = client.get(f"/results/{sid}/print")
 html = r.get_data(as_text=True)
 _check("print sheet returns 200", r.status_code == 200, detail=str(r.status_code))
-_check("has 'On hand' header", "On hand" in html)
-_check("has 'Qty to order' header", "Qty to order" in html)
+_check("has stock snapshot header", "On hand at analysis" in html)
+_check("has suggested quantity header", "Suggested qty" in html)
 _check("has 'Current stock lasts' header", "Current stock lasts" in html)
 _check("shows current stock on hand (0 CTN)", "0 CTN" in html)
 _check("overdue order-by shows ASAP", "ASAP" in html)
