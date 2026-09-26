@@ -6,7 +6,7 @@ import os
 import sys
 import tempfile
 import types
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
@@ -63,6 +63,24 @@ for suffix in ("", "/print", "/export.csv"):
     else:
         _check(f"{suffix or 'results'} uses the saved deadline", "11 Sep 2025" in body)
 
+# A saved UTC evening can already be the next calendar day in Singapore.
+boundary_rec = dict(REC, days_of_supply=20)
+boundary_at = "2026-09-22 17:30:00"
+_check("order-by helper uses the Singapore calendar date",
+       _compute_order_by(boundary_rec, as_of=boundary_at)["order_by_date"] == "23 Sep 2026")
+db.execute("UPDATE analysis_results SET created_at=?, recommendations_json=? WHERE session_id=?",
+           (boundary_at, json.dumps([boundary_rec]), sid))
+for suffix in ("", "/print", "/export.csv"):
+    response = client.get(f"/results/{sid}{suffix}")
+    body = response.get_data(as_text=True)
+    if suffix == "/export.csv":
+        row = next(csv.DictReader(io.StringIO(body)))
+        correct_date = row["Order By"] == "23 Sep 2026"
+    else:
+        correct_date = "23 Sep 2026" in body
+    _check(f"{suffix or 'results'} uses the Singapore deadline",
+           response.status_code == 200 and correct_date)
+
 for dos, buffer, status, first_date, second_date in (
     (30, 10, "ok", "11 Sep 2025", "11 Oct 2025"),
     (23, 3, "urgent", "04 Sep 2025", "04 Oct 2025"),
@@ -82,10 +100,11 @@ for dos, buffer, status, first_date, second_date in (
            and first["status"] == second["status"] == status)
 
 for value in (None, "", "not a date"):
-    before = (datetime.utcnow() + timedelta(days=10)).strftime("%d %b %Y")
+    sg = timezone(timedelta(hours=8))
+    before = (datetime.now(sg) + timedelta(days=10)).strftime("%d %b %Y")
     try:
         result = _compute_order_by(REC, as_of=value)
-        after = (datetime.utcnow() + timedelta(days=10)).strftime("%d %b %Y")
+        after = (datetime.now(sg) + timedelta(days=10)).strftime("%d %b %Y")
         _check(f"bad date {value!r} falls back to today",
                result["order_by_date"] in (before, after) and result["status"] == "ok")
     except Exception as exc:

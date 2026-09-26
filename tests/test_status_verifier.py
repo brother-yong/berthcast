@@ -88,10 +88,15 @@ report = [
      "days_of_supply": 60},                                    # supply 2.0, dos exact
     {"item": "DEAD WITH SALES", "status": "DEAD", "spoilage_risk": "NONE",
      "days_of_supply": 0},                                     # sold 500, stock 0 -> CRITICAL
-    {"item": "LEGIT DEAD", "status": "DEAD", "spoilage_risk": "HIGH",
+    {"item": "LEGIT DEAD", "status": "dead ", "spoilage_risk": "HIGH",
      "days_of_supply": 0},                                     # data says 0 sold: Claude's call
-    {"item": "NORDVIK TEST MIX", "status": "DEAD", "spoilage_risk": "HIGH",
-     "days_of_supply": 999, "observation": "This item no longer sells"},
+    {"item": "LOW PADDED", "status": "low ", "stock": 200,
+     "spoilage_risk": "NONE", "days_of_supply": 60},
+    {"item": "CRITICAL PADDED", "status": " critical ", "stock": 0,
+     "spoilage_risk": "NONE", "days_of_supply": 0},
+    {"item": "NORDVIK TEST MIX", "status": "review ", "stock": "12 BOX",
+     "spoilage_risk": "HIGH", "days_of_supply": 999,
+     "observation": "This item no longer sells"},
     {"item": "NOT IN MAP", "status": "HEALTHY"},               # unknown: untouched
     "not a dict",                                              # ignored
 ]
@@ -100,6 +105,8 @@ n_st, n_dos, n_sp = verify_inventory_report(report, _inputs(**{
     "RIGHT LOW":       {"months_supply": 2.0, "lt_months": None, "stock": 200, "total_sold": 1200},
     "DEAD WITH SALES": {"months_supply": 0.0, "lt_months": None, "stock": 0,   "total_sold": 500},
     "LEGIT DEAD":      {"months_supply": None, "lt_months": None, "stock": 80, "total_sold": 0},
+    "LOW PADDED":      {"months_supply": 2.0, "lt_months": None, "stock": 200, "total_sold": 100},
+    "CRITICAL PADDED": {"months_supply": 0.0, "lt_months": None, "stock": 0, "total_sold": 100},
     "NORDVIK TEST MIX": {"months_supply": None, "lt_months": None, "stock": 0, "total_sold": None},
 }))
 _by = {r["item"]: r for r in report if isinstance(r, dict)}
@@ -114,17 +121,23 @@ _check("legitimate DEAD (data shows 0 sold) untouched",
        _by["LEGIT DEAD"]["status"] == "DEAD")
 _check("legitimate DEAD gets spoilage forced to NONE (prompt mandate)",
        _by["LEGIT DEAD"]["spoilage_risk"] == "NONE")
+_check("padded LOW and CRITICAL labels are saved in canonical form",
+       _by["LOW PADDED"]["status"] == "LOW"
+       and _by["CRITICAL PADDED"]["status"] == "CRITICAL")
 _check("unmatched zero-stock item becomes REVIEW with no invented supply or spoilage",
        _by["NORDVIK TEST MIX"]["status"] == "REVIEW"
+       and _by["NORDVIK TEST MIX"]["stock"] == 0
        and _by["NORDVIK TEST MIX"]["days_of_supply"] is None
        and _by["NORDVIK TEST MIX"]["spoilage_risk"] == "NONE",
        detail=str(_by["NORDVIK TEST MIX"]))
+_check("canonical REVIEW is counted by the staff-review summary",
+       "1 needs sales match" in _summarise_inventory([_by["NORDVIK TEST MIX"]]))
 _check("unmatched zero-stock observation asks for a sales match, not a demand verdict",
        "sales" in _by["NORDVIK TEST MIX"]["observation"].lower()
        and "match" in _by["NORDVIK TEST MIX"]["observation"].lower()
        and "no longer sells" not in _by["NORDVIK TEST MIX"]["observation"].lower())
 _check("item not in inputs map untouched", _by["NOT IN MAP"]["status"] == "HEALTHY")
-_check("status fix count = 3", n_st == 3, detail=str((n_st, n_dos, n_sp)))
+_check("status fix count = 6", n_st == 6, detail=str((n_st, n_dos, n_sp)))
 _check("missing sales clears invented supply", n_dos == 1, detail=str((n_st, n_dos, n_sp)))
 _check("spoilage fix count = 2", n_sp == 2, detail=str((n_st, n_dos, n_sp)))
 
@@ -241,15 +254,19 @@ def _capture_recommendation_prompt(model, system, user, max_tokens=4096):
 rec_mod._call_claude = _capture_recommendation_prompt
 _rec_log = []
 _recs = rec_mod.run_recommendation_agent(SID, "m", [
-    {"item": "NORDVIK TEST MIX", "category": "GENERAL", "stock": 0,
-     "status": "REVIEW", "spoilage_risk": "HIGH", "days_of_supply": None,
-     "observation": "Sales name needs checking"},
+    _by["NORDVIK TEST MIX"],
+    _by["LOW PADDED"],
+    _by["CRITICAL PADDED"],
     {"item": "EDAM CHEESE WHEEL", "category": "GENERAL", "stock": 300,
      "status": "LOW", "spoilage_risk": "NONE", "days_of_supply": 30,
      "observation": "Low stock"},
 ], {}, progress_emit=_rec_log.append)
 _check("LOW item still reaches recommendation model",
        _rec_prompt and "Item: EDAM CHEESE WHEEL" in _rec_prompt[0], detail=str(_rec_prompt)[:200])
+_check("padded LOW and CRITICAL items reach recommendation model after verification",
+       _rec_prompt and "Item: LOW PADDED" in _rec_prompt[0]
+       and "Item: CRITICAL PADDED" in _rec_prompt[0],
+       detail=str(_rec_prompt)[:300])
 _check("REVIEW item excluded even when model marks high spoilage",
        _rec_prompt and "Item: NORDVIK TEST MIX" not in _rec_prompt[0],
        detail=str(_rec_prompt)[:200])

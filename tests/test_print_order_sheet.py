@@ -131,6 +131,12 @@ checks = {
     "both suppliers grouped": html.count("group-head") >= 2,
 }
 
+# SQLite timestamps are UTC. The printed run date must use Singapore time.
+db.execute("UPDATE analysis_results SET created_at=? WHERE session_id=?",
+           ("2026-09-22 17:30:00", sid))
+sg_html = client.get(f"/results/{sid}/print").get_data(as_text=True)
+checks["UTC evening run prints next Singapore date"] = "Analysis run: 23/09/2026" in sg_html
+
 failed = [name for name, ok in checks.items() if not ok]
 for name, ok in checks.items():
     print(f"{'ok ' if ok else 'FAIL'}: {name}")

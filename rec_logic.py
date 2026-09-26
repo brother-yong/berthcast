@@ -1,6 +1,6 @@
 """Pure recommendation-display helpers: confidence, effective qty/supplier,
 order-by date, supplier grouping, confidence reasons. Extracted verbatim from app.py."""
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import quantity
 
@@ -77,7 +77,12 @@ def _compute_order_by(rec, as_of=None):
         try:
             as_of = datetime.fromisoformat(as_of)
         except (TypeError, ValueError):
-            as_of = datetime.utcnow()
+            as_of = datetime.now(timezone.utc)
+
+    # SQLite stores a naive UTC created_at; deadlines are shown on Singapore dates.
+    if as_of.tzinfo is None:
+        as_of = as_of.replace(tzinfo=timezone.utc)
+    as_of = as_of.astimezone(timezone(timedelta(hours=8)))
 
     buffer_days = int(round(dos - lt))
     order_by = as_of + timedelta(days=buffer_days)

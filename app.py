@@ -6,7 +6,7 @@ import hashlib
 import shutil
 import threading
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from email.mime.text import MIMEText
 from flask import (
     Flask, render_template, request, redirect,
@@ -3143,10 +3143,18 @@ def print_results(upload_session_id):
     # Group by supplier so each block prints as one hand-over-ready PO, same
     # grouping/order the on-screen results page uses.
     groups = _group_recs_by_supplier(printable, _status_by_item_map(upload_session_id))
+    raw_created_at = ar[0].get("created_at")
+    try:
+        run_at = datetime.fromisoformat(str(raw_created_at).replace("Z", "+00:00"))
+        if run_at.tzinfo is None:
+            run_at = run_at.replace(tzinfo=timezone.utc)
+        run_date_sg = run_at.astimezone(timezone(timedelta(hours=8))).strftime("%d/%m/%Y")
+    except (TypeError, ValueError):
+        run_date_sg = _dmy(raw_created_at)
     return render_template("print_order.html", groups=groups, total=len(printable),
                            approved_count=sum(1 for r in printable if r.get("approved")),
                            org_name=session["org_name"],
-                           analysis_created_at=ar[0].get("created_at"))
+                           analysis_run_date=run_date_sg)
 
 
 @app.route("/results/<int:upload_session_id>/export.csv")
