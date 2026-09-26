@@ -570,6 +570,25 @@ def normalise_match_key(name) -> str:
     return _MATCH_KEY_RE.sub("", str(name).casefold())
 
 
+def alias_map_from_groups(groups) -> dict:
+    # Groups are client-posted JSON stored without validation. Skip malformed
+    # entries rather than inventing aliases or iterating a string as variants.
+    aliases = {}
+    for group in groups if isinstance(groups, list) else []:
+        if not isinstance(group, dict):
+            continue
+        canonical = group.get("canonical")
+        variants = group.get("variants")
+        if not isinstance(canonical, str) or not normalise_match_key(canonical):
+            continue
+        if not isinstance(variants, list):
+            continue
+        for variant in variants:
+            if isinstance(variant, str) and variant.strip():
+                aliases[variant.strip().lower()] = canonical.strip()
+    return aliases
+
+
 class NameKeyedDict(dict):
     """A dict keyed by item/supplier names whose .get() falls back to a
     normalise_match_key match when the exact key misses.

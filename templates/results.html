@@ -99,7 +99,8 @@
   <div class="clarity" role="status">
     <div class="clarity-head"><span>&#9888;</span>{{ review_count }} item{{ 's' if review_count != 1 }} need{{ 's' if review_count == 1 }} a sales match</div>
     <p style="margin:0; font-size:14px; color:var(--text);">
-      These had zero on hand in the uploaded inventory, but no matching sales history.
+      These had zero on hand in the uploaded inventory but no matching sales history,
+      or were grouped with items in a different pack unit.
       They are not on the order list. Check the product name and pack unit before rerunning.
       <button class="remove-link" onclick="showTab('tab-review', document.getElementById('review-tab-btn'))">View items</button>
     </p>
@@ -623,8 +624,9 @@
   <div id="tab-review" style="display:none; margin-top: 24px;">
     <div class="card" style="margin-bottom:16px; background:var(--paper-2);">
       <p style="font-size:14px; color:var(--muted); margin:0;">
-        These {{ review_count }} item{{ 's' if review_count != 1 }} had zero on hand in this analysis,
-        but the sales file did not match their names. Check whether they still sell,
+        These {{ review_count }} item{{ 's' if review_count != 1 }} had zero on hand in this analysis
+        but the sales file did not match their names, or were grouped with items in a different pack unit.
+        Check whether they still sell,
         link each sales name to the exact inventory item, and confirm pack units before rerunning.
         No order quantity was calculated for them.
       </p>

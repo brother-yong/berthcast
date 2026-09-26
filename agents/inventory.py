@@ -24,6 +24,7 @@ from .shared import (
     infer_months_from_item_stats,
     SalesNameIndex,
     normalise_match_key,
+    alias_map_from_groups,
     monthly_pattern_stats,
     wrap_untrusted,
     UNTRUSTED_GUARD,
@@ -66,10 +67,7 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
         _emit(progress_emit, "Could not read the inventory table — stopping")
         return {"error": f"Could not read inventory table: {e}"}
 
-    alias_map = {}
-    for group in confirmed_groups:
-        for variant in group.get("variants", []):
-            alias_map[variant.lower()] = group["canonical"]
+    alias_map = alias_map_from_groups(confirmed_groups)
 
     # Resolve supplier + lead time for every item so the inventory agent can
     # use lead-time-relative thresholds instead of fixed 1/3-month cutoffs.
@@ -264,37 +262,75 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
     # rows agree on unit (or carry none) — adding 100 KG to 2 CTN would be
     # meaningless, so unit conflicts stay as separate rows. Blank names also
     # stay separate: they may be different items we just can't name.
-    _first_by_key: dict = {}
-    _agg_rows = []
-    _merged_dups = 0
+    # Canonicals and variants use the same normalised key, including drift.
+    # A clash keeps one row per unit, with sales withheld for staff review.
+    _buckets = []
+    _bucket_by_key = {}
     for _row in inventory:
         _name = str(_row.get(_desc_col) or "").strip()
-        if not _name:
-            _agg_rows.append(_row)
+        _ckey = normalise_match_key(alias_map.get(_name.lower(), _name))
+        if not _name or not _ckey:
+            _buckets.append([_row])
             continue
-        _ckey = alias_map.get(_name.lower(), _name.lower())
-        _first = _first_by_key.get(_ckey)
-        if _first is None:
-            _first_by_key[_ckey] = _row
-            _agg_rows.append(_row)
-            continue
-        _u1 = str(_first.get(_uom_col) or "").strip().upper() if _uom_col else ""
-        _u2 = str(_row.get(_uom_col) or "").strip().upper() if _uom_col else ""
-        if _u1 and _u2 and _u1 != _u2:
-            _agg_rows.append(_row)
-            continue
-        _tot = _to_num(_first.get(_qty_col)) + _to_num(_row.get(_qty_col))
+        if _ckey not in _bucket_by_key:
+            _bucket_by_key[_ckey] = []
+            _buckets.append(_bucket_by_key[_ckey])
+        _bucket_by_key[_ckey].append(_row)
+
+    def _unit(row):
+        return str(row.get(_uom_col) or "").strip().upper() if _uom_col else ""
+
+    def _merge_into(dst, src):
+        _tot = _to_num(dst.get(_qty_col)) + _to_num(src.get(_qty_col))
         # .10g not :g — plain :g goes scientific above ~1e6, which downstream
         # parsing would reject; 10 significant digits covers any real warehouse.
-        _first[_qty_col] = f"{_tot:.10g}"
-        if _uom_col and not _u1 and _u2:
-            _first[_uom_col] = _row.get(_uom_col)
-        _merged_dups += 1
+        dst[_qty_col] = f"{_tot:.10g}"
+        if _uom_col and not _unit(dst) and _unit(src):
+            dst[_uom_col] = src.get(_uom_col)
+
+    _agg_rows = []
+    _merged_dups = _clash_rows = 0
+    for _bucket in _buckets:
+        _units = list(dict.fromkeys(_unit(row) for row in _bucket if _unit(row)))
+        if len(_units) <= 1:
+            _first = _bucket[0]
+            for _row in _bucket[1:]:
+                _merge_into(_first, _row)
+                _merged_dups += 1
+            _agg_rows.append(_first)
+            continue
+        _first_by_unit = {}
+        for _row in _bucket:
+            if _unit(_row):
+                _first_by_unit.setdefault(_unit(_row), _row)
+        for _row in _bucket:
+            _unit_key = _unit(_row) or _units[0]
+            _first = _first_by_unit[_unit_key]
+            if _row is not _first:
+                _merge_into(_first, _row)
+                _merged_dups += 1
+        # Built once per bucket and capped: a crafted upload with thousands of
+        # distinct unit cells must not copy a huge label onto every row (that
+        # was quadratic memory on the single 512 MB worker).
+        _clash_label = " vs ".join(u[:20] for u in _units[:3]) + (
+            f" + {len(_units) - 3} more" if len(_units) > 3 else "")
+        # UPPERCASE keys on purpose: database._sanitize_name only ever emits
+        # lowercase [a-z0-9_], so an uploaded "-Unit Clash" header can never
+        # land on these keys and smuggle in its own (uncapped) label.
+        for _unit_key in _units:
+            _first = _first_by_unit[_unit_key]
+            _first["_UNIT_CLASH"] = _clash_label
+            _first["_DISPLAY_NAME"] = f"{str(_first.get(_desc_col) or '').strip()} ({_unit_key})"
+            _agg_rows.append(_first)
+            _clash_rows += 1
+    inventory = _agg_rows
     if _merged_dups:
-        inventory = _agg_rows
         _emit(progress_emit,
-              f"Combined {_merged_dups} duplicate row(s) — same item split across "
+              f"Combined {_merged_dups} duplicate row(s): same item split across "
               "multiple rows, stock summed")
+    if _clash_rows:
+        _emit(progress_emit,
+              f"Kept {_clash_rows} row(s) apart for review: grouped items use different pack units")
 
     # Match sales rows to inventory items with drift-tolerant name matching
     # (case, spacing, punctuation, and annotations staff typed into the sales
@@ -503,7 +539,8 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
     for row in inventory_sorted:
         desc      = row.get(_desc_col) or "Unknown"
         cat       = (row.get(_cat_col) if _cat_col else None) or "GENERAL"
-        canonical = alias_map.get(str(desc).strip().lower(), str(desc).strip())
+        clash     = row.get("_UNIT_CLASH")
+        canonical = row["_DISPLAY_NAME"] if clash else alias_map.get(str(desc).strip().lower(), str(desc).strip())
 
         _raw_cell = row.get(_qty_col)
         qty_raw   = str(_raw_cell).strip() if _raw_cell is not None else ""
@@ -520,7 +557,7 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
 
         # Drift-tolerant lookup; None means the sales file did not cover this
         # item at all — which is missing data, not a real zero.
-        sales_info    = sales_index.get(canonical)
+        sales_info    = None if clash else sales_index.get(canonical)
         no_sales_data = sales_info is None
         total_sold    = (sales_info or {}).get("total_qty",     0) or 0
         total_revenue = (sales_info or {}).get("total_revenue", 0) or 0
@@ -535,8 +572,10 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
             # Spiky items: size on the typical month (median), never the
             # spike-inflated mean. Only on this derived path — a sheet-stated
             # average is the customer's own number and is never overridden.
-            _pat = pattern_stats.get(normalise_match_key(canonical)) \
-                   or pattern_stats.get(normalise_match_key(str(desc)))
+            # Clash rows had their sales withheld above; the pattern lookup
+            # must not sneak the group's average back in.
+            _pat = None if clash else (pattern_stats.get(normalise_match_key(canonical))
+                                       or pattern_stats.get(normalise_match_key(str(desc))))
             if _pat and _pat["pattern"] == "spiky" and _pat["corrected_avg"]:
                 avg_monthly = _pat["corrected_avg"]
         months_supply = None
@@ -560,10 +599,17 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
 
         sold_txt = ("no sales data in upload" if no_sales_data
                     else str(round(total_sold)))
-        verify_inputs[normalise_match_key(canonical)] = {
+        _vkey  = normalise_match_key(canonical)
+        _prev  = verify_inputs.get(_vkey) or {}
+        # A clash display name ("X (BAG)") can normalise to a real item's key
+        # ("X BAG"). Keep the clash so both fail safe to REVIEW, and credit
+        # neither row with the other's stock (each keeps its own echoed figure).
+        _clash_key = clash or _prev.get("unit_clash")
+        verify_inputs[_vkey] = {
             "months_supply": months_supply,
             "lt_months":     lt_months,
-            "stock":         stock_units,
+            "stock":         None if (_prev and _clash_key) else stock_units,
+            "unit_clash":    _clash_key,
             # round() to match the displayed figure — Claude judges what it sees
             "total_sold":    None if no_sales_data else round(total_sold),
         }

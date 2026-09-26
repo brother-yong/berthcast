@@ -73,10 +73,11 @@ def verify_inventory_report(report, inputs_by_key):
             continue
 
         cur = str(r.get("status") or "").strip().upper()
-        exp = expected_status(inp.get("months_supply"), inp.get("lt_months"),
-                              inp.get("stock"), inp.get("total_sold"))
+        clash = inp.get("unit_clash")
+        exp = "REVIEW" if clash else expected_status(inp.get("months_supply"), inp.get("lt_months"),
+                                                    inp.get("stock"), inp.get("total_sold"))
         sold = inp.get("total_sold")
-        if cur == "DEAD" and sold is not None and sold == 0:
+        if not clash and cur == "DEAD" and sold is not None and sold == 0:
             status = "DEAD"  # legitimate judgment: has sales data, zero sold
         elif exp is not None:
             status = exp
@@ -88,13 +89,17 @@ def verify_inventory_report(report, inputs_by_key):
             n_status += 1
 
         if exp == "REVIEW":
-            # Missing sales cannot establish demand or days of supply.
-            # Use the verified zero, not a stock figure invented in the model reply.
-            r["stock"] = inp["stock"]
+            # Missing sales or clashing units cannot establish demand. Replace
+            # model stock only when the export supplied a readable quantity.
+            if inp["stock"] is not None:
+                r["stock"] = inp["stock"]
             if r.get("days_of_supply") is not None:
                 n_dos += 1
             r["days_of_supply"] = None
             r["observation"] = (
+                f"Grouped items use different pack units ({clash}), so their sales were not combined and no order was sized. "
+                "Fix the unit in the export, or the grouping on the duplicate review, then rerun."
+            ) if clash else (
                 "No matching sales record in this upload. Staff should match "
                 "the sales name and confirm pack units before rerunning."
             )
