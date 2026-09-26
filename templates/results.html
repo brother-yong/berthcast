@@ -11,7 +11,7 @@
     <h1 style="font-size: 30px; font-weight: 700; letter-spacing: -0.02em;">Recommendations &amp; <em>inventory health</em></h1>
     <div class="hero-byline">
       {% if generated_at %}
-      <span>Generated · {{ generated_at[:10] }}</span>
+      <span>Generated · {{ generated_date or generated_at[:10] }}</span>
       {% endif %}
       <span class="hero-byline-sep">/</span>
       <span>{{ recommendations | rejectattr('error') | list | length }} recommendations &middot; {{ inventory | length }} items reviewed</span>
@@ -565,8 +565,11 @@
 
   <!-- ── INVENTORY HEALTH TAB ── -->
   <div id="tab-inv" style="display:none; margin-top: 24px;">
-    {% set live_items = inventory | rejectattr('status', 'equalto', 'DEAD')
-                                  | rejectattr('status', 'equalto', 'REVIEW') | list %}
+    {% set live_items = inv_live_items or [] %}
+    <div class="no-print" style="display:flex; justify-content:flex-end; gap:8px; margin-bottom:12px;">
+      <a href="{{ url_for('print_inventory', upload_session_id=upload_session_id) }}" target="_blank" class="btn btn-primary btn-sm" title="Print this list or save it as a PDF, sorted the way you choose">Print / PDF</a>
+      <a href="{{ url_for('export_inventory_csv', upload_session_id=upload_session_id) }}" class="btn btn-outline btn-sm" title="Download this list as a spreadsheet for Excel">Spreadsheet</a>
+    </div>
     {% if live_items %}
     {% if high_sp %}
     <p class="inv-spoilage-note">{{ high_sp }} item{{ 's' if high_sp != 1 }} at high spoilage risk.</p>
@@ -592,7 +595,7 @@
             <td>{{ item.stock }}</td>
             <td><span class="badge badge-{{ item.status | lower }}">{{ item.status | status_label }}</span></td>
             <td><span class="badge badge-{{ item.spoilage_risk | lower }}">{{ item.spoilage_risk }}</span></td>
-            <td>{{ item.days_of_supply or '—' }}</td>
+            <td>{{ item._days if item._days is not none else '—' }}</td>
             <td style="color:var(--muted); font-size:14px;">{{ item.observation }}</td>
           </tr>
           {% endfor %}

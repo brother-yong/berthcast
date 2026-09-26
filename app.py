@@ -47,6 +47,8 @@ from rec_logic import (
     _normalise_confidence, _effective_qty, _effective_supplier,
     _compute_order_by, _group_recs_by_supplier, _confidence_reasons,
     _quantity_basis, _has_stakes, clarity_gaps, _tender_split,
+    INVENTORY_SORT_LABELS, INVENTORY_SHOW_STATUSES, inventory_status,
+    inventory_view_params, sort_inventory_items, inventory_number_display,
 )
 from chat_logic import _build_chat_context, build_chat_system_prompt
 
@@ -2888,6 +2890,14 @@ def results(upload_session_id):
     else:
         inventory = []
 
+    # Same sort helper as the inventory print sheet and spreadsheet, default
+    # settings, so screen and paper agree on first open. DEAD and REVIEW keep
+    # their own tabs, exactly as before (exact-match, like the old Jinja filter).
+    inv_live_items = sort_inventory_items(
+        [it for it in inventory if isinstance(it, dict) and it.get("status") not in ("DEAD", "REVIEW")])
+    for it in inv_live_items:
+        it["_days"] = inventory_number_display(it.get("days_of_supply"))
+
     status_by_item = {
         str(item.get("item", "")): item.get("status", "")
         for item in inventory
@@ -3011,9 +3021,11 @@ def results(upload_session_id):
         recommendations=recommendations,
         rec_groups=rec_groups,
         inventory=inventory,
+        inv_live_items=inv_live_items,
         upload_session_id=upload_session_id,
         org_name=session["org_name"],
         generated_at=generated_at,
+        generated_date=_sg_run_date(generated_at) if generated_at else "",
         status_by_item=status_by_item,
         user_tier=session.get("tier", "enterprise"),
         user_role=session.get("role", "admin"),
@@ -3104,6 +3116,18 @@ def _order_covers_months(rec):
     return round(qty / avg, 1)
 
 
+def _sg_run_date(raw_created_at):
+    """Display the saved analysis timestamp on the Singapore calendar."""
+    try:
+        run_at = datetime.fromisoformat(str(raw_created_at).replace("Z", "+00:00"))
+        if run_at.tzinfo is None:
+            run_at = run_at.replace(tzinfo=timezone.utc)
+        run_date_sg = run_at.astimezone(timezone(timedelta(hours=8))).strftime("%d/%m/%Y")
+    except (TypeError, ValueError):
+        run_date_sg = _dmy(raw_created_at)
+    return run_date_sg
+
+
 @app.route("/results/<int:upload_session_id>/print")
 @login_required
 def print_results(upload_session_id):
@@ -3143,18 +3167,10 @@ def print_results(upload_session_id):
     # Group by supplier so each block prints as one hand-over-ready PO, same
     # grouping/order the on-screen results page uses.
     groups = _group_recs_by_supplier(printable, _status_by_item_map(upload_session_id))
-    raw_created_at = ar[0].get("created_at")
-    try:
-        run_at = datetime.fromisoformat(str(raw_created_at).replace("Z", "+00:00"))
-        if run_at.tzinfo is None:
-            run_at = run_at.replace(tzinfo=timezone.utc)
-        run_date_sg = run_at.astimezone(timezone(timedelta(hours=8))).strftime("%d/%m/%Y")
-    except (TypeError, ValueError):
-        run_date_sg = _dmy(raw_created_at)
     return render_template("print_order.html", groups=groups, total=len(printable),
                            approved_count=sum(1 for r in printable if r.get("approved")),
                            org_name=session["org_name"],
-                           analysis_run_date=run_date_sg)
+                           analysis_run_date=_sg_run_date(ar[0].get("created_at")))
 
 
 @app.route("/results/<int:upload_session_id>/export.csv")
@@ -3253,6 +3269,81 @@ def export_csv(upload_session_id):
         mimetype="text/csv",
         headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
+
+
+def _inventory_sheet(upload_session_id, args):
+    """Build matching print/CSV rows; caller MUST have run _verify_session_owner first."""
+    ar = db.query("SELECT inventory_report, created_at FROM analysis_results WHERE session_id=?",
+                  (upload_session_id,))
+    if not ar:
+        return None
+    try:
+        raw = json.loads(ar[0]["inventory_report"] or "[]")
+    except (TypeError, ValueError):
+        raw = []
+    if isinstance(raw, dict):
+        raw = raw.get("report") if isinstance(raw.get("report"), list) else []
+    if not isinstance(raw, list):
+        raw = []
+    sort_key, direction, show = inventory_view_params(
+        args.get("sort"), args.get("dir"), args.getlist("show"))
+    items = [it for it in raw if isinstance(it, dict)]
+    rows = sort_inventory_items(
+        [it for it in items if inventory_status(it) in show], sort_key, direction)
+    for r in rows:
+        r["_status"] = inventory_status(r)
+        r["_days"] = inventory_number_display(r.get("days_of_supply"))
+    unlisted = sum(1 for it in items if inventory_status(it) not in INVENTORY_SHOW_STATUSES)
+    return {"rows": rows, "sort_key": sort_key, "direction": direction, "show": show,
+            "unlisted": unlisted, "run_date": _sg_run_date(ar[0].get("created_at"))}
+
+
+@app.route("/results/<int:upload_session_id>/inventory/print")
+@login_required
+def print_inventory(upload_session_id):
+    _verify_session_owner(upload_session_id)
+    sheet = _inventory_sheet(upload_session_id, request.args)
+    if sheet is None:
+        flash("No results found.", "error")
+        return redirect(url_for("dashboard"))
+    return render_template(
+        "print_inventory.html", upload_session_id=upload_session_id, org_name=session["org_name"],
+        rows=sheet["rows"], sort_key=sheet["sort_key"], direction=sheet["direction"],
+        show=sheet["show"], unlisted=sheet["unlisted"], analysis_run_date=sheet["run_date"],
+        sort_labels=INVENTORY_SORT_LABELS, show_options=INVENTORY_SHOW_STATUSES)
+
+
+@app.route("/results/<int:upload_session_id>/inventory.csv")
+@login_required
+@trial_active_required
+def export_inventory_csv(upload_session_id):
+    """Download the inventory rows in the same order as the chosen print view."""
+    if session.get("tier") == "free":
+        flash("CSV export is available on Professional and Enterprise plans.", "error")
+        return redirect(url_for("results", upload_session_id=upload_session_id))
+    _verify_session_owner(upload_session_id)
+    sheet = _inventory_sheet(upload_session_id, request.args)
+    if sheet is None:
+        flash("No results found.", "error")
+        return redirect(url_for("dashboard"))
+    import csv, io
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["#", "Item", "Category", "Stock at analysis", "Status",
+                     "Spoilage risk", "Days of supply", "Note"])
+    _safe = validators.csv_safe_cell
+    for number, r in enumerate(sheet["rows"], 1):
+        # Only our row number and finite numeric days bypass formula protection.
+        writer.writerow([
+            number, _safe(r.get("item", "")), _safe(r.get("category", "")),
+            _safe("" if r.get("stock") in (None, "") else r.get("stock")),
+            _safe(_status_label(r["_status"])), _safe(r.get("spoilage_risk", "")),
+            "" if r["_days"] is None else r["_days"], _safe(r.get("observation", "")),
+        ])
+    org_slug = secure_filename(session["org_name"].replace(" ", "_").lower()) or "org"
+    filename = f"berthcast_inventory_{org_slug}_{upload_session_id}.csv"
+    return Response(buf.getvalue(), mimetype="text/csv",
+                    headers={"Content-Disposition": f"attachment; filename={filename}"})
 
 
 @app.route("/diff/<int:session_a_id>/<int:session_b_id>")

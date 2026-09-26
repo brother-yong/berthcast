@@ -164,6 +164,8 @@ Results page: recommendations grouped by supplier, most urgent first. Red left e
 
 Logging outcomes (important): after approving, the row asks "Did you place this order?" — later, mark whether the stockout was avoided or happened. This is what builds supplier reliability scores and the ROI numbers; if nobody logs outcomes, those stay empty.
 
+Inventory health tab: every item with its stock status, spoilage risk and days of supply, highest spoilage risk first. Needs sales match and Not selling items have their own tabs. The "Print / PDF" button on this tab opens a printable inventory sheet in a new tab. At the top of that sheet, pick what to sort by (spoilage risk, status, days of supply, stock, item name or category), high to low or low to high, and which statuses to show: Critical, Running low and Well stocked are ticked by default; Needs sales match and Not selling can be added. Click Update, then "Print / Save as PDF" (choose "Save as PDF" in the print dialog for a PDF file). "Download spreadsheet" on the sheet saves the same rows in the same order for Excel. The "Spreadsheet" button on the tab downloads the default list straight away. Stock on the sheet is a snapshot from the analysis; check current ERP stock before ordering.
+
 Getting the order sheet out: the "Print / PDF" button prints all recommendations for paper review, including pending and dismissed items. It shows the saved analysis date, stock snapshot, action and on-screen decision. Check current stock before ordering. Choose "Save as PDF" in the print dialog for a PDF file. The "CSV" button downloads approved items only for Excel.
 
 Dashboard: past analyses, most recent first. Open any old run, or compare two runs to see what changed between them.

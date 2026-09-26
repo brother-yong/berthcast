@@ -1,6 +1,8 @@
 """Pure recommendation-display helpers: confidence, effective qty/supplier,
-order-by date, supplier grouping, confidence reasons. Extracted verbatim from app.py."""
+order-by date, supplier grouping, confidence reasons. Extracted verbatim from app.py.
+Also: the inventory health sort shared by the results tab, its print sheet and its spreadsheet."""
 from datetime import datetime, timedelta, timezone
+import math
 
 import quantity
 
@@ -293,6 +295,79 @@ def _fmt_num(n):
     if f != f:  # NaN
         return None
     return str(int(f)) if f == int(f) else str(round(f, 1))
+
+
+INVENTORY_SORT_LABELS = {
+    "spoilage": "Spoilage risk", "status": "Status", "days": "Days of supply",
+    "stock": "Stock", "item": "Item name", "category": "Category",
+}
+INVENTORY_SHOW_STATUSES = ("CRITICAL", "LOW", "HEALTHY", "REVIEW", "DEAD")
+INVENTORY_DEFAULT_SHOW = ("CRITICAL", "LOW", "HEALTHY")
+_INV_STATUS_RANK = {"CRITICAL": 4, "LOW": 3, "REVIEW": 2, "HEALTHY": 1, "DEAD": 0}
+_INV_SPOILAGE_RANK = {"HIGH": 3, "MEDIUM-HIGH": 2.5, "MEDIUM": 2, "LOW": 1, "NONE": 0}
+
+
+def inventory_status(item):
+    return str(item.get("status") or "").strip().upper()
+
+
+def inventory_view_params(sort, direction, show_values):
+    sort_key = sort if isinstance(sort, str) and sort in INVENTORY_SORT_LABELS else "spoilage"
+    direction = direction if direction in ("asc", "desc") else "desc"
+    selected = {v for v in (show_values or []) if isinstance(v, str)}
+    show = tuple(s for s in INVENTORY_SHOW_STATUSES if s in selected)
+    # ponytail: no valid show value (including every box unticked) falls back to
+    # the default set, simpler than an empty sheet.
+    return sort_key, direction, show or INVENTORY_DEFAULT_SHOW
+
+
+def _inv_num(value):
+    try:
+        number = quantity.parse_quantity(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return number if number is not None and math.isfinite(number) else None
+
+
+def inventory_number_display(value):
+    number = _inv_num(value)
+    return _fmt_num(number) if number is not None else None
+
+
+def _inv_text(value):
+    if value is None:
+        return None
+    return str(value).strip().casefold() or None
+
+
+_INV_PRIMARY = {
+    "spoilage": lambda it: _INV_SPOILAGE_RANK.get(str(it.get("spoilage_risk") or "").strip().upper()),
+    "status": lambda it: _INV_STATUS_RANK.get(inventory_status(it)),
+    "days": lambda it: _inv_num(it.get("days_of_supply")),
+    "stock": lambda it: _inv_num(it.get("stock")),
+    "item": lambda it: _inv_text(it.get("item")),
+    "category": lambda it: _inv_text(it.get("category")),
+}
+
+
+def _inv_tiebreak(item):
+    rank = _INV_STATUS_RANK.get(inventory_status(item))
+    days = _inv_num(item.get("days_of_supply"))
+    name = _inv_text(item.get("item"))
+    return (rank is None, -(rank if rank is not None else 0),
+            days is None, days if days is not None else 0.0, name or "")
+
+
+def sort_inventory_items(items, sort_key="spoilage", direction="desc"):
+    """Keep missing values last and urgency ties fixed in either sort direction."""
+    if not isinstance(sort_key, str) or sort_key not in _INV_PRIMARY:
+        sort_key = "spoilage"
+    rows = sorted((it for it in (items or []) if isinstance(it, dict)), key=_inv_tiebreak)
+    primary = _INV_PRIMARY[sort_key]
+    known = [it for it in rows if primary(it) is not None]
+    missing = [it for it in rows if primary(it) is None]
+    known.sort(key=primary, reverse=(direction != "asc"))
+    return known + missing
 
 
 def _quantity_basis(rec):
