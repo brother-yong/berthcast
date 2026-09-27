@@ -1459,6 +1459,186 @@ def admin_usage():
     return render_template("admin_usage.html", org_rows=org_rows, days=DAYS)
 
 
+@app.route("/admin/sales-links", methods=["GET", "POST"])
+@login_required
+@admin_required
+def admin_sales_links():
+    """Site-admin corrections, saved per company for later analysis runs."""
+    import re
+    from agents import sales_links as links
+
+    orgs = sorted({r["org_name"] for r in db.query(
+        "SELECT DISTINCT org_name FROM users WHERE is_admin=0"
+    ) if isinstance(r["org_name"], str) and r["org_name"].strip()})
+    org = (request.form.get("org") if request.method == "POST"
+           else request.args.get("org"))
+    if org not in orgs:
+        if request.method == "POST":
+            flash("Unknown company.", "error")
+            return redirect(url_for("admin_sales_links"))
+        org = None
+
+    if request.method == "POST":
+        action = request.form.get("action")
+        by = session["email"]
+        result = None
+        if action == "toggle":
+            db.set_sales_links_enabled(org, request.form.get("enabled") == "1", by)
+            flash("Sales links setting saved.", "success")
+        elif action == "undo":
+            if db.undo_sales_links(org, by):
+                flash("Previous links restored.", "success")
+            else:
+                flash("Nothing to undo.", "error")
+        elif action == "set":
+            line = request.form.get("line", "").strip()
+            raw_codes = request.form.get("codes", "")
+            # Bound posted text before splitting or making per-code copies.
+            if not 1 <= len(line) <= links.MAX_LINE_CHARS:
+                flash("Enter a sales line of 1 to 120 characters.", "error")
+                return redirect(url_for("admin_sales_links", org=org))
+            key = normalise_match_key(line)
+            if not key or len(key) > 120:
+                flash("Enter a sales line with a valid item name.", "error")
+                return redirect(url_for("admin_sales_links", org=org))
+            if len(raw_codes) > 4096:
+                flash("Enter 1 to 20 item codes, each no longer than 40 characters.", "error")
+                return redirect(url_for("admin_sales_links", org=org))
+            codes = list(dict.fromkeys(c for c in re.split(r"[\s,;]+", raw_codes) if c))
+            if (not 1 <= len(codes) <= links.MAX_MEMBERS
+                    or any(len(c) > links.MAX_CODE_CHARS for c in codes)):
+                flash("Enter 1 to 20 item codes, each no longer than 40 characters.", "error")
+                return redirect(url_for("admin_sales_links", org=org))
+            sid = db.latest_complete_session_id(org)
+            found, col = links.stock_codes(sid) if sid else ({}, None)
+            if not col:
+                flash("This company's latest stock file has no item code column, "
+                      "so links cannot be set by hand.", "error")
+                return redirect(url_for("admin_sales_links", org=org))
+            missing = [code for code in codes if code not in found]
+            if missing:
+                extra = f" (+{len(missing) - 5} more)" if len(missing) > 5 else ""
+                flash("Not in the latest stock file: " + ", ".join(missing[:5]) + extra, "error")
+                return redirect(url_for("admin_sales_links", org=org))
+            members = [{"code": code, "key": normalise_match_key(found[code])[:120],
+                        "name": found[code]} for code in codes]
+            entry = links.make_entry(line, members, "high", "admin")
+            refusal = []
+
+            def set_line(lines):
+                # Check ownership while holding the write lock, so concurrent
+                # corrections cannot claim the same code on different lines.
+                wanted = set(codes)
+                for other_key, other in lines.items():
+                    if other_key == key or not isinstance(other, dict):
+                        continue
+                    other_members = other.get("members")
+                    if not isinstance(other_members, list):
+                        continue
+                    for member in other_members:
+                        code = member.get("code") if isinstance(member, dict) else None
+                        if isinstance(code, str) and code in wanted:
+                            label = other.get("line")
+                            label = label[:links.MAX_LINE_CHARS] if isinstance(label, str) else "unreadable line"
+                            refusal.append(f"Already on another line: {code} ({label})")
+                            return False
+                if key not in lines and len(lines) >= links.MAX_LINES:
+                    refusal.append("Too many links saved for this company; nothing was changed.")
+                    return False
+                if lines.get(key) == entry:
+                    return False
+                lines[key] = entry
+                return True
+
+            result = db.update_sales_links(org, set_line, by)
+            if refusal:
+                flash(refusal[0], "error")
+            elif result.get("ok"):
+                flash("Sales link saved.", "success")
+        elif action in ("clear", "relink"):
+            key = request.form.get("line_key", "")
+            refusal = []
+
+            def change_line(lines):
+                if not key or len(key) > 120 or key not in lines:
+                    refusal.append("That sales line was not found.")
+                    return False
+                if action == "relink":
+                    del lines[key]
+                    return True
+                existing = lines[key]
+                try:
+                    if not isinstance(existing, dict):
+                        raise ValueError
+                    entry = links.make_entry(existing.get("line"), [], "high", "admin")
+                except (ValueError, TypeError):
+                    refusal.append("That sales line is unreadable. Ask AI again to remove it.")
+                    return False
+                if entry == existing:
+                    return False
+                lines[key] = entry
+                return True
+
+            result = db.update_sales_links(org, change_line, by)
+            if refusal:
+                flash(refusal[0], "error")
+            elif result.get("ok"):
+                flash("Sales link cleared." if action == "clear" else
+                      "Saved link removed. The next enabled analysis will ask AI again.", "success")
+        else:
+            flash("Unknown action.", "error")
+        if result and result.get("error") == "too_big":
+            flash("Too many links saved for this company; nothing was changed.", "error")
+        return redirect(url_for("admin_sales_links", org=org))
+
+    state = db.get_sales_links(org) if org else None
+    rows = []
+    unreadable = 0
+    counts = {"total": 0, "unsure": 0, "no_family": 0}
+    if state:
+        for key, entry in state["lines"].items():
+            if (not isinstance(entry, dict) or not isinstance(entry.get("line"), str)
+                    or not isinstance(entry.get("members"), list)):
+                unreadable += 1
+                continue
+            # Names and codes become hidden form identities. Never truncate a
+            # damaged identity into a valid correction for a different item.
+            if (not 1 <= len(entry["line"]) <= links.MAX_LINE_CHARS
+                    or not 1 <= len(key) <= links.MAX_KEY_CHARS
+                    or normalise_match_key(entry["line"]) != key
+                    or len(entry["members"]) > links.MAX_MEMBERS
+                    or any(not isinstance(member, dict)
+                           or not isinstance(member.get("code"), str)
+                           or not 1 <= len(member["code"]) <= links.MAX_CODE_CHARS
+                           or not isinstance(member.get("name"), str)
+                           for member in entry["members"])):
+                unreadable += 1
+                continue
+            by = entry.get("by")
+            by = by if by in ("ai", "admin") else "unknown"
+            conf = entry.get("conf")
+            conf = conf if conf in ("high", "medium", "low") else "low"
+            sure = by == "admin" or conf == "high"
+            counts["total"] += 1
+            counts["unsure"] += int(not sure)
+            counts["no_family"] += int(not entry["members"])
+            if len(rows) >= links.MAX_LINES:
+                continue
+            members = [{"code": member["code"], "name": member["name"][:links.MAX_NAME_CHARS]}
+                       for member in entry["members"]]
+            rows.append({
+                "key": key, "line": entry["line"],
+                "members": members, "codes": ", ".join(m["code"] for m in members),
+                "conf": conf, "by": by, "sure": sure,
+                "at": entry.get("at", "")[:30] if isinstance(entry.get("at"), str) else "",
+                "why": entry.get("why", "")[:120] if isinstance(entry.get("why"), str) else "",
+            })
+        rows.sort(key=lambda row: (2 if row["by"] == "admin" else int(row["sure"]),
+                                   row["line"].casefold()))
+    return render_template("admin_sales_links.html", orgs=orgs, org=org, state=state,
+                           rows=rows, counts=counts, unreadable=unreadable)
+
+
 @app.route("/settings", methods=["GET", "POST"])
 @login_required
 def user_settings():

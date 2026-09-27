@@ -429,6 +429,17 @@ def init_db():
             sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(org_name, lot_key)
         )""",
+        # One row per company, OFF without a row, with one-step undo. Save each
+        # sales-line decision because identical AI runs can disagree.
+        """CREATE TABLE IF NOT EXISTS sales_line_links (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            org_name TEXT NOT NULL UNIQUE,
+            enabled INTEGER NOT NULL DEFAULT 0,
+            links_json TEXT,
+            prev_json TEXT,
+            updated_by TEXT,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )""",
     ]:
         try:
             conn.execute(migration)
@@ -453,6 +464,7 @@ MAX_XLSX_ROWS                 = 2_000_000             # bounds disk use + proces
 MAX_COLUMNS                   = 16_384                # Excel's own hard column ceiling
 MAX_CELLS_PER_ROW             = 16_384
 MAX_CELL_CHARS                = 100_000               # one cell can't be a multi-MB blob
+SALES_LINKS_MAX_JSON           = 1_000_000             # UTF-8 bytes per saved company map
 
 _OVERSIZE_MSG = (
     "This file expands to far more data than expected when opened — it may be "
@@ -1030,6 +1042,128 @@ def update_recommendations(session_id, mutator):
         raise
     finally:
         conn.close()
+
+
+def _sales_link_lines(raw) -> dict:
+    try:
+        saved = json.loads(raw)
+        if isinstance(saved, dict) and isinstance(saved.get("lines"), dict):
+            return saved["lines"]
+    except (TypeError, ValueError, RecursionError):
+        pass
+    return {}
+
+
+def get_sales_links(org_name) -> dict:
+    defaults = {"enabled": False, "lines": {}, "has_prev": False,
+                "updated_by": None, "updated_at": None}
+    if not isinstance(org_name, str) or not org_name.strip():
+        return defaults
+    rows = query(
+        "SELECT enabled,links_json,prev_json,updated_by,updated_at "
+        "FROM sales_line_links WHERE org_name=?", (org_name,))
+    if not rows:
+        return defaults
+    row = rows[0]
+    return {"enabled": bool(row["enabled"]),
+            "lines": _sales_link_lines(row["links_json"]),
+            "has_prev": row["prev_json"] is not None,
+            "updated_by": row["updated_by"], "updated_at": row["updated_at"]}
+
+
+def set_sales_links_enabled(org_name, enabled, by):
+    if not isinstance(org_name, str) or not org_name.strip():
+        raise ValueError("A company is required")
+    execute(
+        "INSERT INTO sales_line_links (org_name,enabled,updated_by) VALUES (?,?,?) "
+        "ON CONFLICT(org_name) DO UPDATE SET enabled=excluded.enabled, "
+        "updated_by=excluded.updated_by, updated_at=CURRENT_TIMESTAMP",
+        (org_name, int(bool(enabled)), by))
+
+
+def update_sales_links(org_name, mutator, by) -> dict:
+    """Read and change one company's map under the same write lock.
+
+    The mutator changes the lines dict in place and returns whether to save it.
+    Holding the lock before reading keeps concurrent admin and run changes.
+    """
+    if not isinstance(org_name, str) or not org_name.strip():
+        raise ValueError("A company is required")
+    conn = get_db()
+    try:
+        conn.isolation_level = None
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT links_json FROM sales_line_links WHERE org_name=?",
+            (org_name,)).fetchone()
+        old = row["links_json"] if row is not None else None
+        lines = _sales_link_lines(old)
+        if not mutator(lines):
+            conn.execute("ROLLBACK")
+            return {"ok": True, "changed": False}
+        new = json.dumps({"v": 1, "lines": lines}, ensure_ascii=False,
+                         separators=(",", ":"))
+        if len(new.encode("utf-8")) > SALES_LINKS_MAX_JSON:
+            conn.execute("ROLLBACK")
+            return {"ok": False, "error": "too_big"}
+        if row is None:
+            conn.execute(
+                "INSERT INTO sales_line_links "
+                "(org_name,enabled,links_json,prev_json,updated_by) VALUES (?,0,?,?,?)",
+                (org_name, new, old, by))
+        else:
+            conn.execute(
+                "UPDATE sales_line_links SET links_json=?,prev_json=?,updated_by=?, "
+                "updated_at=CURRENT_TIMESTAMP WHERE org_name=?",
+                (new, old, by, org_name))
+        conn.execute("COMMIT")
+        return {"ok": True, "changed": True}
+    except Exception:
+        try:
+            conn.execute("ROLLBACK")
+        except Exception:
+            pass
+        raise
+    finally:
+        conn.close()
+
+
+def undo_sales_links(org_name, by) -> bool:
+    if not isinstance(org_name, str) or not org_name.strip():
+        return False
+    conn = get_db()
+    try:
+        conn.isolation_level = None
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT prev_json FROM sales_line_links WHERE org_name=?",
+            (org_name,)).fetchone()
+        if row is None or row["prev_json"] is None:
+            conn.execute("ROLLBACK")
+            return False
+        conn.execute(
+            "UPDATE sales_line_links SET links_json=prev_json,prev_json=links_json, "
+            "updated_by=?,updated_at=CURRENT_TIMESTAMP WHERE org_name=?",
+            (by, org_name))
+        conn.execute("COMMIT")
+        return True
+    except Exception:
+        try:
+            conn.execute("ROLLBACK")
+        except Exception:
+            pass
+        raise
+    finally:
+        conn.close()
+
+
+def latest_complete_session_id(org_name):
+    if not isinstance(org_name, str) or not org_name.strip():
+        return None
+    rows = query(
+        "SELECT id FROM upload_sessions WHERE org_name=? AND status='complete' "
+        "ORDER BY created_at DESC,id DESC LIMIT 1", (org_name,))
+    return int(rows[0]["id"]) if rows else None
 
 
 def bump_session_version(user_id) -> None:

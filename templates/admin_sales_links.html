@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% block title %}Sales-line links | berthcast{% endblock %}
+
+{% block content %}
+<style>
+  .links-actions { display:flex; flex-wrap:wrap; align-items:center; gap:10px; }
+  .links-help { color:var(--muted); line-height:1.6; }
+  .links-table { overflow-x:auto; }
+  .links-table td { vertical-align:top; overflow-wrap:anywhere; }
+  .links-table ul { margin:0; padding-left:18px; }
+  .links-table small { display:block; color:var(--muted); margin-top:4px; }
+  .links-table form { margin-bottom:10px; }
+  .links-table input[type="text"] { min-width:180px; margin-bottom:8px; }
+  .links-reason { margin:8px 0 0; font-size:13px; color:var(--muted); }
+</style>
+<div class="page-wrap">
+  <div class="page-header">
+    <h1>Sales-line links</h1>
+    <p>Choose a company to check and correct its saved sales links.</p>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Company</div>
+    <nav class="links-actions" aria-label="Choose a company">
+      {% for o in orgs %}
+      <a class="btn btn-sm" href="{{ url_for('admin_sales_links', org=o) }}"{% if o == org %} aria-current="page"{% endif %}>{{ o }}</a>
+      {% else %}<p>No company accounts yet.</p>{% endfor %}
+    </nav>
+  </div>
+
+  {% if org %}
+  <div class="card">
+    <div class="card-title">{{ org }}</div>
+    <p><strong>Links are {{ 'ON' if state.enabled else 'OFF' }} for this company.</strong></p>
+    <p class="links-help">This release stores links only. Analysis runs do not use them yet.</p>
+    <p class="links-help">Once analysis integration is released, turning links on will send each new sales line to the AI once and save the answer. That first run will take a minute or two longer. Staff will see one order per multi-brand line with each brand's free stock, and a warning on links the AI was unsure about.</p>
+    {% if state.updated_by %}<p class="links-help">Last changed by {{ state.updated_by }} on {{ state.updated_at or 'unknown date' }}</p>{% endif %}
+    <div class="links-actions">
+      <form method="post" action="{{ url_for('admin_sales_links') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="org" value="{{ org }}">
+        <input type="hidden" name="action" value="toggle">
+        <input type="hidden" name="enabled" value="{{ '0' if state.enabled else '1' }}">
+        <button class="btn btn-primary btn-sm" type="submit">Turn links {{ 'off' if state.enabled else 'on' }}</button>
+      </form>
+      {% if state.has_prev %}
+      <form method="post" action="{{ url_for('admin_sales_links') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="org" value="{{ org }}">
+        <input type="hidden" name="action" value="undo">
+        <button class="btn btn-sm" type="submit">Undo last link change</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Set a sales link</div>
+    <form method="post" action="{{ url_for('admin_sales_links') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="org" value="{{ org }}">
+      <input type="hidden" name="action" value="set">
+      <div class="form-group">
+        <label for="sales-line">Sales line <span class="hint">Use the name from the sales sheet.</span></label>
+        <input id="sales-line" type="text" name="line" maxlength="120" required>
+      </div>
+      <div class="form-group">
+        <label for="item-codes">Item codes <span class="hint">Comma separated, up to 20 codes from the latest completed stock upload.</span></label>
+        <input id="item-codes" type="text" name="codes" maxlength="4096" required>
+      </div>
+      <button class="btn btn-primary btn-sm" type="submit">Save</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Saved links</div>
+    <p class="links-help">{{ counts.total }} total, {{ counts.unsure }} unsure, {{ counts.no_family }} with no family.</p>
+    {% if unreadable %}<p class="links-help">{{ unreadable }} unreadable entries.</p>{% endif %}
+    <div class="links-table">
+      <table>
+        <thead><tr><th>Sales line</th><th>Stock items</th><th>AI confidence</th><th>Set by</th><th>Date</th><th>Actions</th></tr></thead>
+        <tbody>
+          {% for row in rows %}
+          <tr>
+            <td>{{ row.line }}{% if row.why %}<p class="links-reason">{{ row.why }}</p>{% endif %}</td>
+            <td><ul>{% for member in row.members %}<li>{{ member.name }}<small>{{ member.code }}</small></li>{% else %}<li>No match</li>{% endfor %}</ul></td>
+            <td>{{ row.conf }}</td><td>{{ row.by }}</td><td>{{ row.at }}</td>
+            <td>
+              <form method="post" action="{{ url_for('admin_sales_links') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="org" value="{{ org }}">
+                <input type="hidden" name="action" value="set">
+                <input type="hidden" name="line" value="{{ row.line }}">
+                <label for="codes-{{ loop.index }}">Item codes</label>
+                <input id="codes-{{ loop.index }}" type="text" name="codes" value="{{ row.codes }}" maxlength="4096" required>
+                <button class="btn btn-primary btn-sm" type="submit">Save</button>
+              </form>
+              <form method="post" action="{{ url_for('admin_sales_links') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="org" value="{{ org }}">
+                <input type="hidden" name="action" value="clear">
+                <input type="hidden" name="line_key" value="{{ row.key }}">
+                <button class="btn btn-sm" type="submit">No match</button>
+              </form>
+              <form method="post" action="{{ url_for('admin_sales_links') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="org" value="{{ org }}">
+                <input type="hidden" name="action" value="relink">
+                <input type="hidden" name="line_key" value="{{ row.key }}">
+                <button class="btn btn-sm" type="submit">Ask AI again</button>
+              </form>
+            </td>
+          </tr>
+          {% else %}<tr><td colspan="6">No saved links for this company.</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="links-help">No match means the line falls back to plain name matching.</p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
