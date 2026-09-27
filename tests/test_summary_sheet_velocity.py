@@ -204,7 +204,8 @@ _REPORT = [
      "status": "LOW", "spoilage_risk": "LOW", "days_of_supply": 15, "observation": "t"},
 ]
 rec_log = []
-rec_mod.run_recommendation_agent(SID, "m", list(_REPORT), {}, progress_emit=rec_log.append)
+rec_mod.run_recommendation_agent(SID, "m", list(_REPORT), {}, progress_emit=rec_log.append,
+                               row_numbers=res.get("row_numbers"))
 _lines = _rcap["user"]
 
 _check("EDAM velocity = the sheet's stated 2433.1 KG/month (was 608 before)",

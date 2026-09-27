@@ -5,7 +5,9 @@ days-of-supply, using lead-time-aware thresholds. Moved verbatim from agents.py.
 """
 
 import json
+import math
 import re
+from datetime import date
 
 from database import query, execute, get_company_config
 from .verifier import verify_inventory_report
@@ -78,6 +80,7 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
 
     _emit(progress_emit, "Computing sales velocity for each item")
     sales_by_item = {}
+    sheet_lt_by_line = {}
     try:
         sample = query(f"SELECT * FROM {sal_table} LIMIT 1")
         if sample:
@@ -109,6 +112,19 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
                     ' FROM ' + sal_table + f' GROUP BY "{desc_col}" LIMIT 5000'
                 )
                 sales_by_item = {r["item_name"]: r for r in sal_rows if r["item_name"]}
+                # Keep this separate: SalesNameIndex._fold sums numbers, so
+                # two 70-day lines would otherwise become a 140-day lead time.
+                try:
+                    if "lead_time_days" in cols:
+                        lt_rows = query(
+                            f'SELECT "{desc_col}" AS item, MAX({_num_sql("lead_time_days")}) AS lt '
+                            f'FROM {sal_table} GROUP BY "{desc_col}" LIMIT 5000')
+                        sheet_lt_by_line = {
+                            r["item"]: int(round(r["lt"])) for r in lt_rows
+                            if r["item"] and r["lt"] is not None and 1 <= r["lt"] <= 365
+                        }
+                except Exception:
+                    sheet_lt_by_line = {}
                 _emit(progress_emit, f"Sales velocity computed for {len(sales_by_item)} items")
     except Exception:
         sales_by_item = {}
@@ -285,6 +301,12 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
         # .10g not :g — plain :g goes scientific above ~1e6, which downstream
         # parsing would reject; 10 significant digits covers any real warehouse.
         dst[_qty_col] = f"{_tot:.10g}"
+        for col in ("free_balance", "qty_on_order", "ar_inv_back_order"):
+            if col not in _cols or col == _qty_col:
+                continue
+            a, b = dst.get(col), src.get(col)
+            if str(a if a is not None else "").strip() or str(b if b is not None else "").strip():
+                dst[col] = f"{_to_num(a) + _to_num(b):.10g}"
         if _uom_col and not _unit(dst) and _unit(src):
             dst[_uom_col] = src.get(_uom_col)
 
@@ -529,7 +551,35 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
     # replaced by the typical month so one bulk order can't fake a CRITICAL.
     pattern_stats = monthly_pattern_stats(session_id)
 
+    def _line_monthly(raw, spiky_seen):
+        info = sales_by_item.get(raw) or {}
+        stated = info.get("avg_monthly_direct") or 0
+        if stated > 0:
+            return stated
+        total = info.get("total_qty") or 0
+        if total > 0:
+            key = normalise_match_key(raw)
+            pat = pattern_stats.get(key)
+            if pat and pat["pattern"] == "spiky" and pat["corrected_avg"] is not None:
+                # Lines differing only in case or punctuation share one pattern
+                # entry built from their combined months: count it once.
+                if key in spiky_seen:
+                    return 0
+                spiky_seen.add(key)
+                return pat["corrected_avg"]
+            return total / months_of_data
+        return 0
+
+    if "free_balance" in _cols:
+        position_basis = "free stock column"
+    elif "qty_on_order" in _cols or "ar_inv_back_order" in _cols:
+        position_basis = "on hand plus on order, less back orders"
+    else:
+        position_basis = "on hand only"
+    _emit(progress_emit, f"Order sizing uses {position_basis}")
+
     inv_summary_lines = []
+    row_numbers = {}
     # The exact per-item numbers printed into the prompt, kept so the verifier
     # can recompute the status rules against what Claude actually saw.
     verify_inputs = {}
@@ -562,22 +612,47 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
         total_sold    = (sales_info or {}).get("total_qty",     0) or 0
         total_revenue = (sales_info or {}).get("total_revenue", 0) or 0
 
-        # Compute months of supply from concrete numbers. A monthly average the
-        # sheet itself states beats anything we derive from a guessed period.
-        _avg_direct = (sales_info or {}).get("avg_monthly_direct") or 0
-        if _avg_direct > 0:
-            avg_monthly = _avg_direct
+        # Correct each sales line before combining it, so grouped or drifted
+        # names keep the same demand that will size the order.
+        sources = [] if clash else sales_index.sources(canonical)
+        _spiky_seen = set()
+        avg_monthly = sum(_line_monthly(s, _spiky_seen) for s in sources)
+        sheet_lt = max((sheet_lt_by_line[s] for s in sources if s in sheet_lt_by_line), default=None)
+        pats = [pattern_stats.get(normalise_match_key(s)) for s in sources]
+        stopped_since = None
+        if pats and all(p and p.get("stopped") for p in pats):
+            y, m = max(p["last_sale"] for p in pats)
+            stopped_since = date(y, m, 1).strftime("%b %Y")
+
+        free_balance = (_to_num(row.get("free_balance"), default=None)
+                        if "free_balance" in _cols else None)
+        position_label = "Free stock"
+        if free_balance is not None:
+            position = free_balance
+        elif stock_units is not None:
+            on_order = (_to_num(row.get("qty_on_order"), default=None)
+                        if "qty_on_order" in _cols else None)
+            back_order = (_to_num(row.get("ar_inv_back_order"), default=None)
+                          if "ar_inv_back_order" in _cols else None)
+            position = stock_units + (on_order or 0) - (back_order or 0)
+            if on_order is None and back_order is None:
+                position_label = "On hand"
         else:
-            avg_monthly = total_sold / months_of_data if total_sold > 0 else 0
-            # Spiky items: size on the typical month (median), never the
-            # spike-inflated mean. Only on this derived path — a sheet-stated
-            # average is the customer's own number and is never overridden.
-            # Clash rows had their sales withheld above; the pattern lookup
-            # must not sneak the group's average back in.
-            _pat = None if clash else (pattern_stats.get(normalise_match_key(canonical))
-                                       or pattern_stats.get(normalise_match_key(str(desc))))
-            if _pat and _pat["pattern"] == "spiky" and _pat["corrected_avg"]:
-                avg_monthly = _pat["corrected_avg"]
+            position = None
+        # "1e999" parses as infinity (and inf - inf is NaN); round() in the
+        # order step would crash the whole run on it. Not a real stock figure.
+        if position is not None and not math.isfinite(position):
+            position = None
+        row_numbers[normalise_match_key(canonical)] = {
+            "position": position,
+            "position_label": position_label,
+            # A stated "1e999" average is infinity: unknown demand, not an order.
+            "avg_monthly": avg_monthly if math.isfinite(avg_monthly) else 0,
+            "sales_sources": sources,
+            "lead_time_days": sheet_lt,
+            "stopped_since": stopped_since,
+            "uom": str(row.get(_uom_col) or "").strip() if _uom_col else "",
+        }
         months_supply = None
         if avg_monthly > 0 and stock_units is not None:
             months_supply = round(stock_units / avg_monthly, 1)
@@ -767,7 +842,7 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
               f"Done checking stock — {len(report)} items: {crit} critical, {low} running low")
         return {"report": report, "items_analysed": len(report),
                 "partial": any_repaired or len(report) < total_items,
-                "data_notes": data_notes}
+                "data_notes": data_notes, "row_numbers": row_numbers}
     except Exception as e:
         # Raw exception text is for the operator (logs + ALERT_EMAIL via the
         # returned error) — the user-facing progress log gets a generic line.

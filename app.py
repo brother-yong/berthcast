@@ -46,7 +46,7 @@ from auth_utils import (
 from rec_logic import (
     _normalise_confidence, _effective_qty, _effective_supplier,
     _compute_order_by, _group_recs_by_supplier, _confidence_reasons,
-    _quantity_basis, _has_stakes, clarity_gaps, _tender_split,
+    _quantity_basis, _has_stakes, clarity_gaps, _tender_split, _order_state,
     INVENTORY_SORT_LABELS, INVENTORY_SHOW_STATUSES, inventory_status,
     inventory_view_params, sort_inventory_items, inventory_number_display,
 )
@@ -2929,6 +2929,7 @@ def results(upload_session_id):
         rec["_effective_qty"]      = _effective_qty(rec)
         rec["_effective_supplier"] = _effective_supplier(rec)
         rec["_quantity_basis"]     = _quantity_basis(rec)
+        rec["_order_state"]        = _order_state(rec)
         rec["_has_stakes"]         = _has_stakes(rec)
         rec["_tender"] = _tender_split(
             rec, _addons.get(normalise_match_key(str(rec.get("item", "")))))
@@ -2966,7 +2967,7 @@ def results(upload_session_id):
     # order and how many can't wait. Order-by status was stamped on each rec above.
     _valid = [r for r in recommendations if isinstance(r, dict) and not r.get("error")]
     summary = {
-        "to_order":  len(_valid),
+        "to_order":  sum(1 for r in _valid if r.get("_order_state") not in ("covered", "not_moving")),
         "order_now": sum(1 for r in _valid if (r.get("_order_by") or {}).get("status") == "overdue"),
         "urgent":    sum(1 for r in _valid if (r.get("_order_by") or {}).get("status") == "urgent"),
     }
@@ -3159,6 +3160,8 @@ def print_results(upload_session_id):
         _normalise_confidence(r)
         r["_effective_qty"]      = _effective_qty(r)
         r["_effective_supplier"] = _effective_supplier(r)
+        r["_order_state"]        = _order_state(r)
+        r["_quantity_basis"]     = _quantity_basis(r) if isinstance(r.get("order_calc"), dict) else None
         r["_order_by"]           = _compute_order_by(r, as_of=ar[0].get("created_at"))
         r["_current_stock"]      = stock_map.get(str(r.get("item", "")).strip())
         r["_order_covers"]       = _order_covers_months(r)
@@ -3168,6 +3171,7 @@ def print_results(upload_session_id):
     # grouping/order the on-screen results page uses.
     groups = _group_recs_by_supplier(printable, _status_by_item_map(upload_session_id))
     return render_template("print_order.html", groups=groups, total=len(printable),
+                           net_qty=any(isinstance(r.get("order_calc"), dict) for r in printable),
                            approved_count=sum(1 for r in printable if r.get("approved")),
                            org_name=session["org_name"],
                            analysis_run_date=_sg_run_date(ar[0].get("created_at")))

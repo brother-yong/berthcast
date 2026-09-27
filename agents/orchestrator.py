@@ -123,7 +123,9 @@ def run_pipeline(session_id, model, confirmed_groups, context, *, emit=None, mar
     mark("recommendation", "running")
     emit("Starting purchase recommendation agent")
     recommendations = run_recommendation_agent(session_id, model, inventory_report, context,
-                                               progress_emit=emit, data_notes=data_notes)
+                                               progress_emit=emit, data_notes=data_notes,
+                                               row_numbers=inv_result.get("row_numbers"),
+                                               confirmed_groups=confirmed_groups)
 
     # Defensive: normalise confidence values before persisting so the UI doesn't
     # have to guess what "MED" or "high" means later.

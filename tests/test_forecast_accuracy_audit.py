@@ -10,7 +10,8 @@ Each one made a velocity, lead time or item silently wrong or missing:
   2. Recommendation agent read velocity from EITHER the sheet's Avg/Month
      column OR qty totals — never both. An item with a blank avg cell but real
      qty history got "Verify with team" while the inventory agent sized the
-     same item fine. Fixed: one query carries both, per-item trust order.
+     same item fine. The per-line trust order now lives in the inventory
+     step's numbers, reused by recommendations.
   3. Month counting read DISTINCT raw date values LIMIT 5000 — a
      datetime-stamped export blew the limit, months undercounted, every
      velocity inflated. Fixed: DISTINCT substr(date,1,10) collapses time-of-day.
@@ -132,13 +133,22 @@ def _cap_rec_claude(model, system, user, max_tokens=4096):
 
 
 rec_mod._call_claude = _cap_rec_claude
-_REPORT = [
-    {"item": "ALPHA WIDGET PRO", "category": "X", "stock": 10, "status": "CRITICAL",
-     "spoilage_risk": "NONE", "days_of_supply": 3, "observation": "t"},
-    {"item": "BETA WIDGET PRO", "category": "X", "stock": 5, "status": "CRITICAL",
-     "spoilage_risk": "NONE", "days_of_supply": 5, "observation": "t"},
-]
-rec_mod.run_recommendation_agent(SID, "m", list(_REPORT), {})
+db.execute(f'CREATE TABLE inventory_{SID} (description TEXT, qty_on_hand TEXT)')
+db.execute(f'INSERT INTO inventory_{SID} VALUES (?,?)', ("ALPHA WIDGET PRO", "10"))
+db.execute(f'INSERT INTO inventory_{SID} VALUES (?,?)', ("BETA WIDGET PRO", "5"))
+shared._call_claude = lambda *a, **k: "{}"
+
+
+def _echo_inventory(model, system, user, **kwargs):
+    return json.dumps([{"item": line[6:].split(" | ")[0], "status": "CRITICAL",
+                        "stock": 0, "spoilage_risk": "NONE", "days_of_supply": 0}
+                       for line in user.splitlines() if line.startswith("Item: ")])
+
+
+inv_mod._call_claude = _echo_inventory
+_inv_result = inv_mod.run_inventory_agent(SID, "m", [], {})
+rec_mod.run_recommendation_agent(SID, "m", _inv_result["report"], {},
+                                 row_numbers=_inv_result.get("row_numbers"))
 _lines = _rcap["user"]
 _alpha = next((b for b in _lines.split("---") if "ALPHA WIDGET PRO" in b), "")
 _beta  = next((b for b in _lines.split("---") if "BETA WIDGET PRO" in b), "")
@@ -148,7 +158,9 @@ _check("stated avg still used when present (ALPHA: 100/month)",
 _check("blank avg cell falls back to totals (BETA: 90 over 3 inferred months = 30)",
        "Avg monthly sales: 30" in _beta, detail=_beta[:200])
 _check("BETA gets a sized order, not 'insufficient sales data'",
-       "Pre-computed suggested order quantity: 105 units" in _beta, detail=_beta[:300])
+       # 017, changed on purpose: the order now takes stock off.
+       # Need 105 (30/month x 3.5 months) minus 5 on hand = 100.
+       "Pre-computed suggested order quantity: 100 units" in _beta, detail=_beta[:300])
 
 
 # ── 3. Datetime-stamped exports can't undercount months ───────────────────────

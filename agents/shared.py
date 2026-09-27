@@ -8,6 +8,7 @@ import json
 import os
 import re
 import time
+from datetime import datetime, timedelta, timezone
 
 from logging_setup import logger
 from database import (
@@ -391,7 +392,12 @@ def _month_key(s, day_first):
     return None
 
 
-def monthly_pattern_stats(session_id):
+def sg_today():
+    # A function so tests can pin the Singapore calendar.
+    return datetime.now(timezone(timedelta(hours=8))).date()
+
+
+def monthly_pattern_stats(session_id, today=None):
     """Per-item monthly totals + pattern classification from sales_<sid>.
 
     Returns {normalise_match_key(item): {"months": int, "mean": float,
@@ -401,6 +407,7 @@ def monthly_pattern_stats(session_id):
     land here by design; spec: silently stable).
     """
     import statistics as _stats
+    today = today or sg_today()
     out = {}
     try:
         tbl = f"sales_{session_id}"
@@ -456,6 +463,8 @@ def monthly_pattern_stats(session_id):
             bucket[mk] = bucket.get(mk, 0.0) + float(r["q"] or 0)
         if not covered or not per_item:
             return out
+        complete = sorted(m for m in covered if m < (today.year, today.month))
+        window_start = complete[-3] if len(complete) >= 3 else None
         months_sorted = sorted(covered)[-24:]   # cap the window: latest 24 months
 
         for key, bucket in per_item.items():
@@ -463,6 +472,7 @@ def monthly_pattern_stats(session_id):
             if not vec:
                 continue
             pattern, corrected = classify_monthly_pattern(vec)
+            last_sale = max((m for m, qty in bucket.items() if qty > 0), default=None)
             out[key] = {
                 "months": len(months_sorted),
                 "mean": round(sum(vec) / len(vec), 1),
@@ -471,6 +481,8 @@ def monthly_pattern_stats(session_id):
                 "max": round(max(vec), 1),
                 "pattern": pattern,
                 "corrected_avg": corrected,
+                "last_sale": last_sale,
+                "stopped": window_start is not None and last_sale is not None and last_sale < window_start,
             }
     except Exception:
         return {}
@@ -583,9 +595,12 @@ def alias_map_from_groups(groups) -> dict:
             continue
         if not isinstance(variants, list):
             continue
+        # Strip once: stripping inside the loop made one copy of a long
+        # posted canonical per variant (thousands of copies on one worker).
+        canonical = canonical.strip()
         for variant in variants:
             if isinstance(variant, str) and variant.strip():
-                aliases[variant.strip().lower()] = canonical.strip()
+                aliases[variant.strip().lower()] = canonical
     return aliases
 
 
@@ -651,10 +666,12 @@ class SalesNameIndex:
         long_claimed = sorted((k for k in claimed if len(k) >= self.MIN_PREFIX_CHARS),
                               key=len, reverse=True)
         self._by_key = {}
+        self._sources = {}
         for raw, info in (sales_by_raw_name or {}).items():
             key = self._resolve_raw(str(raw).strip(), alias_map, claimed, long_claimed)
             if key:
                 self._fold(key, info)
+                self._sources.setdefault(key, []).append(raw)
 
     def _resolve_raw(self, raw_s, alias_map, claimed, long_claimed):
         """Final bucket key for one raw sales name, or None to drop the row."""
@@ -720,6 +737,9 @@ class SalesNameIndex:
         """Aggregated sales entry for an (inventory) item name, or None when
         the sales data genuinely does not cover the item."""
         return self._by_key.get(normalise_match_key(name))
+
+    def sources(self, name):
+        return list(self._sources.get(normalise_match_key(name), []))
 
 
 def _looks_numeric(values) -> bool:

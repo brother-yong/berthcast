@@ -46,7 +46,7 @@
         <th>Ordered</th>
         <th>Item</th>
         <th>On hand at analysis</th>
-        <th>Suggested qty</th>
+        <th>Suggested qty{% if net_qty %} (stock already taken off){% endif %}</th>
         <th>Supplier</th>
         <th>Order by</th>
         <th>Current stock lasts</th>
@@ -73,9 +73,10 @@
         </td>
         <td>{{ r._current_stock if r._current_stock not in (None, '') else '—' }}</td>
         <td>
-          <strong>{% if r._tender and r._tender.total %}{{ r._tender.total }}{% else %}{{ r._effective_qty or r.suggested_quantity }}{% endif %}</strong>
+          <strong>{% if r._tender and r._tender.total %}{{ r._tender.total }}{% elif r._effective_qty or r.suggested_quantity %}{{ r._effective_qty or r.suggested_quantity }}{% elif r._order_state == 'covered' %}No order (covered){% elif r._order_state == 'not_moving' %}No order (not moving){% endif %}</strong>
           <div class="note">Action: {% if r.recommended_action %}{{ r.recommended_action | upper }}{% else %}Not recorded{% endif %}</div>
           <div class="note">Decision: {% if r.approved %}Approved{% elif r.dismissed %}Dismissed{% else %}Pending{% endif %}</div>
+          {% if r._quantity_basis %}<div class="note">{{ r._quantity_basis }}</div>{% endif %}
           {% if r._tender %}
             {# This sheet gets photocopied, so the word "tender" carries the
                meaning: colour is never the only signal. Darker than the app's
@@ -83,6 +84,7 @@
             <div class="note" style="color:#8a6a12;">
               {%- if r._tender.base %}{{ r._tender.base }} + {% else %}+ {% endif -%}
               {{ r._tender.add }} tender
+              {% if r._tender.stock_covers %} (free stock covers {{ r._tender.stock_covers }}){% endif %}
             </div>
             {# The pairing between a tender line and this item was GUESSED, not
                confirmed by anyone, so the line it came from is printed here.

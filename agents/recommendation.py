@@ -19,23 +19,30 @@ from .shared import (
     _format_context,
     _call_claude,
     _extract_json_array,
-    _num_sql,
-    count_sales_months,
-    detect_avg_month_column,
-    infer_months_from_item_stats,
     LEAD_TIME_BY_TYPE,
     SalesNameIndex,
     normalise_match_key,
+    alias_map_from_groups,
     monthly_pattern_stats,
     apply_sales_pattern_flags,
     wrap_untrusted,
     UNTRUSTED_GUARD,
 )
-from quantity import sanitize_suggested_quantity
+from quantity import sanitize_suggested_quantity, parse_quantity
 
+
+# About one week of the old rate still counts as near zero after sales stop.
+_STOPPED_NEAR_ZERO_MONTHS = 0.25
+
+# Keys only Python (the order maths) or staff (approve, edit, note, outcome)
+# write on a rec. A model reply carrying one is dropped, never trusted.
+_NOT_MODEL_KEYS = frozenset({
+    "order_calc", "avg_monthly_sales", "uom_label",
+    "edited_quantity", "edited_supplier", "approved", "dismissed", "note",
+    "order_placed", "order_placed_at", "outcome_status", "outcome_recorded_at"})
 
 def run_recommendation_agent(session_id: int, model: str, inventory_report: list, context: dict, progress_emit=None,
-                             data_notes=None) -> list:
+                             data_notes=None, row_numbers=None, confirmed_groups=None) -> list:
     _emit(progress_emit, "Loading company config and supplier profiles")
 
     # Pull org name from session
@@ -43,10 +50,11 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
     org_name  = sess_rows[0]["org_name"] if sess_rows else "Unknown"
 
     config = get_company_config(org_name)
+    alias_map = alias_map_from_groups(confirmed_groups)
 
     _emit(progress_emit, "Reading supplier list (local vs import) to set lead times")
     item_supplier_map, item_lt_map, supplier_type_map = _resolve_item_suppliers(
-        session_id, org_name, config, progress_emit=progress_emit
+        session_id, org_name, config, alias_map, progress_emit=progress_emit
     )
 
     # Missing sales cannot support an order quantity, even via the spoilage fallback.
@@ -103,11 +111,8 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
     except Exception:
         uom_by_item_r = {}
 
-    # Compute avg monthly sales per item so we can suggest order quantities.
-    # Velocity sources in trust order: a monthly average the sheet itself
-    # states > totals divided by the dated period > totals over an assumed
-    # 12 months (the inventory agent has already flagged that assumption).
-    sales_velocity = None      # SalesNameIndex when sales data is readable
+    # Demand and stock come from the inventory step; only supplier names
+    # are read again here for the existing fallback.
     sales_supplier_idx = None  # supplier names read off the sales sheet
     _claimed_rec = {normalise_match_key(r.get("item"))
                     for r in inventory_report
@@ -115,6 +120,7 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
     # Sales-pattern stats (spec 2026-07-10): spiky velocity correction,
     # per-item prompt notes, and the deterministic post-pass all read this.
     pattern_stats = monthly_pattern_stats(session_id)
+    _sup_raw = {}
     try:
         sal_table_r = f"sales_{session_id}"
         s_sample = query(f"SELECT * FROM {sal_table_r} LIMIT 1")
@@ -123,79 +129,6 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
             s_desc = next((c for c in s_cols if c in ("inventory_desc", "item_description", "description", "product_name")), None)
             if not s_desc:
                 s_desc = next((c for c in s_cols if any(k in c.lower() for k in ("desc", "item_name", "product_name", "item")) and "supplier" not in c.lower()), None)
-            s_qty = next((c for c in s_cols if c in ("billing_qty", "qty", "quantity", "billing_quantity")), None)
-            if not s_qty:
-                s_qty = next((c for c in s_cols if any(k in c.lower() for k in ("qty", "quantity")) and "allocated" not in c.lower()), None)
-            s_avg = detect_avg_month_column(s_cols)
-            vel_rows = []
-            if s_desc and (s_avg or s_qty):
-                # Period for the totals fallback, same trust order as the
-                # inventory agent: dated months > the sheet's own Qty ÷ Avg
-                # ratios > 12 assumed (the inventory agent already flags it).
-                months_r = None
-                try:
-                    _DATE_EXACT_R = ("date", "invoice_date", "order_date", "transaction_date",
-                                     "sales_date", "po_date", "doc_date", "posting_date")
-                    _date_col_r = next((c for c in s_cols if c.lower() in _DATE_EXACT_R), None)
-                    if not _date_col_r:
-                        _date_col_r = next((c for c in s_cols if "date" in c.lower()), None)
-                    if _date_col_r:
-                        # Python-side parse handles DD/MM/YYYY, 15-Jun-26 and
-                        # Excel serials; strftime (ISO-only) stays as fallback.
-                        # substr(1,10) trims time-of-day so datetime stamps
-                        # can't blow the DISTINCT limit and undercount months.
-                        _d_rows = query(
-                            f'SELECT DISTINCT substr("{_date_col_r}", 1, 10) AS d '
-                            f'FROM {sal_table_r} LIMIT 5000')
-                        _counted_r = count_sales_months([r["d"] for r in _d_rows])
-                        if _counted_r:
-                            months_r = _counted_r[0]
-                        else:
-                            mo_r = query(f'SELECT COUNT(DISTINCT strftime("%Y-%m", "{_date_col_r}")) as m FROM {sal_table_r} LIMIT 1')
-                            months_r = ((mo_r[0]["m"] or 0) if mo_r else 0) or None
-                except Exception:
-                    months_r = None
-
-                # One query carries BOTH velocity sources so each item can use
-                # the best one it has. The old either/or read: when the sheet
-                # had an Avg/Month column, an item with a blank avg cell but
-                # real qty history got no velocity at all ("Verify with team")
-                # — while the inventory agent sized the same item from totals.
-                _sel = [f'"{s_desc}" as item']
-                _sel.append(f'AVG({_num_sql(s_avg)}) as avg_direct' if s_avg
-                            else '0 as avg_direct')
-                _sel.append(f'SUM({_num_sql(s_qty)}) as total_qty' if s_qty
-                            else '0 as total_qty')
-                stat_rows = query('SELECT ' + ', '.join(_sel) +
-                                  f' FROM {sal_table_r} GROUP BY "{s_desc}" LIMIT 5000')
-                if months_r is None:
-                    _inferred_r = infer_months_from_item_stats(
-                        [{"total_qty": r["total_qty"], "avg_monthly_direct": r["avg_direct"]}
-                         for r in stat_rows])
-                    months_r = _inferred_r[0] if _inferred_r else 12
-                for r in stat_rows:
-                    _avg_d = r["avg_direct"] or 0
-                    _tot   = r["total_qty"] or 0
-                    _avg_m = _avg_d if _avg_d > 0 \
-                             else (_tot / months_r if _tot > 0 else 0)
-                    if _avg_d <= 0:
-                        # Spiky: size on the typical month, not the spike-
-                        # inflated mean (sheet-stated averages left alone).
-                        _pat = pattern_stats.get(normalise_match_key(str(r["item"] or "")))
-                        if _pat and _pat["pattern"] == "spiky" and _pat["corrected_avg"]:
-                            _avg_m = _pat["corrected_avg"]
-                    vel_rows.append({
-                        "item": r["item"],
-                        "avg_monthly": _avg_m,
-                    })
-            if vel_rows:
-                # Drift-tolerant index, same as the inventory agent: a sales
-                # name carrying a staff annotation must still feed this item's
-                # velocity, or its suggested quantity degrades to "verify".
-                _vel_raw = {r["item"]: {"avg_monthly": (r["avg_monthly"] or 0)}
-                            for r in vel_rows if r["item"]}
-                sales_velocity = SalesNameIndex(_vel_raw, claimed_keys=_claimed_rec)
-
             # Supplier names from the sales sheet — lowest-priority source,
             # consulted only for items the PO table knows nothing about.
             # Supplier/category columns in summary exports use MERGED cells:
@@ -270,13 +203,12 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
                         _sup_raw[_itm] = {"supplier": next(iter(_names))}
 
                 if _sup_raw:
-                    sales_supplier_idx = SalesNameIndex(_sup_raw, claimed_keys=_claimed_rec)
+                    sales_supplier_idx = SalesNameIndex(_sup_raw, alias_map, claimed_keys=_claimed_rec)
                     _emit(progress_emit,
                           f"Supplier names read from the sales sheet "
                           f"({len(_sup_raw)} items"
                           + (", merged cells filled down)" if _is_blocky else ", no fill-down — column isn't a merged-cell export)"))
     except Exception:
-        sales_velocity = None
         sales_supplier_idx = None
 
     # Build enriched item lines for Claude
@@ -290,6 +222,7 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
     # a supplier listing or PO file needs an explicit "verify before you
     # order" flag, since nothing here confirmed those names.
     _sup_from_sales_count = 0
+    _missing_stamp_count = 0
     # One DB read per distinct supplier per run, not 3-4 per item — query()
     # opens a fresh SQLite connection every call.
     _profile_memo, _acc_memo = {}, {}
@@ -306,6 +239,9 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
 
     for inv_item in actionable:
         iname    = inv_item.get("item", "Unknown")
+        stamp = (row_numbers or {}).get(normalise_match_key(iname)) or {}
+        if not stamp:
+            _missing_stamp_count += 1
 
         # Use shared resolver results; fall back to direct lookup for items
         # that weren't in the PO table (and therefore not in item_lt_map).
@@ -320,9 +256,11 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
             supplier = item_supplier_map.get(iname, "Unknown") or "Unknown"
             if supplier == "Unknown" and sales_supplier_idx is not None:
                 # Last resort: the supplier named on the sales sheet itself.
-                _ss = sales_supplier_idx.get(iname) or {}
-                if _ss.get("supplier"):
-                    supplier = _ss["supplier"]
+                _names = {_sup_raw[source]["supplier"]
+                          for source in sales_supplier_idx.sources(iname)
+                          if source in _sup_raw}
+                if len(_names) == 1:
+                    supplier = next(iter(_names))
                     _sup_from_sales_count += 1
             stype    = supplier_type_map.get(supplier, "other")
             if stype == "other" and supplier == "Unknown":
@@ -336,6 +274,9 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
                            or config.get("default_lead_time_days") or None)
             delay_prob = sup_profile.get("delay_probability", 0.2)
             high_risk  = delay_prob > 0.30 or sup_profile.get("data_quality_score", 0.3) < 0.50
+
+        if stamp.get("lead_time_days"):
+            lt_days = stamp["lead_time_days"]
 
         _prof     = _profile(supplier)
         quality   = _prof.get("data_quality_score", 0.3)
@@ -353,10 +294,14 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
         #   - Reliable local supplier (delay_prob < 0.15):  +0.5 months
         #   - Average supplier (delay_prob 0.15–0.35):      +1.5 months
         #   - Unreliable import (delay_prob > 0.35):         +2.5 months
-        _vel = sales_velocity.get(iname) if sales_velocity is not None else None
-        avg_monthly = round((_vel or {}).get("avg_monthly", 0) or 0, 1)
-        uom = uom_by_item_r.get(normalise_match_key(iname), "")
+        avg_monthly = round(stamp.get("avg_monthly") or 0, 1)
+        uom = stamp.get("uom") or uom_by_item_r.get(normalise_match_key(iname), "")
         uom_label = f" {uom}" if uom else " units"
+        position = stamp.get("position")
+        since = stamp.get("stopped_since")
+        calc = flag = None
+        suggested_qty = None
+        suggested_qty_str = "insufficient sales data"
         if avg_monthly > 0:
             lt_months = (lt_days / 30) if lt_days else 2.0
             if delay_prob <= 0.15:
@@ -365,16 +310,51 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
                 safety_buffer = 1.5
             else:
                 safety_buffer = 2.5
-            suggested_qty = round(avg_monthly * (lt_months + safety_buffer))
-            suggested_qty_str = f"{suggested_qty}{uom_label}"
-        else:
-            suggested_qty = None
-            suggested_qty_str = None
-        # Keep the Python-computed figure so we can sanity-check whatever the
-        # model echoes back (see sanitize_suggested_quantity below).
-        # Keyed by normalise_match_key: the model's echo of the name must
-        # never miss on case/punctuation drift.
-        qty_basis_by_item[normalise_match_key(iname)] = (avg_monthly, uom_label, suggested_qty)
+            need = round(avg_monthly * (lt_months + safety_buffer))
+            pos = round(position) if position is not None else None
+            label = stamp.get("position_label") or "On hand"
+            order = need - pos if pos is not None else None
+            if pos is None:
+                state = "no_position"
+                suggested_qty_str = "insufficient stock data"
+                flag = (f"Stock figure unreadable: need about {need}{uom_label} for the lead time "
+                        "plus buffer; take off what you hold before ordering.")
+            elif since and position > _STOPPED_NEAR_ZERO_MONTHS * avg_monthly:
+                state = "not_moving"
+                suggested_qty_str = f"none: no sales since {since}"
+                flag = (f"Not moving since {since}: {pos}{uom_label} in stock and no sales "
+                        "since then. No order suggested.")
+            elif order <= 0:
+                state = "covered"
+                suggested_qty_str = "none needed: free stock already covers the lead time plus buffer"
+                flag = (f"Covered: {label.lower()} {pos}{uom_label} against a need of "
+                        f"{need}{uom_label}; check any incoming stock arrives.")
+            else:
+                state = "order"
+                suggested_qty = order
+                suggested_qty_str = f"{order}{uom_label}"
+                if since:
+                    flag = f"No sales since {since}: out of stock that long, or dropped? Check before ordering."
+            sources = stamp.get("sales_sources") or []
+            # Sales-line names are uploaded text: save only the three the card
+            # shows, each capped, plus a count, so a crafted sales file cannot
+            # bloat the saved JSON that every page load parses.
+            sales_from = None
+            if sources and not (len(sources) == 1 and
+                                normalise_match_key(sources[0]) == normalise_match_key(iname)):
+                sales_from = [str(source).strip()[:80] for source in sources[:3]]
+            calc = {"state": state, "need": need, "position": pos, "position_label": label,
+                    "order": order if state == "order" else None,
+                    "spare": pos - need if state == "covered" else None,
+                    "lead_months": round(lt_months, 1), "lead_known": bool(lt_days),
+                    "buffer_months": safety_buffer, "cover_months": round(lt_months + safety_buffer, 1),
+                    "stopped_since": since, "sales_from": sales_from,
+                    "sales_from_count": len(sources) if sales_from else None}
+        # This basis is Python-owned. A model name that misses it cannot carry
+        # an order quantity through to the saved report.
+        qty_basis_by_item[normalise_match_key(iname)] = {
+            "avg": avg_monthly, "uom": uom_label, "pre": suggested_qty,
+            "lt": lt_days, "calc": calc, "flag": flag}
 
         _pat = pattern_stats.get(normalise_match_key(iname))
         if _pat and _pat["pattern"] == "spiky":
@@ -394,10 +374,12 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
             f"---\n"
             f"Item: {iname}\n"
             f"Status: {inv_item.get('status')} | Spoilage risk: {inv_item.get('spoilage_risk')}\n"
-            f"Stock: {inv_item.get('stock')}{uom_label} | Days of supply: {inv_item.get('days_of_supply', 'unknown')}\n"
+            f"Stock: {inv_item.get('stock')}{uom_label} | Days of supply: {inv_item.get('days_of_supply', 'unknown')}"
+            f" | Free stock: {str(round(position)) + uom_label if position is not None else 'unknown'}\n"
+            + (f"Sales stopped: no sales since {since} (ran out, or dropped?)\n" if since else "") +
             f"Avg monthly sales: {avg_monthly}{uom_label}\n"
             f"{pattern_line}"
-            f"Pre-computed suggested order quantity: {suggested_qty_str if suggested_qty_str is not None else 'insufficient sales data'}\n"
+            f"Pre-computed suggested order quantity: {suggested_qty_str}\n"
             f"Supplier: {supplier} ({stype}, lead time: {lt_days if lt_days else 'unknown — do not guess'})\n"
             f"Supplier delay rate: {int(delay_prob*100)}% | "
             f"Supplier known to system: {'Yes' if known_sup else 'No'}"
@@ -406,6 +388,10 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
             f"High-risk supplier: {'YES' if high_risk else 'No'}\n"
             f"Observation: {inv_item.get('observation', '')}\n"
         )
+
+    if _missing_stamp_count:
+        _emit(progress_emit, f"{_missing_stamp_count} item(s) came back renamed by the model; "
+              "their quantities are left for the team to check")
 
     # A run whose actionable items took their supplier only from the sales
     # sheet had no supplier listing or PO file to confirm those names —
@@ -475,7 +461,7 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
         "}\n\n"
         "RULES:\n"
         "1. lead_time_days: output null when the input says 'unknown'. Never invent a number.\n"
-        "2. suggested_quantity: use the pre-computed value from input. If it says 'insufficient sales data', output 'Verify with team'.\n"
+        "2. suggested_quantity: use the pre-computed value from input. It already takes free stock off (free stock = stock on hand plus stock on order minus stock owed to customers), so never subtract stock again. If it says 'insufficient sales data' or 'insufficient stock data', output 'Verify with team'. If it starts with 'none', output null.\n"
         "3. Do NOT mention any lead time or number of days in reason, consequence_if_acting, or consequence_if_not_acting. "
         "   Those fields are for urgency and business impact only.\n"
         "4. consequence_if_acting and consequence_if_not_acting must be plain business statements. "
@@ -549,16 +535,40 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
         for rec in recs:
             if isinstance(rec, dict):
                 basis = qty_basis_by_item.get(normalise_match_key(rec.get("item", "")))
+                # The model authors no arithmetic metadata, no human decision
+                # and no display key: only Python and staff write those.
+                for key in [k for k in rec if k in _NOT_MODEL_KEYS or str(k).startswith("_")]:
+                    rec.pop(key)
                 if basis:
-                    avg_m, uom_lbl, precomputed = basis
-                    rec["avg_monthly_sales"] = avg_m
-                    rec["uom_label"] = uom_lbl
-                    clean, corrected = sanitize_suggested_quantity(
-                        rec.get("suggested_quantity"), precomputed, uom_lbl)
-                    rec["suggested_quantity"] = clean
-                    if corrected:
-                        rec["_quantity_corrected"] = True
-                        qty_corrections += 1
+                    rec["avg_monthly_sales"] = basis["avg"]
+                    rec["uom_label"] = basis["uom"]
+                    rec["lead_time_days"] = basis["lt"]
+                    calc = basis["calc"]
+                    corrected = False
+                    if calc and calc["state"] in ("covered", "not_moving"):
+                        rec["suggested_quantity"] = ""
+                    elif calc and calc["state"] == "order":
+                        corrected = parse_quantity(rec.get("suggested_quantity")) != calc["order"]
+                        rec["suggested_quantity"] = f"{calc['order']}{basis['uom']}"
+                    else:
+                        clean, corrected = sanitize_suggested_quantity(
+                            rec.get("suggested_quantity"), basis["pre"], basis["uom"])
+                        rec["suggested_quantity"] = clean
+                    if calc:
+                        rec["order_calc"] = calc
+                    if basis["flag"]:
+                        if not isinstance(rec.get("flags"), list):
+                            rec["flags"] = []
+                        rec["flags"].insert(0, basis["flag"])
+                else:
+                    # Never sent this item, so none of its numbers came from Python.
+                    rec.pop("lead_time_days", None)
+                    rec["suggested_quantity"], _ = sanitize_suggested_quantity(
+                        rec.get("suggested_quantity"), None)
+                    corrected = True
+                if corrected:
+                    rec["_quantity_corrected"] = True
+                    qty_corrections += 1
                 outcome_rows.append({
                     "session_id": session_id,
                     "item": rec.get("item", ""),

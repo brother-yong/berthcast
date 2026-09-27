@@ -216,7 +216,8 @@ _REPORT = [
     {"item": "COWHEAD UHT MILK FULL CREAM 1 LTR", "category": "DAIRY", "stock": 0,
      "status": "CRITICAL", "spoilage_risk": "LOW", "days_of_supply": 0, "observation": "t"},
 ]
-rec_mod.run_recommendation_agent(SID, "claude-sonnet-4-6", list(_REPORT), {}, None)
+rec_mod.run_recommendation_agent(SID, "claude-sonnet-4-6", list(_REPORT), {}, None,
+                               row_numbers=res.get("row_numbers"))
 _rline = _rec_captured["user"]
 _check("rec agent finds avg monthly sales despite the annotated name",
        "Avg monthly sales: 0 " not in _rline and "Avg monthly sales: 0\n" not in _rline,

@@ -338,6 +338,10 @@
                 {%- if rec._tender -%}
                   {%- if rec._tender.base %}{{ rec._tender.base }} {% endif -%}
                   <span class="qty-tender">+ {{ rec._tender.add }}</span>
+                {%- elif not rec.edited_quantity and not rec.suggested_quantity and rec._order_state == 'covered' -%}
+                  covered
+                {%- elif not rec.edited_quantity and not rec.suggested_quantity and rec._order_state == 'not_moving' -%}
+                  not moving
                 {%- else -%}
                   {{ rec.edited_quantity or rec.suggested_quantity or '—' }}
                 {%- endif -%}
@@ -440,6 +444,7 @@
                   <div class="rec-tender-line">
                     <span class="qty-tender">+ {{ rec._tender.add }}</span>
                     for current tender commitments.
+                    {% if rec._tender.stock_covers %}Free stock covers {{ rec._tender.stock_covers }} of it.{% endif %}
                     {% if rec._tender.total %}Order {{ rec._tender.total }} in total.{% endif %}
                     {# Pairings may be guessed. Name every contributing line so
                        a wrong guess is visible where the number is read. #}

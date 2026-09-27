@@ -4,6 +4,7 @@ import json
 
 import database as db
 from agents.shared import wrap_untrusted, UNTRUSTED_GUARD
+from rec_logic import _order_state
 
 
 def _build_chat_context(user_id: int, org_name: str, detailed: bool = False) -> dict:
@@ -89,10 +90,18 @@ def _build_chat_context(user_id: int, org_name: str, detailed: bool = False) -> 
         lines.append(f"PENDING RECOMMENDATIONS ({len(pending)} awaiting review):")
         for rec in pending[:20]:
             supplier = rec.get("supplier", "Unknown")
-            qty = rec.get("suggested_quantity", "?")
+            qty = rec.get("edited_quantity") or rec.get("suggested_quantity", "?")
             conf = rec.get("confidence", "?")
             reason = rec.get("reason", "")
-            lines.append(f"  • {rec.get('item', '?')} — order {qty} from {supplier} (confidence: {conf}). {reason}")
+            # Covered and not-moving recs carry no quantity on purpose; saying
+            # "order" here would contradict the card. A staff edit still wins.
+            state = None if rec.get("edited_quantity") else _order_state(rec)
+            if state == "covered":
+                lines.append(f"  • {rec.get('item', '?')}: no order needed, free stock covers the lead time plus buffer. {reason}")
+            elif state == "not_moving":
+                lines.append(f"  • {rec.get('item', '?')}: no order suggested, nothing has sold recently. {reason}")
+            else:
+                lines.append(f"  • {rec.get('item', '?')} — order {qty} from {supplier} (confidence: {conf}). {reason}")
 
     result["summary_text"] = "\n".join(lines)
 

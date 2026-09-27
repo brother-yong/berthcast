@@ -230,7 +230,7 @@ def _test_agents_end_to_end():
     _check("inventory: old item is DEAD", statuses.get("Old Stock Item") == "DEAD")
 
     # ── Agent 3: recommendations ─────────────────────────────────────────
-    recs = agents.run_recommendation_agent(1, "fake-model", report, {})
+    recs = agents.run_recommendation_agent(1, "fake-model", report, {}, row_numbers=inv.get("row_numbers"))
     valid = [r for r in recs if isinstance(r, dict) and not r.get("error")]
     _check("recommendation: no error returned", len(valid) == len(recs))
     _check("recommendation: dead SKU excluded, 2 actionable items", len(valid) == 2)

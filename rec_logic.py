@@ -54,6 +54,12 @@ def _effective_supplier(rec):
     return rec.get("supplier", "")
 
 
+def _order_state(rec):
+    """Return Python's saved sizing state, when the calculation is structured."""
+    calc = rec.get("order_calc") if isinstance(rec, dict) else None
+    return calc.get("state") if isinstance(calc, dict) else None
+
+
 def _compute_order_by(rec, as_of=None):
     """Compute when the user must place this order to avoid a stockout.
 
@@ -63,6 +69,8 @@ def _compute_order_by(rec, as_of=None):
       status:        'overdue' | 'urgent' | 'ok' | 'unknown'
     """
     if not isinstance(rec, dict):
+        return {"order_by_date": None, "buffer_days": None, "status": "unknown"}
+    if _order_state(rec) in ("covered", "not_moving"):
         return {"order_by_date": None, "buffer_days": None, "status": "unknown"}
     dos = rec.get("days_of_supply")
     lt  = rec.get("lead_time_days")
@@ -371,14 +379,10 @@ def sort_inventory_items(items, sort_key="spoilage", direction="desc"):
 
 
 def _quantity_basis(rec):
-    """Plain-English sentence explaining how the suggested order quantity was sized,
-    e.g. "You sell about 40 CTN/month, and this supplier takes about 3.5 months.
-    Suggested order: 160 CTN — covers the wait plus a safety buffer."
+    """Explain the exact need-minus-stock sum on new recommendations.
 
-    Returns None when there's no usable monthly-sales figure (the existing
-    'insufficient sales data' case), so the template can hide the line. Described,
-    not a strict equation — the agent may nudge the quantity, and a fake equation
-    that doesn't add up would erode trust faster than no equation."""
+    Legacy recommendations keep their original descriptive sentence. Missing
+    sales or a malformed saved calculation hides the sentence."""
     if not isinstance(rec, dict):
         return None
     raw_avg = rec.get("avg_monthly_sales")
@@ -390,6 +394,78 @@ def _quantity_basis(rec):
         return None
 
     uom = rec.get("uom_label") or " units"
+    if "order_calc" in rec:
+        calc = rec.get("order_calc")
+        if not isinstance(calc, dict):
+            return None
+        try:
+            state = calc["state"]
+            if state not in ("order", "covered", "not_moving", "no_position"):
+                return None
+
+            def _calc_num(key):
+                value = calc[key]
+                if isinstance(value, bool) or not math.isfinite(float(value)):
+                    raise ValueError("unreadable calculation number")
+                return _fmt_num(value)
+
+            need = _calc_num("need")
+            lead_months = _calc_num("lead_months")
+            buffer_months = _calc_num("buffer_months")
+            cover_months = _calc_num("cover_months")
+            if not isinstance(calc["lead_known"], bool):
+                return None
+            since = calc["stopped_since"]
+            sales_from = calc["sales_from"]
+            if since is not None and not isinstance(since, str):
+                return None
+            if sales_from is not None and (not isinstance(sales_from, list)
+                                           or any(not isinstance(s, str) for s in sales_from)):
+                return None
+            lead = (f"{lead_months}-month lead time" if calc["lead_known"]
+                    else "lead time unknown, 2 months assumed")
+            sentence = (f"You sell about {avg}{uom}/month. Need about {need}{uom} "
+                        f"({cover_months} months of sales: {lead} plus "
+                        f"{buffer_months}-month buffer).")
+            if state == "no_position":
+                sentence += (" The stock figure could not be read, so no order was sized: "
+                             "take what you hold off that need.")
+            else:
+                position = _calc_num("position")
+                if not isinstance(calc["position_label"], str):
+                    return None
+                held = f"{calc['position_label']} {position}{uom}"
+                if float(calc["position"]) < 0:
+                    held += " (more owed to customers than held)"
+                if state == "order":
+                    order = _calc_num("order")
+                    if float(need) - float(position) != float(order):
+                        return None
+                    sentence += f" {held}. Order {order}{uom}."
+                    if since:
+                        sentence += (f" No sales since {since}: out of stock that long, "
+                                     "or dropped? Check before ordering.")
+                elif state == "covered":
+                    sentence += (f" {held} already covers it, so no order now. "
+                                 "Check any incoming stock arrives.")
+                else:
+                    if not since:
+                        return None
+                    sentence += (f" {held}, and nothing has sold since {since}, "
+                                 "so no order is suggested.")
+            if sales_from:
+                names = " + ".join(sales_from[:3])
+                # Only three names are saved; the count says how many fed it.
+                # A missing or bad count falls back to the names saved.
+                count = calc.get("sales_from_count")
+                if isinstance(count, bool) or not isinstance(count, int) or count < len(sales_from):
+                    count = len(sales_from)
+                if count > 3:
+                    names += f" + {count - 3} more"
+                sentence += f" Sales figure from: {names}."
+            return sentence
+        except (KeyError, TypeError, ValueError, OverflowError):
+            return None
     qty_str = str(_effective_qty(rec)).strip()
 
     lt = rec.get("lead_time_days")
@@ -461,6 +537,18 @@ def _tender_split(rec, addon):
              "unit":    unit,
              "sources": sources,
              "more":    max(0, count - len(sources))}
+    if base_num is None and _order_state(rec) == "covered":
+        # A covered base is arithmetic, not a human's "don't order": spare
+        # free stock absorbs the tender volume after the regular need.
+        try:
+            spare = max(0, int(rec["order_calc"].get("spare") or 0))
+        except (TypeError, ValueError, OverflowError):
+            spare = 0
+        used = min(spare, add_int)
+        split["stock_covers"] = str(used) if used else ""
+        if add_int - used > 0:
+            split["total"] = f"{add_int - used}{unit}"
+        return split
     if base_num is None:
         # The sanitiser's "Verify with team" case: we refused to state a
         # quantity, so we must not invent a total out of the tender number.

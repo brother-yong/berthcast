@@ -157,7 +157,7 @@ try:
     }
 
     def _fake_rec_appends_note(session_id, model, inventory_report, context,
-                                progress_emit=None, data_notes=None):
+                                progress_emit=None, data_notes=None, **_kw):
         if data_notes is not None:
             data_notes.append("X")
         return []

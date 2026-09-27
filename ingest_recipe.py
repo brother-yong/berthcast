@@ -9,7 +9,7 @@ import csv as _csv
 import numbers
 import os
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 
 from logging_setup import logger
 
@@ -343,7 +343,7 @@ def execute_recipe(filepath, recipe, today=None):
     an independent second pass and must equal the CSV's totals exactly.
     (Honest limit: this proves Python followed the recipe, not that the
     recipe is true — the truth check is the human read-back.)"""
-    today = today or date.today()
+    today = today or datetime.now(timezone(timedelta(hours=8))).date()
     rows = _raw_rows(filepath)
     hdr = recipe["header_row"]
     item_c = recipe["item_col"] - 1
@@ -403,6 +403,16 @@ def execute_recipe(filepath, recipe, today=None):
     out, items = [], 0
     cur_sup, cur_lt = "", ""
     year = _assumed_year(max(kept_months), today) if kept_months else today.year
+    # An unfinished month must not count as a full month of demand.
+    unfinished = {m for m in kept_months if (year, m) >= (today.year, today.month)}
+    if unfinished:
+        kept_months = [m for m in kept_months if m not in unfinished]
+        dropped = sorted(set(dropped) | unfinished)
+        mixed_months -= unfinished
+        if borderline_m in unfinished:
+            borderline_m = None
+        if not kept_months:
+            raise RecipeRefusal("no finished month of sales before the upload month")
     for r in rows[hdr:]:
         def _cell(i):
             return r[i] if 0 <= i < len(r) else None

@@ -80,7 +80,7 @@
           <summary style="cursor:pointer;">Read as {{ '{:,}'.format(readback['items']) }} items, {{ readback['months_kept']|month_span }} {{ readback['assumed_year'] }}</summary>
           <div style="margin-top:6px;padding-left:2px;">
             {{ '{:,.0f}'.format(readback['total_units']) }} units sold<br>
-            {% if readback['months_dropped'] %}Skipped {{ readback['months_dropped']|month_span }} — empty or future months, not sales<br>{% endif %}
+            {% if readback['months_dropped'] %}Skipped {{ readback['months_dropped']|month_span }}: empty, unfinished or future months, not sales<br>{% endif %}
             {% if readback.get('coverage') and readback['coverage'].get('inventory_items_total') %}Covers ~{{ '{:,}'.format(readback['coverage']['sales_items_matched']) }} of your {{ '{:,}'.format(readback['coverage']['inventory_items_total']) }} inventory items (approximate)<br>{% endif %}
             <button class="remove-link" onclick="removeFile('{{ slot }}','{{ slotId }}')" style="margin-top:4px;">Not what you expected? Replace file</button>
           </div>

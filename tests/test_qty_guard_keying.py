@@ -42,6 +42,8 @@ if "anthropic" not in sys.modules:
 
 import database as db                      # noqa: E402
 import agents.recommendation as rec_mod    # noqa: E402
+import agents.inventory as inv_mod
+import agents.shared as shared
 
 _FAILED = False
 
@@ -86,8 +88,12 @@ def _drifted_claude(model, system, user, max_tokens=4096):
 
 
 rec_mod._call_claude = _drifted_claude
+shared._call_claude = lambda *a, **k: "{}"
+inv_mod._call_claude = lambda *a, **k: json.dumps(_REPORT)
+inv_result = inv_mod.run_inventory_agent(SID, "m", [], {})
 log = []
-recs = rec_mod.run_recommendation_agent(SID, "m", list(_REPORT), {}, progress_emit=log.append)
+recs = rec_mod.run_recommendation_agent(SID, "m", list(_REPORT), {}, progress_emit=log.append,
+                                      row_numbers=inv_result.get("row_numbers"))
 
 rec = next((r for r in recs if isinstance(r, dict) and "item" in r), {})
 _qty = str(rec.get("suggested_quantity", ""))
