@@ -8,6 +8,7 @@ import threading
 import time
 from datetime import datetime, timedelta, timezone
 from email.mime.text import MIMEText
+from urllib.parse import quote
 from flask import (
     Flask, render_template, request, redirect,
     url_for, session, flash, jsonify, Response, stream_with_context, send_file
@@ -30,6 +31,7 @@ from agents import (
     run_pipeline,
 )
 from agents.shared import sampling_kwargs, thinking_kwargs, normalise_match_key
+from agents.sales_links import linked_name_keys, MAX_SHOWN_NAME_CHARS
 
 from config import UPLOAD_FOLDER, FILE_SLOTS, AVAILABLE_MODELS
 from emails import (
@@ -46,7 +48,7 @@ from auth_utils import (
 from rec_logic import (
     _normalise_confidence, _effective_qty, _effective_supplier,
     _compute_order_by, _group_recs_by_supplier, _confidence_reasons,
-    _quantity_basis, _has_stakes, clarity_gaps, _tender_split, _order_state,
+    _quantity_basis, _has_stakes, clarity_gaps, _tender_split, _order_state, _link_display,
     INVENTORY_SORT_LABELS, INVENTORY_SHOW_STATUSES, inventory_status,
     inventory_view_params, sort_inventory_items, inventory_number_display,
 )
@@ -1520,7 +1522,7 @@ def admin_sales_links():
                 extra = f" (+{len(missing) - 5} more)" if len(missing) > 5 else ""
                 flash("Not in the latest stock file: " + ", ".join(missing[:5]) + extra, "error")
                 return redirect(url_for("admin_sales_links", org=org))
-            members = [{"code": code, "key": normalise_match_key(found[code])[:120],
+            members = [{"code": code, "key": normalise_match_key(found[code]),
                         "name": found[code]} for code in codes]
             entry = links.make_entry(line, members, "high", "admin")
             refusal = []
@@ -2439,6 +2441,7 @@ def dedup_stream(upload_session_id):
     # or an exception would leak the lane permanently.
     _company_desc = (db.get_company_config(session["org_name"]).get("company_description")
                      or session["org_name"])
+    _org_for_links = session["org_name"]
 
     # Lane before cap: a "server busy" rejection must not burn the daily cap.
     if not _stream_lanes.acquire(blocking=False):
@@ -2477,6 +2480,14 @@ def dedup_stream(upload_session_id):
         item_names.update(_col_candidates(f"inventory_{upload_session_id}",       cand))
         item_names.update(_col_candidates(f"purchase_orders_{upload_session_id}", cand))
         item_names.update(_col_candidates(f"sales_{upload_session_id}",           cand))
+        # Linked names are already one family; a staff group touching them
+        # would be dropped by the pipeline anyway, so do not show it.
+        try:
+            _linked = linked_name_keys(_org_for_links, upload_session_id)
+        except Exception:
+            _linked = set()
+        if _linked:
+            item_names = {n for n in item_names if normalise_match_key(n) not in _linked}
 
         if not item_names:
             normalization_cache[upload_session_id] = {"groups": [], "message": "No item names found."}
@@ -2852,6 +2863,23 @@ def run_analysis(upload_session_id):
                 logger.warning("Run-outcome alert step failed for session %s",
                                upload_session_id, exc_info=True)
 
+            # Sales-link notes: an operator-only notice, not a failure, so it
+            # bypasses usage.should_alert on purpose. The log line carries the
+            # COUNT only: the notes quote uploaded names, which stay out of logs.
+            try:
+                _link_notes = result.get("link_notes") or []
+                if _link_notes:
+                    logger.info("Analysis %s has %d sales-link note(s) for the operator",
+                                upload_session_id, len(_link_notes))
+                    _detail = ("\n".join(_link_notes)[:4000]
+                               + f"\nAdmin page: {base_url}/admin/sales-links?org={quote(_org_name)}")
+                    threading.Thread(target=_send_run_failure_alert,
+                                     args=(_org_name, upload_session_id, "sales_links", _detail, base_url),
+                                     daemon=True).start()
+            except Exception:
+                logger.warning("Sales-link notice failed for session %s",
+                               upload_session_id, exc_info=True)
+
             # Increment analyses_used for free users
             if _user_tier == "free":
                 db.execute(
@@ -2887,11 +2915,31 @@ def run_analysis(upload_session_id):
                                 for i in prev_inv
                                 if isinstance(i, dict) and i.get("status") == "CRITICAL"
                             }
+
+                            # Linked families are renamed at switch-on; compare
+                            # through their member names so a rename alone never
+                            # emails. A name at the display cap may be cut, and a
+                            # cut name is another item's identity: never compared.
+                            def _member_keys(item):
+                                names = item.get("link_members")
+                                if not isinstance(names, list):
+                                    return set()
+                                return {k for k in (normalise_match_key(n) for n in names[:20]
+                                                    if isinstance(n, str)
+                                                    and len(n) < MAX_SHOWN_NAME_CHARS) if k}
+
+                            prev_keys = {normalise_match_key(n) for n in prev_critical}
+                            prev_member_keys = set()
+                            for i in prev_inv:
+                                if isinstance(i, dict) and i.get("status") == "CRITICAL":
+                                    prev_member_keys |= _member_keys(i)
                             newly_critical = [
                                 i for i in inventory_report
                                 if isinstance(i, dict)
                                 and i.get("status") == "CRITICAL"
                                 and str(i.get("item", "")).strip() not in prev_critical
+                                and normalise_match_key(str(i.get("item", ""))) not in prev_member_keys
+                                and not (_member_keys(i) & prev_keys)
                             ]
                             if newly_critical:
                                 threading.Thread(
@@ -3100,6 +3148,7 @@ def results(upload_session_id):
     # Stable global index per rec, used as DOM id so the grouped template
     # keeps unique ids regardless of nesting.
     _idx = 0
+    _linked = _linked_keys(r for r in recommendations if isinstance(r, dict) and not r.get("error"))
     for rec in recommendations:
         if not isinstance(rec, dict) or rec.get("error"):
             continue
@@ -3111,8 +3160,8 @@ def results(upload_session_id):
         rec["_quantity_basis"]     = _quantity_basis(rec)
         rec["_order_state"]        = _order_state(rec)
         rec["_has_stakes"]         = _has_stakes(rec)
-        rec["_tender"] = _tender_split(
-            rec, _addons.get(normalise_match_key(str(rec.get("item", "")))))
+        rec["_tender"] = _tender_split(rec, _rec_addon(rec, _addons, _linked))
+        rec["_link"] = _link_display(rec)
         rec["_card_idx"]      = _idx
         _idx += 1
 
@@ -3160,7 +3209,7 @@ def results(upload_session_id):
     # difference over data already in memory, NAMES only, no quantity: sizing
     # an order the pipeline never computed is the line this feature does not
     # cross.
-    _rec_keys = {normalise_match_key(str(r.get("item", ""))) for r in _valid}
+    _rec_keys = {k for r in _valid for k in _rec_keys_of(r)}
     tender_uncovered = []
     for _key, _addon in _addons.items():
         if _key in _rec_keys:
@@ -3336,6 +3385,7 @@ def print_results(upload_session_id):
                        upload_session_id, exc_info=True)
         _addons = {}
     # Enrich with effective values + order-by so the print template can stay simple.
+    _linked = _linked_keys(printable)
     for r in printable:
         _normalise_confidence(r)
         r["_effective_qty"]      = _effective_qty(r)
@@ -3345,8 +3395,8 @@ def print_results(upload_session_id):
         r["_order_by"]           = _compute_order_by(r, as_of=ar[0].get("created_at"))
         r["_current_stock"]      = stock_map.get(str(r.get("item", "")).strip())
         r["_order_covers"]       = _order_covers_months(r)
-        r["_tender"] = _tender_split(
-            r, _addons.get(normalise_match_key(str(r.get("item", "")))))
+        r["_tender"] = _tender_split(r, _rec_addon(r, _addons, _linked))
+        r["_link"] = _link_display(r)
     # Group by supplier so each block prints as one hand-over-ready PO, same
     # grouping/order the on-screen results page uses.
     groups = _group_recs_by_supplier(printable, _status_by_item_map(upload_session_id))
@@ -3406,6 +3456,7 @@ def export_csv(upload_session_id):
     # through csv_safe_cell to neutralise spreadsheet formula injection. The
     # numeric/date columns are computed by us and left as-is.
     _safe = validators.csv_safe_cell
+    _linked = _linked_keys(approved)
     for r in approved:
         dos = r.get("days_of_supply")
         runway = round(dos / 30, 1) if dos else ""
@@ -3420,8 +3471,7 @@ def export_csv(upload_session_id):
         # own column beside it. The "(AI: ...)" suffix is dropped in that case:
         # "300 CTN (AI: 250 CTN)" next to an add-on column reads as a
         # contradiction.
-        split = _tender_split(
-            r, _addons.get(normalise_match_key(str(r.get("item", "")))))
+        split = _tender_split(r, _rec_addon(r, _addons, _linked))
         add_on = ""
         tender_source = ""
         if split:
@@ -4253,6 +4303,46 @@ def _tender_addon_map(org_name):
     return tenders.tender_addons(
         db.get_matched_tender_commitments(org_name, limit=MAX_TENDER_ROWS_PER_ORG),
         datetime.now().date().isoformat())
+
+
+def _rec_keys_of(rec):
+    """The rec's own item key, then its linked items' keys, each once."""
+    keys = [normalise_match_key(str(rec.get("item", "")))]
+    link = rec.get("sales_link")
+    members = link.get("members") if isinstance(link, dict) else None
+    if isinstance(members, list):
+        keys += [m.get("key") for m in members[:20]
+                 if isinstance(m, dict) and isinstance(m.get("key"), str)]
+    # "" is the tenders' "adds nothing" key, never an item.
+    return [k for k in dict.fromkeys(keys) if k]
+
+
+def _linked_keys(recs):
+    """Every key the linked recs of one page, sheet or export carry."""
+    return {k for r in recs if isinstance(r, dict) and isinstance(r.get("sales_link"), dict)
+            for k in _rec_keys_of(r)}
+
+
+def _rec_addon(rec, addons, linked=frozenset()):
+    """Tender volume for a rec, over its item key and its linked items' keys.
+
+    A tender paired to a member before the switch still reaches the family's
+    order, and each tender row counts once because a tender line pairs to
+    exactly one key. `linked` is _linked_keys of the same list: a rec with no
+    link named after a family member (the model can see member names) never
+    takes that member's tender a second time.
+    """
+    keys = _rec_keys_of(rec)
+    if not isinstance(rec.get("sales_link"), dict):
+        keys = [k for k in keys if k not in linked]
+    hits = [addons[k] for k in keys if k in addons]
+    if not hits:
+        return None
+    if len(hits) == 1:
+        return hits[0]
+    return {"qty": sum(h.get("qty") or 0 for h in hits),
+            "count": sum(h.get("count") or 0 for h in hits),
+            "sources": [s for h in hits for s in (h.get("sources") or [])][:20]}
 
 
 def _tender_match_rows(rows):

@@ -9,8 +9,18 @@ import math
 import re
 from datetime import date
 
-from database import query, execute, get_company_config
+from database import query, execute, get_company_config, get_sales_links
+from rec_logic import stock_by_item_text
 from .verifier import verify_inventory_report
+from .sales_links import (
+    MAX_KEY_CHARS,
+    MAX_MEMBERS,
+    MAX_SHOWN_NAME_CHARS,
+    apply_links,
+    groups_from_alias_map,
+    note_names,
+    pick_code_column,
+)
 from .shared import (
     _emit,
     _resolve_item_suppliers,
@@ -131,6 +141,41 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
 
     _sample = inventory[0] if inventory else {}
     _cols = list(_sample.keys())
+
+    def _stock_units(cell):
+        # Blank, non-numeric ("N/A"), or negative (-5) stock is a data-entry
+        # artifact, never a usable quantity. Feeding it into the math as 0 or
+        # -5 manufactures CRITICALs from typos, so flag it as missing instead
+        # (same principle as no_sales_data below: missing data, not a zero).
+        qty_raw = str(cell).strip() if cell is not None else ""
+        stock_units = _to_num(qty_raw, default=None) if qty_raw else None
+        if stock_units is not None and stock_units < 0:
+            stock_units = None
+        return stock_units
+
+    def _position_of(row, stock_units):
+        # One free-stock rule for a combined row and for each linked item's
+        # own row, so the family's per-item figures match the order maths.
+        free_balance = (_to_num(row.get("free_balance"), default=None)
+                        if "free_balance" in _cols else None)
+        position_label = "Free stock"
+        if free_balance is not None:
+            position = free_balance
+        elif stock_units is not None:
+            on_order = (_to_num(row.get("qty_on_order"), default=None)
+                        if "qty_on_order" in _cols else None)
+            back_order = (_to_num(row.get("ar_inv_back_order"), default=None)
+                          if "ar_inv_back_order" in _cols else None)
+            position = stock_units + (on_order or 0) - (back_order or 0)
+            if on_order is None and back_order is None:
+                position_label = "On hand"
+        else:
+            position = None
+        # "1e999" parses as infinity (and inf - inf is NaN); round() in the
+        # order step would crash the whole run on it. Not a real stock figure.
+        if position is not None and not math.isfinite(position):
+            position = None
+        return position, position_label
 
     # Column detection: a previously saved mapping wins; otherwise the AI maps
     # the columns itself (LLM proposal, validated in Python, keyword fallback —
@@ -271,6 +316,35 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
         _emit(progress_emit,
               f"Skipped {_dropped_totals} total/subtotal row(s) — summary lines, not items")
 
+    # Saved sales links (per company, switch OFF = none of this runs). They
+    # become alias entries built from THIS upload's exact strings, so the
+    # combine loop, SalesNameIndex, the scope filter and the canonical name
+    # need no change. item_lt_map above keeps the pre-link map on purpose:
+    # status thresholds are the next plan, and a family row falls back to its
+    # first member's lead time through its description.
+    link_ctx, link_notes, _link_state = None, [], None
+    try:
+        _link_state = get_sales_links(org_name_inv)
+    except Exception:
+        _link_state = None
+    if _link_state and _link_state.get("enabled"):
+        try:
+            _code_col = pick_code_column(_cols, inventory)
+            _saved = dict(_link_state.get("lines") or {})
+            # 018-3 adds the AI step here
+            link_ctx = apply_links(_saved, inventory, _code_col, _desc_col,
+                                   list(sales_by_item), alias_map)
+            alias_map = link_ctx["alias_map"]
+            link_notes.extend(link_ctx["notes"])
+            _emit(progress_emit,
+                  f"Sales-sheet lines linked to stock items: {len(link_ctx['families'])}")
+        except Exception as e:
+            link_ctx = None
+            link_notes.append(f"Links not applied this run: {type(e).__name__}.")
+            _emit(progress_emit, "Sales-sheet links skipped this run")
+    _family_keys = set(link_ctx["families"]) if link_ctx else set()
+    _clash_family_keys = set()
+
     # Combine rows that are the same item (per-warehouse / per-batch splits are
     # common in ERP exports). Judged separately, each row gets compared against
     # the item's FULL sales velocity, so a 100 + 400 split reads as two
@@ -281,16 +355,19 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
     # Canonicals and variants use the same normalised key, including drift.
     # A clash keeps one row per unit, with sales withheld for staff review.
     _buckets = []
+    _bucket_keys = []
     _bucket_by_key = {}
     for _row in inventory:
         _name = str(_row.get(_desc_col) or "").strip()
         _ckey = normalise_match_key(alias_map.get(_name.lower(), _name))
         if not _name or not _ckey:
             _buckets.append([_row])
+            _bucket_keys.append(None)
             continue
         if _ckey not in _bucket_by_key:
             _bucket_by_key[_ckey] = []
             _buckets.append(_bucket_by_key[_ckey])
+            _bucket_keys.append(_ckey)
         _bucket_by_key[_ckey].append(_row)
 
     def _unit(row):
@@ -310,17 +387,59 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
         if _uom_col and not _unit(dst) and _unit(src):
             dst[_uom_col] = src.get(_uom_col)
 
+    def _capture(bucket):
+        # Each linked item's own share of the family's free stock, read before
+        # the merge sums the rows into one and the per-item split is gone for
+        # good. Mirrors _merge_into: once any row carries a free-balance cell
+        # the merged row is sized on free balance, where a blank or unreadable
+        # cell counts as 0, so that item shows "not readable" rather than an
+        # on-hand figure the order never subtracted.
+        free_path = "free_balance" in _cols and any(
+            str(row.get("free_balance") if row.get("free_balance") is not None else "").strip()
+            for row in bucket)
+        by_item = {}
+        for row in bucket:
+            name = str(row.get(_desc_col) or "").strip()
+            by_item.setdefault(normalise_match_key(name), []).append((name, row))
+        members = []
+        for key, items in by_item.items():
+            if free_path:
+                known = [v for v in (_to_num(row.get("free_balance"), default=None)
+                                     for _, row in items) if v is not None]
+                total = sum(known) if known else None
+            else:
+                total = 0.0
+                for _, row in items:
+                    position = _position_of(row, _stock_units(row.get(_qty_col)))[0]
+                    if position is None:
+                        total = None
+                        break
+                    total += position
+            members.append({
+                "name": items[0][0][:MAX_SHOWN_NAME_CHARS],
+                # A cut key would be another item's identity: blank instead.
+                "key": key if len(key) <= MAX_KEY_CHARS else "",
+                "free": int(round(total)) if total is not None and math.isfinite(total) else None})
+        members.sort(key=lambda m: (m["free"] is None, m["free"] or 0))
+        return {"members": members[:MAX_MEMBERS], "more": max(0, len(members) - MAX_MEMBERS)}
+
     _agg_rows = []
     _merged_dups = _clash_rows = 0
-    for _bucket in _buckets:
+    for _bkey, _bucket in zip(_bucket_keys, _buckets):
         _units = list(dict.fromkeys(_unit(row) for row in _bucket if _unit(row)))
         if len(_units) <= 1:
             _first = _bucket[0]
+            if _bkey in _family_keys:
+                # UPPERCASE key on purpose, as _UNIT_CLASH below: sanitised
+                # uploaded headers are lowercase and can never land on it.
+                _first["_FAMILY_MEMBERS"] = _capture(_bucket)
             for _row in _bucket[1:]:
                 _merge_into(_first, _row)
                 _merged_dups += 1
             _agg_rows.append(_first)
             continue
+        if _bkey in _family_keys:
+            _clash_family_keys.add(_bkey)
         _first_by_unit = {}
         for _row in _bucket:
             if _unit(_row):
@@ -363,7 +482,28 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
         _nm = str(_row.get(_desc_col) or "").strip()
         if _nm:
             claimed_keys.add(normalise_match_key(alias_map.get(_nm.lower(), _nm)))
-    sales_index = SalesNameIndex(sales_by_item, alias_map, claimed_keys=claimed_keys)
+    # A sales name that only drifts from a linked item's own stock name (text
+    # added or cut) matched that item before the link renamed it into its
+    # family. Resolve names against the old member names once, then point the
+    # ones that land there at the family, in a sales-only copy: the stock-side
+    # alias map and the groups handed to the rec step stay as linked.
+    # ponytail: a cut name that fit both a plain item and an old member name
+    # was dropped as ambiguous before linking and may now credit the plain
+    # item; SalesNameIndex exposes no dropped names, add that if it matters.
+    _sales_alias = alias_map
+    _renamed = {}
+    for _fam in (link_ctx["families"].values() if link_ctx else ()):
+        for _mk in _fam["member_keys"]:
+            if _mk not in claimed_keys:
+                _renamed[_mk] = _fam["canonical"]
+    if _renamed:
+        _probe = SalesNameIndex(sales_by_item, alias_map,
+                                claimed_keys=claimed_keys | set(_renamed))
+        _sales_alias = dict(alias_map)
+        for _mk, _canonical in _renamed.items():
+            for _raw in _probe.sources(_mk):
+                _sales_alias.setdefault(str(_raw).strip().lower(), _canonical)
+    sales_index = SalesNameIndex(sales_by_item, _sales_alias, claimed_keys=claimed_keys)
     _matched_n = sum(1 for k in claimed_keys if k in sales_index)
     _emit(progress_emit,
           f"Sales data matched {_matched_n} of {len(claimed_keys)} inventory items")
@@ -594,13 +734,7 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
 
         _raw_cell = row.get(_qty_col)
         qty_raw   = str(_raw_cell).strip() if _raw_cell is not None else ""
-        # Blank, non-numeric ("N/A"), or negative (-5) stock is a data-entry
-        # artifact, never a usable quantity. Feeding it into the math as 0 or
-        # -5 manufactures CRITICALs from typos — flag it as missing instead
-        # (same principle as no_sales_data above: missing data, not a zero).
-        stock_units = _to_num(qty_raw, default=None) if qty_raw else None
-        if stock_units is not None and stock_units < 0:
-            stock_units = None
+        stock_units = _stock_units(_raw_cell)
         stock_unreadable = stock_units is None
         if stock_unreadable:
             unreadable_stock.append((canonical, qty_raw or "(blank)"))
@@ -624,25 +758,7 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
             y, m = max(p["last_sale"] for p in pats)
             stopped_since = date(y, m, 1).strftime("%b %Y")
 
-        free_balance = (_to_num(row.get("free_balance"), default=None)
-                        if "free_balance" in _cols else None)
-        position_label = "Free stock"
-        if free_balance is not None:
-            position = free_balance
-        elif stock_units is not None:
-            on_order = (_to_num(row.get("qty_on_order"), default=None)
-                        if "qty_on_order" in _cols else None)
-            back_order = (_to_num(row.get("ar_inv_back_order"), default=None)
-                          if "ar_inv_back_order" in _cols else None)
-            position = stock_units + (on_order or 0) - (back_order or 0)
-            if on_order is None and back_order is None:
-                position_label = "On hand"
-        else:
-            position = None
-        # "1e999" parses as infinity (and inf - inf is NaN); round() in the
-        # order step would crash the whole run on it. Not a real stock figure.
-        if position is not None and not math.isfinite(position):
-            position = None
+        position, position_label = _position_of(row, stock_units)
         row_numbers[normalise_match_key(canonical)] = {
             "position": position,
             "position_label": position_label,
@@ -653,6 +769,16 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
             "stopped_since": stopped_since,
             "uom": str(row.get(_uom_col) or "").strip() if _uom_col else "",
         }
+        _members = row.get("_FAMILY_MEMBERS")
+        _family = (link_ctx["families"].get(normalise_match_key(canonical))
+                   if _members and not clash and link_ctx else None)
+        if _family:
+            row_numbers[normalise_match_key(canonical)]["link"] = {
+                "line": _family["line"], "sure": _family["sure"], "ai": _family["ai"],
+                "multi": len(_members["members"]) + _members["more"] >= 2,
+                # The merged row's own label, the one its order was sized on.
+                "label": position_label, "members": _members["members"],
+                "more": _members["more"]}
         months_supply = None
         if avg_monthly > 0 and stock_units is not None:
             months_supply = round(stock_units / avg_monthly, 1)
@@ -697,6 +823,39 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
             f"Item: {canonical} | Category: {cat} | Stock: {stock_tag} | "
             f"Total sold ({months_of_data}mo): {sold_txt}{revenue_tag}{supply_tag}{lt_tag}"
         )
+
+    if link_ctx:
+        _families = link_ctx["families"]
+        _clashed = [f["line"] for k, f in _families.items() if k in _clash_family_keys]
+        if _clashed:
+            link_notes.append(f"{len(_clashed)} linked line(s) mix pack units, so they went to "
+                              f"Needs sales match: {note_names(_clashed)}.")
+        _fed = {}
+        for _key, _stamp in row_numbers.items():
+            for _source in _stamp.get("sales_sources") or []:
+                _fed.setdefault(_source, set()).add(_key)
+        # Exactly-once tripwire: a linked sales line feeds its family row and
+        # nothing else. A top-N run may leave a family out of scope entirely.
+        _not_once = [f["line"] for k, f in _families.items()
+                     if k not in _clash_family_keys
+                     and not (top_item_names is not None and k not in row_numbers)
+                     and set().union(*(_fed.get(r, set()) for r in f["raw_lines"])) != {k}]
+        if _not_once:
+            link_notes.append(f"{len(_not_once)} linked line(s) failed the one-row check: "
+                              f"{note_names(_not_once)}.")
+        if top_item_names is None:
+            _orphans = [s for s in sales_by_item
+                        if normalise_match_key(str(s).strip()) and s not in _fed]
+            if _orphans:
+                link_notes.append(f"{len(_orphans)} sales line(s) fed no stock row: "
+                                  f"{note_names(_orphans)}.")
+        _slow = [s["link"]["line"] for s in row_numbers.values()
+                 if s.get("link") and s["avg_monthly"] > 0 and s["position"] is not None
+                 and s["position"] / s["avg_monthly"] > 24]
+        if _slow:
+            link_notes.append(f"{len(_slow)} linked line(s) show over 24 months of free stock while "
+                              "selling: check the sales unit matches the stock unit: "
+                              f"{note_names(_slow)}.")
 
     if unreadable_stock:
         _ex = ", ".join(f"{n} ('{v}')" for n, v in unreadable_stock[:3])
@@ -836,13 +995,35 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
                   "Safety check: corrected " + ", ".join(_parts) +
                   " that didn't match the item's own numbers")
 
+        # link_members is Python-owned (the newly-critical email reads it), so
+        # a model-authored one is dropped whether links are on or off.
+        for _r in report:
+            if not isinstance(_r, dict):
+                continue
+            _r.pop("link_members", None)
+            _stamp = row_numbers.get(normalise_match_key(_r.get("item", ""))) if link_ctx else None
+            _link = (_stamp or {}).get("link")
+            if not _link:
+                continue
+            _r["link_members"] = [m["name"] for m in _link["members"]]
+            if _link["multi"] and isinstance(_r.get("observation"), str):
+                _split = stock_by_item_text(_link["label"], _link["members"], _link["more"],
+                                            f" {_stamp['uom']}" if _stamp["uom"] else " units")
+                if _split:
+                    _r["observation"] += " " + _split
+
         crit = sum(1 for r in report if r.get("status") == "CRITICAL")
         low  = sum(1 for r in report if r.get("status") == "LOW")
         _emit(progress_emit,
               f"Done checking stock — {len(report)} items: {crit} critical, {low} running low")
-        return {"report": report, "items_analysed": len(report),
+        _out = {"report": report, "items_analysed": len(report),
                 "partial": any_repaired or len(report) < total_items,
                 "data_notes": data_notes, "row_numbers": row_numbers}
+        if link_ctx:
+            _out["effective_groups"] = groups_from_alias_map(alias_map)
+        if link_notes:
+            _out["link_notes"] = [note[:300] for note in link_notes[:30]]
+        return _out
     except Exception as e:
         # Raw exception text is for the operator (logs + ALERT_EMAIL via the
         # returned error) — the user-facing progress log gets a generic line.

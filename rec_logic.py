@@ -7,6 +7,13 @@ import math
 import quantity
 
 
+# Card and printed-sheet warning for an order sized through a sales link the
+# AI marked medium or low. FLAG_UNSURE_LINKS: YH may set False to hide the
+# warning; 27 Sep 2026 default on.
+LINK_UNSURE_FLAG = "AI not sure about this match: check brand and size before ordering"
+FLAG_UNSURE_LINKS = True
+
+
 _CONFIDENCE_ALIASES = {
     "MED":          "MEDIUM",
     "MID":          "MEDIUM",
@@ -487,6 +494,52 @@ def _quantity_basis(rec):
     return sentence
 
 
+def _link_more(link):
+    """Linked items left off a saved rec's list; anything malformed counts 0."""
+    more = link.get("more")
+    return more if isinstance(more, int) and not isinstance(more, bool) and more > 0 else 0
+
+
+def stock_by_item_text(label, members, more, uom_label):
+    """Each linked item's own free stock on one line; None for fewer than two items.
+
+    Example: Free stock by item: A 0 PKT; B 400 PKT. Never raises."""
+    try:
+        usable = [m for m in (members if isinstance(members, list) else [])
+                  if isinstance(m, dict) and isinstance(m.get("name"), str) and m["name"].strip()]
+        more = more if isinstance(more, int) and not isinstance(more, bool) and more > 0 else 0
+        if not usable or len(usable) + more < 2:
+            return None
+        label = label if label in ("Free stock", "On hand") else "Free stock"
+        # Units come from the uploaded file: capped, like the clash label.
+        uom = uom_label[:21] if isinstance(uom_label, str) else " units"
+        parts = []
+        for member in usable[:6]:
+            free = member.get("free")
+            shown = (f"{free}{uom}" if isinstance(free, int) and not isinstance(free, bool)
+                     else "not readable")
+            parts.append(f"{member['name'].strip()[:60]} {shown}")
+        text = f"{label} by item: " + "; ".join(parts)
+        rest = max(0, len(usable) - 6) + more
+        if rest:
+            text += f"; and {rest} more"
+        return text + "."
+    except Exception:
+        return None
+
+
+def _link_display(rec):
+    """Warning and per-item stock lines for an order sized through a link, or None."""
+    link = rec.get("sales_link") if isinstance(rec, dict) else None
+    if not isinstance(link, dict) or not isinstance(link.get("members"), list):
+        return None
+    uom = rec.get("uom_label")
+    shown = {"warning": LINK_UNSURE_FLAG if FLAG_UNSURE_LINKS and link.get("sure") is False else "",
+             "stock": stock_by_item_text(link.get("label"), link["members"], _link_more(link),
+                                         uom if isinstance(uom, str) else " units")}
+    return shown if shown["warning"] or shown["stock"] else None
+
+
 def _tender_split(rec, addon):
     """Display pieces for a "base + tender" quantity, or None to change nothing.
 
@@ -538,6 +591,14 @@ def _tender_split(rec, addon):
              "sources": sources,
              "more":    max(0, count - len(sources))}
     if base_num is None and _order_state(rec) == "covered":
+        link = rec.get("sales_link")
+        if (isinstance(link, dict) and isinstance(link.get("members"), list)
+                and len(link["members"]) + _link_more(link) >= 2):
+            # A linked family's spare stock may be another brand, so it
+            # never absorbs a contract.
+            split["total"] = f"{add_int}{unit}"
+            split["stock_covers"] = ""
+            return split
         # A covered base is arithmetic, not a human's "don't order": spare
         # free stock absorbs the tender volume after the regular need.
         try:

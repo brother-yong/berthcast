@@ -77,6 +77,10 @@
           <div class="note">Action: {% if r.recommended_action %}{{ r.recommended_action | upper }}{% else %}Not recorded{% endif %}</div>
           <div class="note">Decision: {% if r.approved %}Approved{% elif r.dismissed %}Dismissed{% else %}Pending{% endif %}</div>
           {% if r._quantity_basis %}<div class="note">{{ r._quantity_basis }}</div>{% endif %}
+          {% if r._link %}
+            {% if r._link.warning %}<div class="note"><strong>{{ r._link.warning }}.</strong></div>{% endif %}
+            {% if r._link.stock %}<div class="note">{{ r._link.stock }}</div>{% endif %}
+          {% endif %}
           {% if r._tender %}
             {# This sheet gets photocopied, so the word "tender" carries the
                meaning: colour is never the only signal. Darker than the app's

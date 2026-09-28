@@ -326,6 +326,7 @@
               <span class="rec-row-namecell">
                 <span class="rec-row-item">{{ rec.item }}</span>
                 {% if low_conf %}<span class="rec-row-lowconf">low confidence</span>{% endif %}
+                {% if rec._link and rec._link.warning %}<span class="rec-row-lowconf">check match</span>{% endif %}
                 {% if rec.approved %}
                   <span class="badge badge-healthy">✓ Approved</span>
                 {% elif rec.dismissed %}
@@ -484,6 +485,10 @@
 
               {% if rec._quantity_basis %}
               <p class="rec-qty-basis">{{ rec._quantity_basis }}</p>
+              {% endif %}
+              {% if rec._link %}
+              {% if rec._link.warning %}<p class="rec-qty-basis"><strong>{{ rec._link.warning }}.</strong></p>{% endif %}
+              {% if rec._link.stock %}<p class="rec-qty-basis">{{ rec._link.stock }}</p>{% endif %}
               {% endif %}
               <p class="rec-panel-reason">{{ rec.reason }}</p>
 

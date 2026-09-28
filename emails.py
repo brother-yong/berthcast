@@ -159,6 +159,7 @@ def _send_run_failure_alert(org_name: str, upload_session_id: int, category: str
                        "classified but every recommendation errored",
         "incomplete":  "came back INCOMPLETE — the AI reply was cut short, so "
                        "items and/or recommendations are missing",
+        "sales_links": "finished, and some sales-line links need a look (details below)",
     }.get(category, f"ended as '{category}'")
 
     link = f"{base_url}/results/{upload_session_id}" if base_url else f"session {upload_session_id}"

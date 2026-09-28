@@ -125,7 +125,8 @@ def run_pipeline(session_id, model, confirmed_groups, context, *, emit=None, mar
     recommendations = run_recommendation_agent(session_id, model, inventory_report, context,
                                                progress_emit=emit, data_notes=data_notes,
                                                row_numbers=inv_result.get("row_numbers"),
-                                               confirmed_groups=confirmed_groups)
+                                               confirmed_groups=inv_result.get("effective_groups",
+                                                                               confirmed_groups))
 
     # Defensive: normalise confidence values before persisting so the UI doesn't
     # have to guess what "MED" or "high" means later.
@@ -135,5 +136,8 @@ def run_pipeline(session_id, model, confirmed_groups, context, *, emit=None, mar
     mark("recommendation", "done", summary=_summarise_recommendations(recommendations))
     stats(recommendation_findings(recommendations))
 
-    return {"inventory_report": inventory_report, "recommendations": recommendations,
-            "data_notes": data_notes}
+    out = {"inventory_report": inventory_report, "recommendations": recommendations,
+           "data_notes": data_notes}
+    if inv_result.get("link_notes"):
+        out["link_notes"] = inv_result["link_notes"]
+    return out

@@ -32,8 +32,8 @@
   <div class="card">
     <div class="card-title">{{ org }}</div>
     <p><strong>Links are {{ 'ON' if state.enabled else 'OFF' }} for this company.</strong></p>
-    <p class="links-help">This release stores links only. Analysis runs do not use them yet.</p>
-    <p class="links-help">Once analysis integration is released, turning links on will send each new sales line to the AI once and save the answer. That first run will take a minute or two longer. Staff will see one order per multi-brand line with each brand's free stock, and a warning on links the AI was unsure about.</p>
+    <p class="links-help">When links are on, this company's analysis runs use the saved links: one order per multi-brand line with each item's free stock, and a warning on links the AI was unsure about.</p>
+    <p class="links-help">The AI does not link new sales lines yet (next release), so until then links only come from this page.</p>
     {% if state.updated_by %}<p class="links-help">Last changed by {{ state.updated_by }} on {{ state.updated_at or 'unknown date' }}</p>{% endif %}
     <div class="links-actions">
       <form method="post" action="{{ url_for('admin_sales_links') }}">

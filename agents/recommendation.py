@@ -29,6 +29,8 @@ from .shared import (
     UNTRUSTED_GUARD,
 )
 from quantity import sanitize_suggested_quantity, parse_quantity
+from rec_logic import LINK_UNSURE_FLAG, FLAG_UNSURE_LINKS
+from .sales_links import MAX_KEY_CHARS, MAX_MEMBERS, MAX_SHOWN_NAME_CHARS
 
 
 # About one week of the old rate still counts as near zero after sales stop.
@@ -37,7 +39,7 @@ _STOPPED_NEAR_ZERO_MONTHS = 0.25
 # Keys only Python (the order maths) or staff (approve, edit, note, outcome)
 # write on a rec. A model reply carrying one is dropped, never trusted.
 _NOT_MODEL_KEYS = frozenset({
-    "order_calc", "avg_monthly_sales", "uom_label",
+    "order_calc", "avg_monthly_sales", "uom_label", "sales_link",
     "edited_quantity", "edited_supplier", "approved", "dismissed", "note",
     "order_placed", "order_placed_at", "outcome_status", "outcome_recorded_at"})
 
@@ -354,7 +356,7 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
         # an order quantity through to the saved report.
         qty_basis_by_item[normalise_match_key(iname)] = {
             "avg": avg_monthly, "uom": uom_label, "pre": suggested_qty,
-            "lt": lt_days, "calc": calc, "flag": flag}
+            "lt": lt_days, "calc": calc, "flag": flag, "link": stamp.get("link")}
 
         _pat = pattern_stats.get(normalise_match_key(iname))
         if _pat and _pat["pattern"] == "spiky":
@@ -560,6 +562,21 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
                         if not isinstance(rec.get("flags"), list):
                             rec["flags"] = []
                         rec["flags"].insert(0, basis["flag"])
+                    link = basis["link"]
+                    if isinstance(link, dict):
+                        # Saved with every rec and parsed on each page load:
+                        # bounded like the stamp it comes from.
+                        rec["sales_link"] = {
+                            "line": link["line"], "sure": link["sure"], "ai": link["ai"],
+                            "label": link["label"], "more": link["more"],
+                            "members": [{"name": m["name"][:MAX_SHOWN_NAME_CHARS],
+                                         "key": m["key"] if len(m["key"]) <= MAX_KEY_CHARS else "",
+                                         "free": m["free"]}
+                                        for m in link["members"][:MAX_MEMBERS]]}
+                        if FLAG_UNSURE_LINKS and not link["sure"]:
+                            if not isinstance(rec.get("flags"), list):
+                                rec["flags"] = []
+                            rec["flags"].insert(0, LINK_UNSURE_FLAG)
                 else:
                     # Never sent this item, so none of its numbers came from Python.
                     rec.pop("lead_time_days", None)
