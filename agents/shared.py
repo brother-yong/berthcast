@@ -7,6 +7,7 @@ Moved verbatim from the old single-file agents.py — no logic changes.
 import json
 import os
 import re
+import sys
 import time
 from datetime import datetime, timedelta, timezone
 
@@ -1008,7 +1009,45 @@ def _is_transient_api_error(e) -> bool:
     return any(t in s for t in ("overloaded", "connection", "timeout", "timed out"))
 
 
-def _call_claude(model: str, system: str, user: str, max_tokens: int = 4096,
+# Anthropic list prices, US$ per million tokens, as of 29 Sep 2026, matched by
+# model-name prefix: (input, output, cache write, cache read). They only feed
+# the rough cost in the usage log line; the Console bill is the real figure.
+_PRICES = {
+    "claude-sonnet-5": (2.00, 10.00, 2.50, 0.20),
+    "claude-haiku-4-5": (1.00, 5.00, 1.25, 0.10),
+    "claude-opus-5": (5.00, 25.00, 6.25, 0.50),
+}
+
+# Running total for this process, printed at the end of smoke_live.py and the
+# real-data run scripts. ponytail: no lock; in the threaded app the per-call
+# log line is the record, and only single-threaded scripts read this total.
+USAGE = {"calls": 0, "input": 0, "output": 0, "cache_write": 0, "cache_read": 0, "usd": 0.0}
+
+
+def record_usage(model: str, get_usage, source: str) -> None:
+    """Log one Claude call's tokens and rough cost, and add them to USAGE.
+    `get_usage` returns the response's usage object; it is a function so that
+    fetching it happens inside the guard too. Never raises: the API has already
+    billed the call, so a logging problem must not fail the run that paid for it."""
+    try:
+        usage = get_usage()
+        n = {k: getattr(usage, f, 0) or 0 for k, f in (
+            ("input", "input_tokens"), ("output", "output_tokens"),
+            ("cache_write", "cache_creation_input_tokens"), ("cache_read", "cache_read_input_tokens"))}
+        price = next((p for prefix, p in _PRICES.items() if str(model).startswith(prefix)), None)
+        usd = sum(n[k] * r for k, r in zip(n, price)) / 1e6 if price else 0.0
+        for k in n:
+            USAGE[k] += n[k]
+        USAGE["calls"] += 1
+        USAGE["usd"] += usd
+        logger.info("Claude usage [%s, %s]: in %d, out %d, cache write %d, cache read %d, %s",
+                    source, model, n["input"], n["output"], n["cache_write"], n["cache_read"],
+                    f"~US${usd:.4f}" if price else "price unknown")
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Could not record Claude usage [%s, %s]: %s", source, model, e)
+
+
+def _call_claude(model: str, system: str, user, max_tokens: int = 4096,
                  timeout: float = None) -> str:
     # Use streaming internally — Anthropic requires it for large max_tokens values.
     # Callers receive the complete text string exactly as before. `timeout`
@@ -1020,6 +1059,10 @@ def _call_claude(model: str, system: str, user: str, max_tokens: int = 4096,
     # the API asked us to try again and we never did). Mid-stream overload
     # events bypass the SDK's own request-level retry, so the loop wraps the
     # complete stream, not just the connection.
+    #
+    # `user` may also be a list of content blocks, so a caller that resends one
+    # big block every batch (a stock list) can mark it with cache_control.
+    source = sys._getframe(1).f_globals.get("__name__", "?")  # which agent called, for the usage log
     cl = client if timeout is None else client.with_options(timeout=timeout)
     for attempt in range(len(_RETRY_BACKOFF) + 1):
         try:
@@ -1031,7 +1074,9 @@ def _call_claude(model: str, system: str, user: str, max_tokens: int = 4096,
                 **sampling_kwargs(model),
                 **thinking_kwargs(model),
             ) as stream:
-                return stream.get_final_text()
+                text = stream.get_final_text()
+                record_usage(model, lambda: stream.get_final_message().usage, source)
+                return text
         except Exception as e:
             if attempt >= len(_RETRY_BACKOFF) or not _is_transient_api_error(e):
                 raise

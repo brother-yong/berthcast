@@ -6,11 +6,13 @@ gave up. Locks:
   - overloaded/429/5xx and connection errors are retried with a pause
   - a non-transient error (e.g. 401 auth) raises immediately, no retry
   - retries exhausted -> the last error raises (callers keep their handling)
+  - a successful call logs its tokens and rough cost and adds them to USAGE
 
 Run: python tests/test_call_claude_retry.py
 """
 import os
 import sys
+from types import SimpleNamespace
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
@@ -39,6 +41,11 @@ class _FakeStream:
     def get_final_text(self):
         return self._text
 
+    def get_final_message(self):
+        return SimpleNamespace(usage=SimpleNamespace(
+            input_tokens=1000, output_tokens=500,
+            cache_creation_input_tokens=None, cache_read_input_tokens=2000))
+
 
 class _Overloaded(Exception):
     status_code = 529
@@ -62,6 +69,7 @@ class _FakeMessages:
 
     def stream(self, **kw):
         self.calls += 1
+        self.last_kw = kw
         if self.calls <= self._failures:
             raise self._exc()
         return _FakeStream("ok-after-retry")
@@ -115,6 +123,72 @@ try:
     _check(shared.client.messages.calls == 3, f"expected 3 attempts total, got {shared.client.messages.calls}")
 finally:
     shared.client = _orig
+
+# 4) a successful call logs its tokens and rough cost, tagged with the calling
+#    module, and adds them to the running total (29 Sep 2026: the API bill spiked
+#    and nothing recorded which calls spent it). A list-of-blocks user message
+#    passes through untouched so a script can cache a repeated stock list.
+_logged = []
+_orig_info = shared.logger.info
+shared.logger.info = lambda msg, *a: _logged.append(msg % a)
+for k in shared.USAGE:
+    shared.USAGE[k] = 0
+blocks = [{"type": "text", "text": "stock", "cache_control": {"type": "ephemeral"}},
+          {"type": "text", "text": "lines"}]
+shared.client = _FakeClient(failures=0, exc=_Overloaded)
+try:
+    shared._call_claude("claude-sonnet-5", "sys", blocks)
+    _check(shared.client.messages.last_kw["messages"][0]["content"] is blocks,
+           "list-of-blocks user content must reach the API as given")
+    u = shared.USAGE
+    _check((u["calls"], u["input"], u["output"], u["cache_write"], u["cache_read"]) == (1, 1000, 500, 0, 2000),
+           f"running total wrong: {u}")
+    # 1000 in x $2 + 500 out x $10 + 2000 cache read x $0.20, per million tokens
+    _check(abs(u["usd"] - 0.0074) < 1e-9, f"cost should be 0.0074, got {u['usd']}")
+    _check(len(_logged) == 1 and f"[{__name__}, claude-sonnet-5]" in _logged[0] and "~US$0.0074" in _logged[0],
+           f"log line should name the caller, model and cost: {_logged}")
+finally:
+    shared.client = _orig
+
+# 5) a missing usage object or an unpriced model is logged, never raised
+_logged.clear()
+try:
+    shared.record_usage("some-future-model", lambda: None, "test")
+    _check(len(_logged) == 1 and "price unknown" in _logged[0], f"unpriced model log: {_logged}")
+except Exception as e:  # noqa: BLE001
+    _check(False, f"record_usage must never raise, got {e!r}")
+finally:
+    shared.logger.info = _orig_info
+
+
+# 6) the call is already billed: if fetching usage blows up, _call_claude still
+#    returns the text on the first attempt (no failed run, no second paid retry)
+class _NoUsageStream(_FakeStream):
+    def get_final_message(self):
+        raise RuntimeError("connection reset while reading usage")  # would look transient
+
+
+class _NoUsageMessages(_FakeMessages):
+    def stream(self, **kw):
+        self.calls += 1
+        return _NoUsageStream("text-despite-usage-error")
+
+
+_warned = []
+_orig_warning = shared.logger.warning
+shared.logger.warning = lambda msg, *a: _warned.append(msg % a)
+shared.client = _FakeClient(failures=0, exc=_Overloaded)
+shared.client.messages = _NoUsageMessages(0, _Overloaded)
+try:
+    out = shared._call_claude("claude-sonnet-5", "sys", "user")
+    _check(out == "text-despite-usage-error", f"text must come back despite the usage error, got {out!r}")
+    _check(shared.client.messages.calls == 1, f"usage error must not retry, got {shared.client.messages.calls} attempts")
+    _check(any("Could not record Claude usage" in w for w in _warned), f"usage error should be logged: {_warned}")
+except Exception as e:  # noqa: BLE001
+    _check(False, f"usage error must not escape _call_claude, got {e!r}")
+finally:
+    shared.client = _orig
+    shared.logger.warning = _orig_warning
 
 if F:
     print("FAILED:")

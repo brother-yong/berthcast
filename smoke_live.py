@@ -118,7 +118,7 @@ for r in recs[:3]:
 # no item-code column, so links can only be exercised on a table of their own.
 print("\n-- sales links: seeded links, switched on (real Claude) --")
 from agents.sales_links import make_entry             # noqa: E402
-from agents.shared import normalise_match_key         # noqa: E402
+from agents.shared import normalise_match_key, USAGE  # noqa: E402
 from quantity import parse_quantity                   # noqa: E402
 from rec_logic import LINK_UNSURE_FLAG                # noqa: E402
 
@@ -192,6 +192,8 @@ print(f"   link notes: {result2.get('link_notes') or []}")
 for r in recs2:
     print(f"  - {r.get('item')} | qty {r.get('suggested_quantity')} | flags {(r.get('flags') or [])[:1]}")
 print(f"\nelapsed: {time.time() - t0:.0f}s")
+print(f"API spend this run: {USAGE['calls']} calls, in {USAGE['input']:,}, out {USAGE['output']:,}, "
+      f"cache read {USAGE['cache_read']:,}, ~US${USAGE['usd']:.2f}")
 
 if _FAILED:
     print("\nSMOKE FAILED")

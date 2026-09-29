@@ -30,7 +30,7 @@ from logging_setup import logger
 from agents import (
     run_pipeline,
 )
-from agents.shared import sampling_kwargs, thinking_kwargs, normalise_match_key
+from agents.shared import sampling_kwargs, thinking_kwargs, normalise_match_key, record_usage
 from agents.sales_links import linked_name_keys, MAX_SHOWN_NAME_CHARS
 
 from config import UPLOAD_FOLDER, FILE_SLOTS, AVAILABLE_MODELS
@@ -1034,6 +1034,7 @@ def chat_api():
                 "INSERT INTO chat_messages (conversation_id, role, content) VALUES (?,?,?)",
                 (conv_id_snapshot, "assistant", assistant_text)
             )
+            record_usage(model, lambda: stream.get_final_message().usage, "chat")
             # Auto-generate a smart title on first exchange
             if is_new_snapshot:
                 try:
@@ -1043,6 +1044,7 @@ def chat_api():
                         system="Generate a short 4-7 word conversation title based on the user's question. Return ONLY the title, no punctuation, no quotes.",
                         messages=[{"role": "user", "content": user_msg_snapshot}],
                     )
+                    record_usage(title_resp.model, lambda: title_resp.usage, "chat title")
                     auto_title = title_resp.content[0].text.strip().strip('"').strip("'")
                     if auto_title:
                         db.execute(
@@ -2562,6 +2564,7 @@ def dedup_stream(upload_session_id):
                 for text in stream.text_stream:
                     full_text += text
                     yield f"data: {json.dumps({'type': 'token', 'text': text})}\n\n"
+                record_usage(model, lambda: stream.get_final_message().usage, "duplicate review")
         except Exception as e:
             normalization_cache[upload_session_id] = {"groups": [], "message": str(e)}
             yield f"data: {json.dumps({'type': 'error', 'msg': str(e)})}\n\n"
