@@ -200,6 +200,21 @@ _check("1a' rival item names never sent to the model, nothing cached",
        _FakeAnthropic.stream_calls == [] and RIVAL_SID not in appmod.normalization_cache
        and "PADIMAS SECRET" not in _body)
 
+# 1a''. same with the rival's scan ALREADY cached (failed): the owner check must
+#       still run before the cache is read, on the stream and the review page.
+appmod.normalization_cache[RIVAL_SID] = {
+    "groups": [{"canonical": "PADIMAS SECRET SAUCE 5L", "variants": ["X"]}],
+    "message": "PADIMAS secret msg", "failed": True}
+rate_limit._hits.clear()
+for _path in (f"/dedup/stream/{RIVAL_SID}", f"/dedup/{RIVAL_SID}"):
+    r = chat_client.get(_path)
+    _body = r.get_data(as_text=True)
+    r.close()
+    _check(f"1a'' rival cached scan on {_path.rsplit('/', 1)[0]} -> 403/404, nothing leaked",
+           r.status_code in (403, 404) and "PADIMAS" not in _body,
+           detail=f"{r.status_code} {_body[:120]}")
+appmod.normalization_cache.pop(RIVAL_SID, None)
+
 # 1b. empty reply (text_stream yields nothing) on a NEW conversation.
 r, ev = _chat(chat_client, "how many BROOKVALE oat milk cases should I order?", chunks=[])
 conv_empty = next((e["conversation_id"] for e in ev if "conversation_id" in e), None)
@@ -210,8 +225,9 @@ _check("1b empty reply: NO assistant row saved", conv_empty is not None and _row
 _check("1b empty reply: the user's question is still saved",
        conv_empty is not None and [x["content"] for x in _rows(conv_empty, "user")]
        == ["how many BROOKVALE oat milk cases should I order?"])
-_check("1b empty reply: stream ends with done, not an error",
-       any(e.get("done") for e in ev) and not any("error" in e for e in ev), detail=str(ev))
+# An error, not "done": a bare "done" left the chat page with an empty bubble.
+_check("1b empty reply: stream ends with an error the page can show, not a bare done",
+       any(e.get("error") for e in ev) and not any(e.get("done") for e in ev), detail=str(ev))
 _check("1b sonnet-5-5 chat sends between_tools thinking, never 'disabled'",
        _FakeAnthropic.stream_calls and _FakeAnthropic.stream_calls[0].get("thinking") == {"type": "between_tools"},
        detail=str(_FakeAnthropic.stream_calls[:1]))

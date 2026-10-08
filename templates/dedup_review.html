@@ -20,13 +20,22 @@
         id="dedup-form">
     <input type="hidden" name="confirmed_groups" id="confirmed-groups-input" value="[]">
 
-    {% if not groups %}
+    {% if failed %}
+    <div class="card">
+      <div class="alert alert-error" style="margin-bottom:0;">
+        {{ message }} No items were grouped. You can still run the analysis: every product will be treated as unique.
+      </div>
+    </div>
+    {% elif not groups %}
     <div class="card">
       <div class="alert alert-info" style="margin-bottom:0;">
         {% if message %}{{ message }} {% endif %}No duplicate item names were detected — all products will be treated as unique. You can proceed directly to the analysis.
       </div>
     </div>
     {% else %}
+    {% if message %}
+    <div class="alert alert-error">{{ message }}</div>
+    {% endif %}
     <div class="card">
       <div class="card-title" style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
         <span>

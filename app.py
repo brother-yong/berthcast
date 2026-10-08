@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 import json
 import secrets
@@ -1031,15 +1032,34 @@ def chat_api():
                 for text in stream.text_stream:
                     full_response.append(text)
                     yield f"data: {json.dumps({'text': text})}\n\n"
+            record_usage(model, lambda: stream.get_final_message().usage, "chat")
             assistant_text = "".join(full_response)
+            # What the user sees: the page hides <thinking> blocks (the "show
+            # reasoning" toggle asks for them), so reasoning alone is no answer.
+            answered = bool(re.sub(r"<thinking>.*?(?:</thinking>|$)", "", assistant_text,
+                                   flags=re.S).strip())
             # An empty reply (a refusal, or thinking used the cap) must not be saved:
             # an empty assistant turn makes every later call in this conversation 400.
-            if assistant_text.strip():
+            if answered:
+                # Cut off by max_tokens (Haiku 5.5 thinks inside the same cap): keep
+                # the partial answer, but mark it on screen and in the saved history.
+                try:
+                    cut_off = stream.get_final_message().stop_reason == "max_tokens"
+                except Exception:  # noqa: BLE001 - a status lookup must not lose a paid answer
+                    cut_off = False
+                if cut_off:
+                    note = ("\n\n_(This answer was cut off because it reached the length limit. "
+                            "Ask a narrower question to get the rest.)_")
+                    # Cut inside a reasoning block: close it, or the page files the
+                    # note into the collapsed reasoning box and the user never sees it.
+                    if assistant_text.rfind("<thinking>") > assistant_text.rfind("</thinking>"):
+                        note = "</thinking>" + note
+                    assistant_text += note
+                    yield f"data: {json.dumps({'text': note})}\n\n"
                 db.execute(
                     "INSERT INTO chat_messages (conversation_id, role, content) VALUES (?,?,?)",
                     (conv_id_snapshot, "assistant", assistant_text)
                 )
-            record_usage(model, lambda: stream.get_final_message().usage, "chat")
             # Auto-generate a smart title on first exchange
             if is_new_snapshot:
                 try:
@@ -1063,7 +1083,11 @@ def chat_api():
                         yield f"data: {json.dumps({'title_updated': auto_title})}\n\n"
                 except Exception:
                     pass
-            yield f"data: {json.dumps({'done': True})}\n\n"
+            # A blank reply ends on an error, or the page is left with an empty bubble.
+            if answered:
+                yield f"data: {json.dumps({'done': True})}\n\n"
+            else:
+                yield f"data: {json.dumps({'error': 'No answer came back. Please try again, or ask a narrower question.'})}\n\n"
         except Exception as e:
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
@@ -2447,9 +2471,14 @@ def dedup_stream(upload_session_id):
     # Checked before the rate cap so reconnects don't burn the daily allowance.
     _cached = normalization_cache.get(upload_session_id)
     if _cached is not None:
+        # A failed scan replays as a failure. Sending "done, 0" here told staff
+        # "No duplicates detected" on refresh for a scan that never worked.
+        _n = len(_cached.get("groups", []))
+        _last = ({"type": "error", "msg": _cached["message"]} if _cached.get("failed")
+                 else {"type": "done", "count": _n})
         _payload = (
-            f"data: {json.dumps({'type': 'status', 'count': len(_cached.get('groups', []))})}\n\n"
-            f"data: {json.dumps({'type': 'done', 'count': len(_cached.get('groups', []))})}\n\n"
+            f"data: {json.dumps({'type': 'status', 'count': _n})}\n\n"
+            f"data: {json.dumps(_last)}\n\n"
         )
         return Response(_payload, mimetype="text/event-stream",
                         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
@@ -2582,24 +2611,27 @@ def dedup_stream(upload_session_id):
                     yield f"data: {json.dumps({'type': 'token', 'text': text})}\n\n"
                 record_usage(model, lambda: stream.get_final_message().usage, "duplicate review")
         except Exception as e:
-            normalization_cache[upload_session_id] = {"groups": [], "message": str(e)}
-            yield f"data: {json.dumps({'type': 'error', 'msg': str(e)})}\n\n"
+            msg = str(e) or "The duplicate check could not reach the AI service."
+            normalization_cache[upload_session_id] = {"groups": [], "message": msg, "failed": True}
+            yield f"data: {json.dumps({'type': 'error', 'msg': msg})}\n\n"
             return
 
         # ── Parse and cache result ─────────────────────────────────────────────
-        if not full_text.strip():
-            # No text came back (a refusal, or thinking used the cap): say the scan
-            # failed rather than telling staff there are no duplicates.
-            msg = "The duplicate check got no answer back. Item names were kept as they are."
-            normalization_cache[upload_session_id] = {"groups": [], "message": msg}
-            yield f"data: {json.dumps({'type': 'error', 'msg': msg})}\n\n"
-            return
         # Same parser as the normalization agent: also keeps the complete groups
         # from a reply that was cut off at max_tokens.
-        groups, _repaired = _extract_json_array(full_text)
-        groups = groups or []
+        groups, repaired = _extract_json_array(full_text)
+        if groups is None:
+            # Nothing usable came back (a refusal, thinking used the cap, or cut off
+            # before the first group closed): say the scan failed rather than
+            # telling staff there are no duplicates.
+            msg = "The duplicate check got no answer it could read. Item names were kept as they are."
+            normalization_cache[upload_session_id] = {"groups": [], "message": msg, "failed": True}
+            yield f"data: {json.dumps({'type': 'error', 'msg': msg})}\n\n"
+            return
+        msg = ("The duplicate check reply was incomplete or partly unreadable, so some duplicates "
+               "may be missing from this list." if repaired else "")
 
-        normalization_cache[upload_session_id] = {"groups": groups, "message": ""}
+        normalization_cache[upload_session_id] = {"groups": groups, "message": msg}
         yield f"data: {json.dumps({'type': 'done', 'count': len(groups)})}\n\n"
 
     resp = Response(
@@ -2648,7 +2680,8 @@ def dedup_review(upload_session_id):
         return redirect(url_for("dedup_loading", upload_session_id=upload_session_id))
     groups  = cached["groups"]
     message = cached.get("message", "")
-    return render_template("dedup_review.html", groups=groups, message=message, upload_session_id=upload_session_id)
+    return render_template("dedup_review.html", groups=groups, message=message,
+                           failed=cached.get("failed", False), upload_session_id=upload_session_id)
 
 
 @app.route("/analyse/<int:upload_session_id>")

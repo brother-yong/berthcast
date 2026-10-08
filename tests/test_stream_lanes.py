@@ -176,7 +176,9 @@ _CapturingAnthropic.last_kwargs = None
 r = client.get(f"/dedup/stream/{SID}")
 body = r.get_data(as_text=True)
 r.close()
-_check("reconnect serves cached done instantly", "done" in body, detail=body[:200])
+# The cached scan above FAILED, so the replay is its error, never a clean "done".
+_check("reconnect serves the cached failure instantly", "error" in body and "done" not in body,
+       detail=body[:200])
 _check("reconnect never touches Claude", _CapturingAnthropic.last_kwargs is None)
 _check("reconnect burns no daily allowance",
        not any(k.startswith("dedup:") for k in rate_limit._hits),
