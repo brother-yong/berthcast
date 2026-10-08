@@ -66,17 +66,22 @@ _check("opus-5 pins thinking disabled",
 _check("haiku-4-5 leaves thinking untouched",
        thinking_kwargs("claude-haiku-4-5-20251001") == {})
 
+# ── 5.5 line (8 Oct 2026): every one 400s on temperature; Sonnet 5.5 400s on
+#    "disabled" and needs "between_tools"; Haiku 5.5 thinks unless told not to ──
+for _m in ("claude-haiku-5-5", "claude-sonnet-5-5", "claude-opus-5-5"):
+    _check(f"{_m} omits temperature", sampling_kwargs(_m) == {}, detail=str(sampling_kwargs(_m)))
+_check("sonnet-5-5 turns thinking off with between_tools, not disabled",
+       thinking_kwargs("claude-sonnet-5-5") == {"thinking": {"type": "between_tools"}},
+       detail=str(thinking_kwargs("claude-sonnet-5-5")))
+_check("haiku-5-5 keeps its default thinking (off missed reorder timing on real data)",
+       thinking_kwargs("claude-haiku-5-5") == {},
+       detail=str(thinking_kwargs("claude-haiku-5-5")))
+
 # ── the model shipped in the dropdown is the exact API id (no date suffix) ────
 from config import AVAILABLE_MODELS
 
 _ids = [mid for mid, _label in AVAILABLE_MODELS]
-_check("sonnet-5 is offered in the model list", "claude-sonnet-5" in _ids,
-       detail=str(_ids))
-_check("stale sonnet-4-6 no longer offered", "claude-sonnet-4-6" not in _ids,
-       detail=str(_ids))
-_check("opus-5 is offered in the model list", "claude-opus-5" in _ids,
-       detail=str(_ids))
-_check("stale opus-4-8 no longer offered in dropdown", "claude-opus-4-8" not in _ids,
+_check("menu is exactly Sonnet 5.5 (default, first) then Haiku 5.5", _ids == ["claude-sonnet-5-5", "claude-haiku-5-5"],
        detail=str(_ids))
 
 sys.exit(1 if _FAILED else 0)

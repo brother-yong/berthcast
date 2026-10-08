@@ -67,6 +67,8 @@ def run_normalization_agent(session_id: int, model: str, progress_emit=None) -> 
 
     try:
         raw = _call_claude(model, system_prompt, user_prompt, max_tokens=8000)
+        if not (raw or "").strip():  # no text came back (a refusal): report an error, not "no duplicates"
+            raise RuntimeError("the model returned no text")
         groups, repaired = _extract_json_array(raw)
         if groups is None:
             _emit(progress_emit, "No duplicate groups found")

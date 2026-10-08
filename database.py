@@ -82,7 +82,7 @@ def init_db():
             email TEXT UNIQUE NOT NULL,
             password_hash TEXT NOT NULL,
             org_name TEXT NOT NULL,
-            model TEXT NOT NULL DEFAULT 'claude-haiku-4-5-20251001',
+            model TEXT NOT NULL DEFAULT 'claude-sonnet-5-5',
             is_admin INTEGER DEFAULT 0,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
@@ -90,7 +90,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS organisations (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT UNIQUE NOT NULL,
-            model TEXT NOT NULL DEFAULT 'claude-haiku-4-5-20251001'
+            model TEXT NOT NULL DEFAULT 'claude-sonnet-5-5'
         );
 
         CREATE TABLE IF NOT EXISTS upload_sessions (

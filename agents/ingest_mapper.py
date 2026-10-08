@@ -8,8 +8,8 @@ import os
 from agents.shared import _call_claude, wrap_untrusted, UNTRUSTED_GUARD
 
 # Infrastructure model, not the org-facing chat model: fixed and cheap.
-MAPPER_MODEL = os.environ.get("INGEST_MAPPER_MODEL", "claude-haiku-4-5-20251001")
-MAPPER_MAX_TOKENS = 600
+MAPPER_MODEL = os.environ.get("INGEST_MAPPER_MODEL", "claude-haiku-5-5")
+MAPPER_MAX_TOKENS = 4000  # room for Haiku 5.5's default thinking; a cap, not a charge
 # The SDK default timeout is 10 minutes — a stalled call would leave the
 # upload slot on "converting" that long. A layout question needs seconds.
 MAPPER_TIMEOUT_S = 60

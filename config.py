@@ -13,7 +13,11 @@ ALLOWED_EXTENSIONS = {"xlsx", "csv"}
 FILE_SLOTS = ("inventory", "purchase_orders", "sales", "suppliers", "customers")
 
 AVAILABLE_MODELS = [
-    ("claude-haiku-4-5-20251001", "Haiku — fast, lower cost (testing)"),
-    ("claude-sonnet-5",           "Sonnet — balanced (recommended)"),
-    ("claude-opus-5",             "Opus — most thorough (production reports)"),
+    # 8 Oct 2026: Sonnet stays the default. On a 200-item real-data sample Haiku 5.5
+    # (thinking off) matched every quantity but missed cover-vs-lead-time calls;
+    # with its thinking on it matched Sonnet on every stock status at ~1/12 the cost.
+    # Before any client account runs on Haiku: the 150-item recommendation batch can
+    # overflow max_tokens 64000 with thinking on (76 items used ~37K).
+    ("claude-sonnet-5-5", "Sonnet: most accurate (recommended)"),
+    ("claude-haiku-5-5",  "Haiku: testing only, not for client accounts yet"),
 ]

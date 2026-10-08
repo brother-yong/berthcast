@@ -369,7 +369,7 @@ def entry_shape():
     links = _links()
     entry = links.make_entry(LINE, MEMBERS, "HIGH", "ai", model=links.LINK_MODEL, why="Same size")
     _expect(entry == {"line": LINE, "members": MEMBERS, "conf": "high", "by": "ai",
-                      "at": sg_today().isoformat(), "model": "claude-sonnet-5", "why": "Same size"},
+                      "at": sg_today().isoformat(), "model": "claude-sonnet-5-5", "why": "Same size"},
             "entry shape, confidence normalization or Singapore date differs")
     admin = links.make_entry(LINE, [], "sure", "admin")
     _expect(admin["members"] == [] and admin["conf"] == "low" and admin["model"] is None,

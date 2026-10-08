@@ -793,7 +793,7 @@ def propose_inventory_columns(headers, sample_rows, model) -> dict:
             + "\n\nSample rows:\n" + wrap_untrusted("\n".join(sample_lines)))
 
     try:
-        raw = _call_claude(model, system, user, max_tokens=400)
+        raw = _call_claude(model, system, user, max_tokens=4000)  # room for Haiku 5.5's thinking
     except Exception:
         return result
 
@@ -929,17 +929,24 @@ def _resolve_item_suppliers(session_id: int, org_name: str, config: dict,
 # ---------------------------------------------------------------------------
 
 # Opus 4.7+, Opus 5, Sonnet 5 and Fable removed the temperature parameter — sending
-# it is a hard 400 error on those models. Older models keep temperature=0 so the same
-# file produces the same report run after run. (opus-4-8 stays listed for any user
-# whose stored model predates the Opus 5 swap.)
-_NO_TEMPERATURE_PREFIXES = ("claude-opus-4-7", "claude-opus-4-8", "claude-opus-5", "claude-sonnet-5", "claude-fable")
+# it is a hard 400 error on those models; Haiku 5.5 too. Older models keep
+# temperature=0 so the same file produces the same report run after run. (Prefixes
+# also cover the 5.5 versions; opus-4-8 stays listed for any user whose stored model
+# predates the Opus 5 swap.)
+_NO_TEMPERATURE_PREFIXES = ("claude-opus-4-7", "claude-opus-4-8", "claude-opus-5", "claude-sonnet-5",
+                            "claude-haiku-5", "claude-fable")
 
-# Sonnet 5 and Opus 5 turn "adaptive" thinking on whenever the thinking parameter is
-# omitted; every other model this app uses defaults to no thinking. Left on, it spends
-# part of max_tokens on reasoning tokens — which truncates the small JSON calls (the
-# 400-token column proposal especially) and adds a latency pause. Pin it off so they
-# behave like the rest of the line-up. (Disabling thinking is accepted at the default
-# effort; only xhigh/max would 400, and this app sets no effort.)
+# Sonnet 5 / 5.5 and Opus 5 turn "adaptive" thinking on whenever the thinking parameter
+# is omitted; Haiku 4.5 defaults to no thinking. Left on, it spends part of max_tokens on
+# reasoning tokens (small calls need room for it), adds a latency pause, and bills as
+# output (the cost driver). Pin it off so they behave like the rest of the line-up.
+# (Disabling is accepted at the default effort; only xhigh/max would 400, and this app
+# sets no effort.) Sonnet 5.5 rejects "disabled" with a 400; its off switch is
+# "between_tools", which with no tools in these calls means no thinking. Opus 5.5 can't
+# turn thinking off at all, so it isn't offered (config.AVAILABLE_MODELS) and would 400
+# here, loudly. Haiku 5.5 keeps its default thinking ON: on the 8 Oct 2026 real-data
+# sample, thinking off missed stock that runs out before the next delivery lands;
+# thinking on matched Sonnet 5.5 on every stock status, at about 1/12 of the cost.
 _THINKING_OFF_PREFIXES = ("claude-sonnet-5", "claude-opus-5")
 
 
@@ -950,6 +957,8 @@ def sampling_kwargs(model: str) -> dict:
 
 
 def thinking_kwargs(model: str) -> dict:
+    if model.startswith("claude-sonnet-5-5"):
+        return {"thinking": {"type": "between_tools"}}
     if model.startswith(_THINKING_OFF_PREFIXES):
         return {"thinking": {"type": "disabled"}}
     return {}
@@ -1009,10 +1018,14 @@ def _is_transient_api_error(e) -> bool:
     return any(t in s for t in ("overloaded", "connection", "timeout", "timed out"))
 
 
-# Anthropic list prices, US$ per million tokens, as of 29 Sep 2026, matched by
+# Anthropic list prices, US$ per million tokens, as of 8 Oct 2026, matched by
 # model-name prefix: (input, output, cache write, cache read). They only feed
 # the rough cost in the usage log line; the Console bill is the real figure.
+# Source: platform.claude.com/docs/en/about-claude/pricing. The 5.5 IDs sit before
+# their 5 prefix: Sonnet 5.5 cache reads are $0.10, Sonnet 5's are $0.20.
 _PRICES = {
+    "claude-haiku-5-5": (0.10, 0.50, 0.125, 0.01),
+    "claude-sonnet-5-5": (2.00, 10.00, 2.50, 0.10),
     "claude-sonnet-5": (2.00, 10.00, 2.50, 0.20),
     "claude-haiku-4-5": (1.00, 5.00, 1.25, 0.10),
     "claude-opus-5": (5.00, 25.00, 6.25, 0.50),
@@ -1036,6 +1049,9 @@ def record_usage(model: str, get_usage, source: str) -> None:
             ("cache_write", "cache_creation_input_tokens"), ("cache_read", "cache_read_input_tokens"))}
         price = next((p for prefix, p in _PRICES.items() if str(model).startswith(prefix)), None)
         usd = sum(n[k] * r for k, r in zip(n, price)) / 1e6 if price else 0.0
+        # Haiku 5.5 bills a prompt over 100K tokens at 5x every rate.
+        if str(model).startswith("claude-haiku-5-5") and n["input"] + n["cache_write"] + n["cache_read"] > 100_000:
+            usd *= 5
         for k in n:
             USAGE[k] += n[k]
         USAGE["calls"] += 1
@@ -1074,7 +1090,15 @@ def _call_claude(model: str, system: str, user, max_tokens: int = 4096,
                 **sampling_kwargs(model),
                 **thinking_kwargs(model),
             ) as stream:
-                text = stream.get_final_text()
+                try:
+                    text = stream.get_final_text()
+                except RuntimeError:
+                    # The SDK raises when a reply has no text block: a refusal, or
+                    # thinking (on by default for Haiku 5.5) used the whole cap. Return
+                    # "" so callers take their "no usable response" path for this one
+                    # batch instead of failing the run; the call is still logged.
+                    logger.warning("Claude reply had no text [%s, %s]", source, model)
+                    text = ""
                 record_usage(model, lambda: stream.get_final_message().usage, source)
                 return text
         except Exception as e:

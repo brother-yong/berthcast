@@ -23,7 +23,7 @@ BATCH_LINES = 20
 LINK_MAX_TOKENS = 8000
 LINK_TIMEOUT_S = 180
 LINK_BUDGET_S = 600
-LINK_MODEL = "claude-sonnet-5"  # The model the prompt was tested on.
+LINK_MODEL = "claude-sonnet-5-5"  # Prompt was tuned on claude-sonnet-5; kept on the Sonnet line for accuracy.
 CODE_HEADERS = ("inventory_code", "item_code", "stock_code", "stk_code",
                 "product_code", "sku", "stk_id", "item_no", "material_code",
                 "article_code", "code")

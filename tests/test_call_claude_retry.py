@@ -150,6 +150,17 @@ try:
 finally:
     shared.client = _orig
 
+# 4b) Haiku 5.5 has two rate cards: a prompt over 100K tokens costs 5x every rate.
+class _U:
+    def __init__(self, i, o): self.input_tokens, self.output_tokens = i, o
+    cache_creation_input_tokens = cache_read_input_tokens = 0
+for k in shared.USAGE:
+    shared.USAGE[k] = 0
+shared.record_usage("claude-haiku-5-5", lambda: _U(100_000, 1000), "test")
+_check(abs(shared.USAGE["usd"] - 0.0105) < 1e-9, f"100K prompt is the cheap card: {shared.USAGE['usd']}")
+shared.record_usage("claude-haiku-5-5", lambda: _U(100_001, 1000), "test")
+_check(abs(shared.USAGE["usd"] - 0.0105 - 0.0525005) < 1e-9, f"over 100K costs 5x: {shared.USAGE['usd']}")
+
 # 5) a missing usage object or an unpriced model is logged, never raised
 _logged.clear()
 try:
@@ -189,6 +200,40 @@ except Exception as e:  # noqa: BLE001
 finally:
     shared.client = _orig
     shared.logger.warning = _orig_warning
+
+
+# 7) a reply with no text block (a refusal, or Haiku 5.5's thinking used the whole
+#    cap) comes back as "" so the caller skips that batch: no crash, no paid retry,
+#    and the billed call is still logged. The SDK raises RuntimeError for it.
+class _NoTextStream(_FakeStream):
+    def get_final_text(self):
+        raise RuntimeError(".get_final_text() can only be called when the API returns a `text` content block.")
+
+
+class _NoTextMessages(_FakeMessages):
+    def stream(self, **kw):
+        self.calls += 1
+        return _NoTextStream("")
+
+
+_warned.clear()
+_logged.clear()
+shared.logger.warning = lambda msg, *a: _warned.append(msg % a)
+shared.logger.info = lambda msg, *a: _logged.append(msg % a)
+shared.client = _FakeClient(failures=0, exc=_Overloaded)
+shared.client.messages = _NoTextMessages(0, _Overloaded)
+try:
+    out = shared._call_claude("claude-haiku-5-5", "sys", "user")
+    _check(out == "", f"no-text reply should come back as empty text, got {out!r}")
+    _check(shared.client.messages.calls == 1, f"no-text reply must not retry, got {shared.client.messages.calls}")
+    _check(any("no text" in w for w in _warned), f"no-text reply should be logged: {_warned}")
+    _check(any("Claude usage" in m for m in _logged), f"billed call must still be logged: {_logged}")
+except Exception as e:  # noqa: BLE001
+    _check(False, f"no-text reply must not escape _call_claude, got {e!r}")
+finally:
+    shared.client = _orig
+    shared.logger.warning = _orig_warning
+    shared.logger.info = _orig_info
 
 if F:
     print("FAILED:")

@@ -3,7 +3,7 @@ dummy CSVs in sample_uploads/, on a throwaway DB. Proves a change works
 end-to-end before it ships — the stubbed test suite can't catch model-facing
 regressions (prompt drift, reply-shape changes, hallucinated quantities).
 
-Costs real API money (~US$0.10-0.40 per run on sonnet). Run after major
+Costs real API money (~US$0.10-0.40 per run on sonnet, a few cents on haiku). Run after major
 changes to agents/, app.py, or database.py — not on every save.
 
 Run: python smoke_live.py
@@ -42,7 +42,7 @@ if not os.environ.get("ANTHROPIC_API_KEY"):
 import database as db                              # noqa: E402
 from agents import run_normalization_agent, run_pipeline  # noqa: E402
 
-MODEL = "claude-sonnet-5"   # what the pilot org actually uses
+MODEL = "claude-sonnet-5-5"   # the default model for new accounts
 SAMPLES = os.path.join(ROOT, "sample_uploads")
 _FAILED = False
 

@@ -30,7 +30,7 @@ from logging_setup import logger
 from agents import (
     run_pipeline,
 )
-from agents.shared import sampling_kwargs, thinking_kwargs, normalise_match_key, record_usage
+from agents.shared import sampling_kwargs, thinking_kwargs, normalise_match_key, record_usage, _extract_json_array
 from agents.sales_links import linked_name_keys, MAX_SHOWN_NAME_CHARS
 
 from config import UPLOAD_FOLDER, FILE_SLOTS, AVAILABLE_MODELS
@@ -243,7 +243,7 @@ def _ensure_admin():
     if not existing:
         db.execute(
             "INSERT INTO users (email, password_hash, org_name, model, is_admin) VALUES (?,?,?,?,?)",
-            (admin_email, generate_password_hash(admin_pass), "berthcast Admin", "claude-sonnet-5", 1)
+            (admin_email, generate_password_hash(admin_pass), "berthcast Admin", "claude-sonnet-5-5", 1)
         )
 
 _ensure_admin()
@@ -995,7 +995,9 @@ def chat_api():
             "SELECT role, content FROM chat_messages WHERE conversation_id=? ORDER BY created_at ASC",
             (conversation_id,)
         )
-        messages = [{"role": r["role"], "content": r["content"]} for r in history_rows]
+        # Skip blank turns (older code could store one): the API rejects them.
+        messages = [{"role": r["role"], "content": r["content"]} for r in history_rows
+                    if (r["content"] or "").strip()]
         model = session["model"]
         conv_id_snapshot = conversation_id
         is_new_snapshot = is_new_conv
@@ -1030,22 +1032,29 @@ def chat_api():
                     full_response.append(text)
                     yield f"data: {json.dumps({'text': text})}\n\n"
             assistant_text = "".join(full_response)
-            db.execute(
-                "INSERT INTO chat_messages (conversation_id, role, content) VALUES (?,?,?)",
-                (conv_id_snapshot, "assistant", assistant_text)
-            )
+            # An empty reply (a refusal, or thinking used the cap) must not be saved:
+            # an empty assistant turn makes every later call in this conversation 400.
+            if assistant_text.strip():
+                db.execute(
+                    "INSERT INTO chat_messages (conversation_id, role, content) VALUES (?,?,?)",
+                    (conv_id_snapshot, "assistant", assistant_text)
+                )
             record_usage(model, lambda: stream.get_final_message().usage, "chat")
             # Auto-generate a smart title on first exchange
             if is_new_snapshot:
                 try:
+                    # Haiku 5.5 thinks by default, which would eat the 30-token cap.
+                    # Disabling is accepted at its default effort.
                     title_resp = _client.messages.create(
-                        model="claude-haiku-4-5-20251001",
+                        model="claude-haiku-5-5",
                         max_tokens=30,
                         system="Generate a short 4-7 word conversation title based on the user's question. Return ONLY the title, no punctuation, no quotes.",
                         messages=[{"role": "user", "content": user_msg_snapshot}],
+                        thinking={"type": "disabled"},
                     )
                     record_usage(title_resp.model, lambda: title_resp.usage, "chat title")
-                    auto_title = title_resp.content[0].text.strip().strip('"').strip("'")
+                    auto_title = next((b.text for b in title_resp.content if b.type == "text"), "")
+                    auto_title = auto_title.strip().strip('"').strip("'")
                     if auto_title:
                         db.execute(
                             "UPDATE chat_conversations SET title=? WHERE id=?",
@@ -1204,7 +1213,7 @@ def admin_panel():
             email    = request.form.get("email", "").strip().lower()
             password = request.form.get("password", "")
             org      = request.form.get("org_name", "").strip()
-            model    = request.form.get("model", "claude-sonnet-5")
+            model    = request.form.get("model", "claude-sonnet-5-5")
             trial    = request.form.get("trial_ends_at", "").strip() or None
             if not email or not password or not org:
                 flash("All fields are required.", "error")
@@ -2455,8 +2464,6 @@ def dedup_stream(upload_session_id):
                                  "Please try again tomorrow."}), 429
 
     def generate():
-        import re as _re
-
         # ── Collect unique item names (mirrors run_normalization_agent logic) ──
         item_names = set()
 
@@ -2571,13 +2578,17 @@ def dedup_stream(upload_session_id):
             return
 
         # ── Parse and cache result ─────────────────────────────────────────────
-        groups = []
-        try:
-            m = _re.search(r'\[.*\]', full_text, _re.DOTALL)
-            if m:
-                groups = json.loads(m.group())
-        except Exception:
-            pass
+        if not full_text.strip():
+            # No text came back (a refusal, or thinking used the cap): say the scan
+            # failed rather than telling staff there are no duplicates.
+            msg = "The duplicate check got no answer back. Item names were kept as they are."
+            normalization_cache[upload_session_id] = {"groups": [], "message": msg}
+            yield f"data: {json.dumps({'type': 'error', 'msg': msg})}\n\n"
+            return
+        # Same parser as the normalization agent: also keeps the complete groups
+        # from a reply that was cut off at max_tokens.
+        groups, _repaired = _extract_json_array(full_text)
+        groups = groups or []
 
         normalization_cache[upload_session_id] = {"groups": groups, "message": ""}
         yield f"data: {json.dumps({'type': 'done', 'count': len(groups)})}\n\n"
