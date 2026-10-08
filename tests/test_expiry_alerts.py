@@ -35,13 +35,9 @@ import types
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-_tmp_db = os.path.join(tempfile.gettempdir(), "berthcast_expiry_alerts.db")
-for _ext in ("", "-journal", "-wal", "-shm"):
-    try:
-        os.remove(_tmp_db + _ext)
-    except FileNotFoundError:
-        pass
-os.environ["DB_PATH"] = _tmp_db
+_tmp = tempfile.TemporaryDirectory(prefix="berth_expiry_alerts_", ignore_cleanup_errors=True)
+os.environ["DB_PATH"] = os.path.join(_tmp.name, "test.db")
+os.environ["UPLOAD_FOLDER"] = os.path.join(_tmp.name, "uploads")
 os.environ.pop("RENDER", None)
 os.environ.setdefault("ANTHROPIC_API_KEY", "dummy-key-not-used")
 # Both senders bail out early without these, so they are set BEFORE the import.

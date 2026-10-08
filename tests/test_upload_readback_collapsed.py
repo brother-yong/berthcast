@@ -11,9 +11,13 @@ Run: python tests/test_upload_readback_collapsed.py
 """
 import os
 import sys
+import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
+_tmp = tempfile.TemporaryDirectory(prefix="berth_readback_collapsed_", ignore_cleanup_errors=True)
+os.environ["DB_PATH"] = os.path.join(_tmp.name, "test.db")
+os.environ["UPLOAD_FOLDER"] = os.path.join(_tmp.name, "uploads")
 
 from app import app, _month_span  # noqa: E402
 

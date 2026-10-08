@@ -17,7 +17,9 @@ import tempfile
 
 # Throwaway DB + NOT on Render (so importing app doesn't trip the storage guard
 # and HSTS stays off, which we assert below).
-os.environ["DB_PATH"] = os.path.join(tempfile.gettempdir(), "sec_hardening_test.db")
+_tmp = tempfile.TemporaryDirectory(prefix="berth_sec_hardening_", ignore_cleanup_errors=True)
+os.environ["DB_PATH"] = os.path.join(_tmp.name, "test.db")
+os.environ["UPLOAD_FOLDER"] = os.path.join(_tmp.name, "uploads")
 os.environ.pop("RENDER", None)
 os.environ.setdefault("ANTHROPIC_API_KEY", "test-key-not-used")
 os.environ.setdefault("SECRET_KEY", "test-secret-not-used")

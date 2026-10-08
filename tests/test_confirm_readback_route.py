@@ -2,10 +2,14 @@
 needs_confirm sales slot to done while preserving the read-back."""
 import os
 import sys
+import tempfile
 import json
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
+_tmp = tempfile.TemporaryDirectory(prefix="berth_confirm_readback_", ignore_cleanup_errors=True)
+os.environ["DB_PATH"] = os.path.join(_tmp.name, "test.db")
+os.environ["UPLOAD_FOLDER"] = os.path.join(_tmp.name, "uploads")
 import app as appmod  # noqa: E402
 import database as db  # noqa: E402
 

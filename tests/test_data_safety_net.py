@@ -23,13 +23,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 CORPUS = os.path.join(ROOT, "tests", "corpus")
 
-_tmp_db = os.path.join(tempfile.gettempdir(), "berthcast_safetynet.db")
-for ext in ("", "-journal", "-wal", "-shm"):
-    try:
-        os.remove(_tmp_db + ext)
-    except FileNotFoundError:
-        pass
-os.environ["DB_PATH"] = _tmp_db
+_tmp = tempfile.TemporaryDirectory(prefix="berth_safetynet_", ignore_cleanup_errors=True)
+os.environ["DB_PATH"] = os.path.join(_tmp.name, "test.db")
+os.environ["UPLOAD_FOLDER"] = os.path.join(_tmp.name, "uploads")
 os.environ.pop("RENDER", None)
 os.environ.setdefault("ANTHROPIC_API_KEY", "dummy-key-not-used")
 
@@ -120,7 +116,7 @@ for inv_file, sales_file, cmap, level, code in CASES:
 
 # ── Large file (generated): WARN large_file, no false BLOCK ──────────────────
 sid = _new_session()
-big = os.path.join(tempfile.gettempdir(), "berth_bigfile.csv")
+big = os.path.join(_tmp.name, "berth_bigfile.csv")
 with open(big, "w", encoding="utf-8", newline="") as f:
     w = csv.writer(f)
     w.writerow(["Description", "Qty On Hand"])

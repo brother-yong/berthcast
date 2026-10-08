@@ -14,13 +14,9 @@ sys.path.insert(0, ROOT)
 
 # Point the app at a throwaway DB and give the anthropic client a dummy key
 # (no API call is made during rendering). MUST be set before importing app/db.
-_tmp_db = os.path.join(tempfile.gettempdir(), "berthcast_verify_render.db")
-for ext in ("", "-journal", "-wal", "-shm"):
-    try:
-        os.remove(_tmp_db + ext)
-    except FileNotFoundError:
-        pass
-os.environ["DB_PATH"] = _tmp_db
+_tmp = tempfile.TemporaryDirectory(prefix="berth_verify_render_", ignore_cleanup_errors=True)
+os.environ["DB_PATH"] = os.path.join(_tmp.name, "test.db")
+os.environ["UPLOAD_FOLDER"] = os.path.join(_tmp.name, "uploads")
 os.environ.setdefault("ANTHROPIC_API_KEY", "dummy-key-not-used")
 
 # Stub the anthropic SDK so we don't need it installed — no API call is made

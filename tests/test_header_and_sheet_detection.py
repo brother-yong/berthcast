@@ -31,13 +31,9 @@ import zipfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-_tmp_db = os.path.join(tempfile.gettempdir(), "berthcast_headersheet.db")
-for ext in ("", "-journal", "-wal", "-shm"):
-    try:
-        os.remove(_tmp_db + ext)
-    except FileNotFoundError:
-        pass
-os.environ["DB_PATH"] = _tmp_db
+_tmp = tempfile.TemporaryDirectory(prefix="berth_headersheet_", ignore_cleanup_errors=True)
+os.environ["DB_PATH"] = os.path.join(_tmp.name, "test.db")
+os.environ["UPLOAD_FOLDER"] = os.path.join(_tmp.name, "uploads")
 os.environ.pop("RENDER", None)
 os.environ.setdefault("ANTHROPIC_API_KEY", "dummy-key-not-used")
 
@@ -84,7 +80,7 @@ def _sheet_xml(rows):
 
 def make_xlsx(*sheets):
     """Build a minimal real .xlsx; each arg is one sheet's rows."""
-    path = tempfile.mktemp(suffix=".xlsx")
+    path = tempfile.mktemp(suffix=".xlsx", dir=_tmp.name)
     with zipfile.ZipFile(path, "w") as zf:
         for i, rows in enumerate(sheets, 1):
             zf.writestr(f"xl/worksheets/sheet{i}.xml", _sheet_xml(rows))
@@ -92,7 +88,7 @@ def make_xlsx(*sheets):
 
 
 def make_csv(text):
-    path = tempfile.mktemp(suffix=".csv")
+    path = tempfile.mktemp(suffix=".csv", dir=_tmp.name)
     with open(path, "w", encoding="utf-8", newline="") as f:
         f.write(text)
     return path

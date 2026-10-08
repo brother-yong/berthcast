@@ -14,13 +14,9 @@ from datetime import date
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-_tmp_db = os.path.join(tempfile.gettempdir(), "berth_ingwire.db")
-for ext in ("", "-journal", "-wal", "-shm"):
-    try:
-        os.remove(_tmp_db + ext)
-    except FileNotFoundError:
-        pass
-os.environ["DB_PATH"] = _tmp_db
+_tmp = tempfile.TemporaryDirectory(prefix="berth_ingwire_", ignore_cleanup_errors=True)
+os.environ["DB_PATH"] = os.path.join(_tmp.name, "test.db")
+os.environ["UPLOAD_FOLDER"] = os.path.join(_tmp.name, "uploads")
 os.environ.setdefault("ANTHROPIC_API_KEY", "dummy")
 
 if "anthropic" not in sys.modules:

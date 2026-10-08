@@ -20,7 +20,8 @@ import email as email_parser
 
 # Point the DB at a throwaway file and pretend we're not on Render, so importing
 # emails -> database doesn't create anything in the repo or trip the storage guard.
-os.environ.setdefault("DB_PATH", os.path.join(tempfile.gettempdir(), "send_as_test.db"))
+_tmp = tempfile.TemporaryDirectory(prefix="berth_send_as_", ignore_cleanup_errors=True)
+os.environ["DB_PATH"] = os.path.join(_tmp.name, "test.db")
 os.environ.pop("RENDER", None)
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

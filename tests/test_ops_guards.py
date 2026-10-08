@@ -26,13 +26,9 @@ import types
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-_tmp_db = os.path.join(tempfile.gettempdir(), "berthcast_opsguards.db")
-for ext in ("", "-journal", "-wal", "-shm"):
-    try:
-        os.remove(_tmp_db + ext)
-    except FileNotFoundError:
-        pass
-os.environ["DB_PATH"] = _tmp_db
+_tmp = tempfile.TemporaryDirectory(prefix="berth_opsguards_", ignore_cleanup_errors=True)
+os.environ["DB_PATH"] = os.path.join(_tmp.name, "test.db")
+os.environ["UPLOAD_FOLDER"] = os.path.join(_tmp.name, "uploads")
 os.environ.pop("RENDER", None)
 os.environ.setdefault("ANTHROPIC_API_KEY", "dummy-key-not-used")
 
@@ -140,9 +136,9 @@ for p in (_new_chunk, _real_file):
 
 # ── 4. Backup on_failure hook ────────────────────────────────────────────────
 _fail_msgs = []
-_bad_db = os.path.join(tempfile.gettempdir(), "no_such_dir_xyz")  # a directory path, not a db
+_bad_db = os.path.join(_tmp.name, "no_such_dir_xyz")  # a directory path, not a db
 os.makedirs(_bad_db, exist_ok=True)
-res = backup.run_once(_bad_db, os.path.join(tempfile.gettempdir(), "bk_out"),
+res = backup.run_once(_bad_db, os.path.join(_tmp.name, "bk_out"),
                       logger=lambda m: None, on_failure=_fail_msgs.append)
 _check("backup failure calls on_failure with the error", res is None and len(_fail_msgs) == 1,
        detail=str(_fail_msgs))
@@ -152,20 +148,19 @@ def _broken_alert(msg):
     raise RuntimeError("alerter is down")
 
 
-res = backup.run_once(_bad_db, os.path.join(tempfile.gettempdir(), "bk_out"),
+res = backup.run_once(_bad_db, os.path.join(_tmp.name, "bk_out"),
                       logger=lambda m: None, on_failure=_broken_alert)
 _check("broken alerter never breaks the backup loop", res is None)
 
-_ok_dir = os.path.join(tempfile.gettempdir(), "bk_ok_src")
+_ok_dir = os.path.join(_tmp.name, "bk_ok_src")
 _ok_db  = os.path.join(_ok_dir, "src.db")
 os.makedirs(_ok_dir, exist_ok=True)
 import sqlite3 as _sq
 _c = _sq.connect(_ok_db); _c.execute("CREATE TABLE IF NOT EXISTS t (x)"); _c.commit(); _c.close()
 _fail_msgs.clear()
-# force=True: the temp output dir persists between test runs, and a leftover
-# fresh snapshot would (correctly) make a scheduled run skip — we're proving
-# the write path here, not the restart-storm guard (tests/test_backup.py does).
-res = backup.run_once(_ok_db, os.path.join(tempfile.gettempdir(), "bk_out2"),
+# force=True: we're proving the write path here, not the restart-storm guard
+# (tests/test_backup.py does).
+res = backup.run_once(_ok_db, os.path.join(_tmp.name, "bk_out2"),
                       logger=lambda m: None, on_failure=_fail_msgs.append, force=True)
 _check("successful backup never calls on_failure", res is not None and not _fail_msgs)
 
