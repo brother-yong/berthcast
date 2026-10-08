@@ -1249,10 +1249,19 @@ def admin_panel():
             db.execute("DELETE FROM email_verification_tokens WHERE user_id=?", (uid,))
             flash("Account verified — user can now log in.", "success")
         elif action == "change_model":
+            # Only a model the app can drive: thinking settings differ per model,
+            # so an unknown id makes every call 400. The account's current value
+            # is also accepted so an "(old)" option on /admin can be kept as is.
             uid   = request.form.get("user_id")
             model = request.form.get("model")
-            db.execute("UPDATE users SET model=? WHERE id=?", (model, uid))
-            flash("Model updated.", "success")
+            row   = db.query("SELECT model FROM users WHERE id=?", (uid,))
+            if not row:
+                flash("Couldn't identify which account to update.", "error")
+            elif model not in [m for m, _ in AVAILABLE_MODELS] and model != row[0]["model"]:
+                flash("Pick a model from the list.", "error")
+            else:
+                db.execute("UPDATE users SET model=? WHERE id=?", (model, uid))
+                flash("Model updated.", "success")
         elif action == "change_email":
             # Fix an account's email (e.g. one created with the wrong address).
             # Validation lives in validators.validate_email_change: it rejects

@@ -57,10 +57,15 @@ def login_required(f):
         # One cheap indexed primary-key read; a missing row (deleted user) or a
         # version bump both invalidate the session. Cookies minted before this
         # column existed carry no "sv" and default to 0, matching the DB default.
-        rows = db.query("SELECT session_version FROM users WHERE id=?", (session["user_id"],))
+        rows = db.query("SELECT session_version, model FROM users WHERE id=?", (session["user_id"],))
         if not rows or (rows[0]["session_version"] or 0) != session.get("sv", 0):
             session.clear()
             return redirect(url_for("login"))
+        # Login copies the model into the cookie; refresh it from the same row so
+        # a model switch on /admin reaches a user who is already signed in (chat,
+        # duplicate check, analysis and invites all read session["model"]).
+        if session.get("model") != rows[0]["model"]:
+            session["model"] = rows[0]["model"]
         return f(*args, **kwargs)
     return decorated
 
