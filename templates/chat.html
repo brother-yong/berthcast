@@ -1186,7 +1186,7 @@ async function sendMessage() {
               const close = rawText.indexOf('</thinking>', open);
               if (close !== -1) {
                 thinking = rawText.slice(open + 10, close);
-                answer   = rawText.slice(0, open) + rawText.slice(close + 12);
+                answer   = rawText.slice(0, open) + rawText.slice(close + 11);   // '</thinking>' is 11 chars
               } else {
                 thinking = rawText.slice(open + 10);   // block still open
                 answer   = rawText.slice(0, open);
