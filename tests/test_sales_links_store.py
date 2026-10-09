@@ -453,7 +453,7 @@ def admin_clear_relink_undo():
     response = _post(client, org, "relink", line_key=KEY)
     _expect(KEY not in db.get_sales_links(org)["lines"], "relink must remove the decision")
     _expect(response.status_code == 200, "empty list after relink must render")
-    _post(client, org, "undo")
+    _post(client, org, "undo", links_hash=db.sales_links_hash(db.get_sales_links(org)["lines"]))
     _expect(db.get_sales_links(org)["lines"][KEY] == cleared, "undo must restore the removed decision")
 
 

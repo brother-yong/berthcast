@@ -590,7 +590,7 @@ def admin_help_text():
     admin, _ = _client(_org(), admin=True)
     page = admin.get("/admin/sales-links", query_string={"org": org}).get_data(as_text=True)
     _expect("do not use them yet" not in page and "analysis integration" not in page, "stale help text")
-    _expect("analysis runs use the saved links" in page and "next release" in page, "new help text missing")
+    _expect("analysis runs use the saved links" in page and "linked by the AI once" in page, "new help text missing")
 
 
 _run("RED 1: multi-brand line becomes one order with each brand's free stock", multi_brand_family)

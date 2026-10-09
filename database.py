@@ -1,4 +1,5 @@
 import sqlite3
+import hashlib
 import json
 import os
 import re
@@ -1128,7 +1129,17 @@ def update_sales_links(org_name, mutator, by) -> dict:
         conn.close()
 
 
-def undo_sales_links(org_name, by) -> bool:
+def sales_links_hash(lines) -> str:
+    """Fingerprint of a company's saved lines, carried by the admin undo form."""
+    return hashlib.sha256(json.dumps(lines, sort_keys=True).encode("ascii")).hexdigest()
+
+
+def undo_sales_links(org_name, by, expected_hash=None):
+    """Swap the saved map with the previous one.
+
+    True when swapped, False when there is nothing to undo, None when
+    `expected_hash` no longer matches the saved lines (nothing swapped).
+    """
     if not isinstance(org_name, str) or not org_name.strip():
         return False
     conn = get_db()
@@ -1136,11 +1147,17 @@ def undo_sales_links(org_name, by) -> bool:
         conn.isolation_level = None
         conn.execute("BEGIN IMMEDIATE")
         row = conn.execute(
-            "SELECT prev_json FROM sales_line_links WHERE org_name=?",
+            "SELECT links_json,prev_json FROM sales_line_links WHERE org_name=?",
             (org_name,)).fetchone()
         if row is None or row["prev_json"] is None:
             conn.execute("ROLLBACK")
             return False
+        # Checked under the write lock: a replayed undo, or a tab opened before
+        # an AI run saved, must not swap away a change the admin never saw.
+        if (expected_hash is not None
+                and expected_hash != sales_links_hash(_sales_link_lines(row["links_json"]))):
+            conn.execute("ROLLBACK")
+            return None
         conn.execute(
             "UPDATE sales_line_links SET links_json=prev_json,prev_json=links_json, "
             "updated_by=?,updated_at=CURRENT_TIMESTAMP WHERE org_name=?",
@@ -1164,6 +1181,18 @@ def latest_complete_session_id(org_name):
         "SELECT id FROM upload_sessions WHERE org_name=? AND status='complete' "
         "ORDER BY created_at DESC,id DESC LIMIT 1", (org_name,))
     return int(rows[0]["id"]) if rows else None
+
+
+def recent_complete_recommendations(org_name, limit=2) -> list:
+    """recommendations_json text of a company's latest completed runs, newest first."""
+    if not isinstance(org_name, str) or not org_name.strip():
+        return []
+    rows = query(
+        "SELECT ar.recommendations_json FROM analysis_results ar "
+        "JOIN upload_sessions us ON ar.session_id = us.id "
+        "WHERE us.org_name=? AND us.status='complete' "
+        "ORDER BY us.created_at DESC, us.id DESC LIMIT ?", (org_name, int(limit)))
+    return [r["recommendations_json"] for r in rows]
 
 
 def bump_session_version(user_id) -> None:

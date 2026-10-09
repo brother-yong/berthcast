@@ -191,6 +191,65 @@ _check("links run has no quantity above 10000", not _bad_qty2, detail=str(_bad_q
 print(f"   link notes: {result2.get('link_notes') or []}")
 for r in recs2:
     print(f"  - {r.get('item')} | qty {r.get('suggested_quantity')} | flags {(r.get('flags') or [])[:1]}")
+
+# The AI links new lines: same two tables, seeded links cleared, so the real
+# model links all three lines in one call; a later run makes no link call.
+print("\n-- sales links: the AI links new lines (real Claude) --")
+import agents.sales_links as sales_links              # noqa: E402
+
+
+def _links_session():
+    sid = db.execute(
+        "INSERT INTO upload_sessions (user_id, org_name, status, scope, context_json) "
+        "VALUES (?,?,?,?,?)", (1, LINKS_ORG, "uploading", "all", "{}"))
+    for slot in ("inventory", "sales"):
+        db.execute(f"CREATE TABLE {slot}_{sid} AS SELECT * FROM {slot}_{SID2}")
+    return sid
+
+
+def _clear_links(lines):
+    lines.clear()
+    return True
+
+
+db.update_sales_links(LINKS_ORG, _clear_links, "smoke")
+_real_link_call = sales_links._call_claude
+_link_calls = [0]
+
+
+def _counting_link_call(*args, **kwargs):
+    _link_calls[0] += 1
+    return _real_link_call(*args, **kwargs)
+
+
+sales_links._call_claude = _counting_link_call
+try:
+    result3 = run_pipeline(_links_session(), MODEL, [], {}, emit=_emit)
+    _check("AI-linking run returned no error", "error" not in result3, detail=str(result3.get("error")))
+    _check("AI-linking run made exactly 1 link call", _link_calls[0] == 1, detail=str(_link_calls[0]))
+    _ai_saved = db.get_sales_links(LINKS_ORG)["lines"]
+    _check("AI saved at least 2 of the 3 lines", len(_ai_saved) >= 2, detail=str(list(_ai_saved)))
+    _ai_codes = [m.get("code") for e in _ai_saved.values() if isinstance(e, dict)
+                 for m in e.get("members") or [] if isinstance(m, dict)]
+    _check("every saved code is one of the five stock codes", all(c in _names for c in _ai_codes),
+           detail=str(_ai_codes))
+    _nectar_entry = _ai_saved.get(normalise_match_key("ORANGE NECTAR 1L")) or {}
+    _check("the nectar line never links the 100% juice",
+           "PDM-OJ1L" not in [m.get("code") for m in _nectar_entry.get("members") or []],
+           detail=str(_nectar_entry))
+    _bad_qty3 = [r.get("item") for r in result3.get("recommendations") or [] if isinstance(r, dict)
+                 and (parse_quantity(r.get("suggested_quantity")) or 0) > 10000]
+    _check("AI-linking run has no quantity above 10000", not _bad_qty3, detail=str(_bad_qty3))
+    print(f"   link notes: {result3.get('link_notes') or []}")
+    for _e in _ai_saved.values():
+        print(f"  - {_e.get('line')} -> {[m.get('code') for m in _e.get('members') or []]} "
+              f"({_e.get('conf')})")
+    _link_calls[0] = 0
+    result4 = run_pipeline(_links_session(), MODEL, [], {}, emit=_emit)
+    _check("repeat run returned no error", "error" not in result4, detail=str(result4.get("error")))
+    _check("repeat run made 0 link calls", _link_calls[0] == 0, detail=str(_link_calls[0]))
+finally:
+    sales_links._call_claude = _real_link_call
 print(f"\nelapsed: {time.time() - t0:.0f}s")
 print(f"API spend this run: {USAGE['calls']} calls, in {USAGE['input']:,}, out {USAGE['output']:,}, "
       f"cache read {USAGE['cache_read']:,}, ~US${USAGE['usd']:.2f}")

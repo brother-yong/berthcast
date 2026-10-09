@@ -18,6 +18,7 @@ from .sales_links import (
     MAX_SHOWN_NAME_CHARS,
     apply_links,
     groups_from_alias_map,
+    link_new_lines,
     note_names,
     pick_code_column,
 )
@@ -331,7 +332,18 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
         try:
             _code_col = pick_code_column(_cols, inventory)
             _saved = dict(_link_state.get("lines") or {})
-            # 018-3 adds the AI step here
+            # Lines with no saved entry go to the AI once; the answers are saved
+            # for later runs and applied in this one.
+            if _code_col:
+                try:
+                    _ai = link_new_lines(org_name_inv, session_id, inventory, _code_col, _desc_col,
+                                         _uom_col, _cat_col, _qty_col, sales_by_item, _saved,
+                                         progress_emit)
+                    for _k, _e in _ai["entries"].items():
+                        _saved.setdefault(_k, _e)
+                    link_notes.extend(_ai["notes"])
+                except Exception as e:
+                    link_notes.append(f"AI linking skipped this run: {type(e).__name__}.")
             link_ctx = apply_links(_saved, inventory, _code_col, _desc_col,
                                    list(sales_by_item), alias_map)
             alias_map = link_ctx["alias_map"]

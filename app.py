@@ -1532,8 +1532,13 @@ def admin_sales_links():
             db.set_sales_links_enabled(org, request.form.get("enabled") == "1", by)
             flash("Sales links setting saved.", "success")
         elif action == "undo":
-            if db.undo_sales_links(org, by):
+            # A POST with no hash is refused like a stale one: "" never matches.
+            undone = db.undo_sales_links(org, by, request.form.get("links_hash", ""))
+            if undone:
                 flash("Previous links restored.", "success")
+            elif undone is None:
+                flash("Links changed since this page loaded, so nothing was undone. "
+                      "Check the list and try again.", "error")
             else:
                 flash("Nothing to undo.", "error")
         elif action == "set":
@@ -1556,10 +1561,17 @@ def admin_sales_links():
                 flash("Enter 1 to 20 item codes, each no longer than 40 characters.", "error")
                 return redirect(url_for("admin_sales_links", org=org))
             sid = db.latest_complete_session_id(org)
-            found, col = links.stock_codes(sid) if sid else ({}, None)
+            shared = set()
+            found, col = links.stock_codes(sid, shared) if sid else ({}, None)
             if not col:
                 flash("This company's latest stock file has no item code column, "
                       "so links cannot be set by hand.", "error")
+                return redirect(url_for("admin_sales_links", org=org))
+            on_two = [code for code in codes if code in shared]
+            if on_two:
+                extra = f" (+{len(on_two) - 5} more)" if len(on_two) > 5 else ""
+                flash("On more than one item in the latest stock file, so it cannot be linked: "
+                      + ", ".join(on_two[:5]) + extra, "error")
                 return redirect(url_for("admin_sales_links", org=org))
             missing = [code for code in codes if code not in found]
             if missing:
@@ -1681,8 +1693,27 @@ def admin_sales_links():
             })
         rows.sort(key=lambda row: (2 if row["by"] == "admin" else int(row["sure"]),
                                    row["line"].casefold()))
+    # Kill-switch evidence: what staff did with AI-linked orders lately.
+    ai_counts = {"total": 0, "dismissed": 0, "approved": 0, "edited": 0}
+    if state:
+        for raw in db.recent_complete_recommendations(org, 2):
+            try:
+                recs = json.loads(raw or "[]")
+            except (TypeError, ValueError, RecursionError):
+                continue
+            for rec in recs if isinstance(recs, list) else ():
+                link = rec.get("sales_link") if isinstance(rec, dict) else None
+                if not isinstance(link, dict) or "error" in rec or link.get("ai") is not True:
+                    continue
+                edited = rec.get("edited_quantity")
+                edited = "" if edited is None else str(edited).strip()
+                ai_counts["total"] += 1
+                ai_counts["dismissed"] += bool(rec.get("dismissed"))
+                ai_counts["approved"] += bool(rec.get("approved"))
+                ai_counts["edited"] += bool(edited) and edited != str(rec.get("suggested_quantity", "")).strip()
     return render_template("admin_sales_links.html", orgs=orgs, org=org, state=state,
-                           rows=rows, counts=counts, unreadable=unreadable)
+                           rows=rows, counts=counts, unreadable=unreadable, ai_counts=ai_counts,
+                           links_hash=db.sales_links_hash(state["lines"]) if state else "")
 
 
 @app.route("/settings", methods=["GET", "POST"])

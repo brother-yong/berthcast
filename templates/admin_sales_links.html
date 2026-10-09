@@ -33,7 +33,7 @@
     <div class="card-title">{{ org }}</div>
     <p><strong>Links are {{ 'ON' if state.enabled else 'OFF' }} for this company.</strong></p>
     <p class="links-help">When links are on, this company's analysis runs use the saved links: one order per multi-brand line with each item's free stock, and a warning on links the AI was unsure about.</p>
-    <p class="links-help">The AI does not link new sales lines yet (next release), so until then links only come from this page.</p>
+    <p class="links-help">When links are on, each new sales-sheet line is linked by the AI once, on its next analysis run (that run takes a minute or two longer), and saved here. Fix or remove any link below.</p>
     {% if state.updated_by %}<p class="links-help">Last changed by {{ state.updated_by }} on {{ state.updated_at or 'unknown date' }}</p>{% endif %}
     <div class="links-actions">
       <form method="post" action="{{ url_for('admin_sales_links') }}">
@@ -48,10 +48,16 @@
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="org" value="{{ org }}">
         <input type="hidden" name="action" value="undo">
+        <input type="hidden" name="links_hash" value="{{ links_hash }}">
         <button class="btn btn-sm" type="submit">Undo last link change</button>
       </form>
       {% endif %}
     </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">AI-linked orders</div>
+    <p class="links-help">Last 2 runs: {{ ai_counts.total }} AI-linked orders, {{ ai_counts.dismissed }} dismissed, {{ ai_counts.edited }} quantity changed. Kill switch: more than 1 in 5 rejected means switch off.</p>
   </div>
 
   <div class="card">
