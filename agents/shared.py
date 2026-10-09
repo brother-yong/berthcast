@@ -994,7 +994,15 @@ def wrap_untrusted(text) -> str:
     containing '</untrusted_data>' cannot close the fence early and smuggle
     the rest of itself outside the guard.
     """
-    cleaned = _UNTRUSTED_TAG_RE.sub("", str(text or ""))
+    cleaned = str(text or "")
+    # Repeat until stable: '</untrus</untrusted_data>ted_data>' loses its inner
+    # tag on one pass and the halves rejoin into a real closing tag. Each pass
+    # that changes anything shortens the text, so the loop always ends.
+    while True:
+        stripped = _UNTRUSTED_TAG_RE.sub("", cleaned)
+        if stripped == cleaned:
+            break
+        cleaned = stripped
     return f"<untrusted_data>\n{cleaned}\n</untrusted_data>"
 
 
