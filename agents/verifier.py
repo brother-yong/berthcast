@@ -19,7 +19,7 @@ Two hard principles:
 from .shared import normalise_match_key
 
 
-def expected_status(months_supply, lt_months, stock, total_sold):
+def expected_status(months_supply, lt_months, stock, total_sold, sheet_lt_months=None):
     """The status the prompt's own rules dictate, or None where the rules
     leave room for judgment.
 
@@ -33,7 +33,11 @@ def expected_status(months_supply, lt_months, stock, total_sold):
     total_sold is None when the sales file did not cover the item at all
     (missing data, not a real zero) — the prompt mandates REVIEW at zero stock
     and HEALTHY otherwise, never a demand judgment. months_supply / lt_months
-    are the 1-decimal figures printed into the prompt (None when absent)."""
+    are the 1-decimal figures printed into the prompt (None when absent).
+
+    sheet_lt_months is the 1-decimal sales-sheet lead time printed into the
+    prompt (None when absent). Supply below it is CRITICAL whatever the bands
+    say, and it never moves the LOW/HEALTHY thresholds."""
     if stock is None:
         # Stock cell was blank/junk/negative — missing data, not a quantity.
         # With sales: worth a human look (LOW). Without: no evidence of trouble.
@@ -48,6 +52,10 @@ def expected_status(months_supply, lt_months, stock, total_sold):
         return "CRITICAL"
     if months_supply is None:
         return None  # no velocity: DEAD-vs-new/seasonal is Claude's judgment
+    # Stock that runs out before a sales-sheet delivery could land is CRITICAL
+    # whatever the bands below say. Narrow on purpose: it never moves LOW/HEALTHY.
+    if sheet_lt_months is not None and months_supply < sheet_lt_months:
+        return "CRITICAL"
     lo = lt_months if lt_months else 1.0  # fixed 1/3-month thresholds when no lead time
     if months_supply < lo:
         return "CRITICAL"
@@ -60,7 +68,8 @@ def verify_inventory_report(report, inputs_by_key):
     """Correct provably-wrong fields in the health report, in place.
 
     inputs_by_key: normalise_match_key(item name) -> {"months_supply",
-    "lt_months", "stock", "total_sold"} as captured at prompt-build time.
+    "lt_months", "stock", "total_sold", "sheet_lt_months"} as captured at
+    prompt-build time.
     Items the map doesn't cover are left untouched (never guess).
 
     Returns (status_fixes, dos_fixes, spoilage_fixes)."""
@@ -75,7 +84,8 @@ def verify_inventory_report(report, inputs_by_key):
         cur = str(r.get("status") or "").strip().upper()
         clash = inp.get("unit_clash")
         exp = "REVIEW" if clash else expected_status(inp.get("months_supply"), inp.get("lt_months"),
-                                                    inp.get("stock"), inp.get("total_sold"))
+                                                    inp.get("stock"), inp.get("total_sold"),
+                                                    inp.get("sheet_lt_months"))
         sold = inp.get("total_sold")
         if not clash and cur == "DEAD" and sold is not None and sold == 0:
             status = "DEAD"  # legitimate judgment: has sales data, zero sold

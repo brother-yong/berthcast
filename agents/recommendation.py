@@ -36,6 +36,10 @@ from .sales_links import MAX_KEY_CHARS, MAX_MEMBERS, MAX_SHOWN_NAME_CHARS
 # About one week of the old rate still counts as near zero after sales stop.
 _STOPPED_NEAR_ZERO_MONTHS = 0.25
 
+# Python's reason when it overrules a wait-and-see action (see the "order"
+# branch below). No day figures: the card already shows them (prompt rule 3).
+_COVER_SHORT_REASON = "Free stock runs out before a new delivery could arrive, so order now rather than wait."
+
 # Keys only Python (the order maths) or staff (approve, edit, note, outcome)
 # write on a rec. A model reply carrying one is dropped, never trusted.
 _NOT_MODEL_KEYS = frozenset({
@@ -532,7 +536,7 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
         # While we have the Python figure to hand, sanity-check the model's
         # suggested quantity against it so a hallucinated or missing number can
         # never reach the printed PO sheet.
-        qty_corrections = 0
+        qty_corrections = action_fixes = 0
         outcome_rows = []
         for rec in recs:
             if isinstance(rec, dict):
@@ -552,6 +556,22 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
                     elif calc and calc["state"] == "order":
                         corrected = parse_quantity(rec.get("suggested_quantity")) != calc["order"]
                         rec["suggested_quantity"] = f"{calc['order']}{basis['uom']}"
+                        # A wait-and-see action beside an order Python sized
+                        # because free stock runs out before a delivery could land
+                        # contradicts its own number. Only the lead the card shows
+                        # counts (sheet, supplier or type default), never the silent
+                        # 2-month fallback used when none is known. Stopped and
+                        # irregular sales get Python's own "check/verify before
+                        # ordering" flag on a shaky average, so that wait-and-see
+                        # stays the model's call.
+                        _pat = pattern_stats.get(normalise_match_key(str(rec.get("item") or "")))
+                        if (basis["lt"] and not calc["stopped_since"]
+                                and not (_pat and _pat["pattern"] == "lumpy")
+                                and calc["position"] / basis["avg"] * 30 < basis["lt"]
+                                and str(rec.get("recommended_action") or "").strip().upper() in ("HOLD", "MONITOR")):
+                            rec["recommended_action"] = "REORDER"
+                            rec["reason"] = _COVER_SHORT_REASON
+                            action_fixes += 1
                     else:
                         clean, corrected = sanitize_suggested_quantity(
                             rec.get("suggested_quantity"), basis["pre"], basis["uom"])
@@ -586,15 +606,18 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
                 if corrected:
                     rec["_quantity_corrected"] = True
                     qty_corrections += 1
+                # Text or NULL only: one junk-typed model field would fail the
+                # bulk insert and lose every stub in the run.
+                _txt = lambda key: None if rec.get(key, "") is None else str(rec.get(key, ""))  # noqa: E731
                 outcome_rows.append({
                     "session_id": session_id,
-                    "item": rec.get("item", ""),
-                    "action_recommended": rec.get("recommended_action", ""),
+                    "item": _txt("item"),
+                    "action_recommended": _txt("recommended_action"),
                     "predicted_loss_no_act": 0,
                     "predicted_cost_act": 0,
                     "net_benefit": 0,
-                    "confidence": rec.get("confidence", ""),
-                    "supplier": rec.get("supplier", ""),
+                    "confidence": _txt("confidence"),
+                    "supplier": _txt("supplier"),
                 })
         # One transaction for the whole run's outcome stubs (was one
         # connection+commit per rec). Non-fatal: the analysis must never
@@ -608,6 +631,9 @@ def run_recommendation_agent(session_id: int, model: str, inventory_report: list
             _emit(progress_emit,
                   f"Safety check: adjusted {qty_corrections} suggested "
                   f"quantit{'ies' if qty_corrections != 1 else 'y'} that were missing or out of range")
+        if action_fixes:
+            _emit(progress_emit, f"Safety check: changed {action_fixes} wait-and-see action(s) to REORDER "
+                                 "because free stock runs out before a delivery could arrive")
 
         pat_counts = apply_sales_pattern_flags(recs, pattern_stats)
         _n_pat = sum(pat_counts.values())

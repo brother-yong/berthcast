@@ -809,6 +809,11 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
             lt_tag = f" | Lead time: {lt_days}d ({lt_months}mo)"
         else:
             lt_tag = ""
+        # The sales sheet's own lead time (it already sizes the order) feeds one
+        # narrow rule: cover shorter than it is CRITICAL. Its own label, so the
+        # model never reads it as "Lead time" and shifts the LOW band too.
+        sheet_lt_months = round(sheet_lt / 30, 1) if sheet_lt else None
+        sheet_tag = f" | Sales-sheet lead time: {sheet_lt}d ({sheet_lt_months}mo)" if sheet_lt else ""
 
         sold_txt = ("no sales data in upload" if no_sales_data
                     else str(round(total_sold)))
@@ -825,6 +830,7 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
             "unit_clash":    _clash_key,
             # round() to match the displayed figure — Claude judges what it sees
             "total_sold":    None if no_sales_data else round(total_sold),
+            "sheet_lt_months": sheet_lt_months,
         }
         # Unreadable rows tell Claude plainly that the cell is missing data,
         # never the raw junk value — printing "-5" or "N/A" here is exactly
@@ -833,7 +839,7 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
                      if stock_unreadable else qty_raw)
         inv_summary_lines.append(
             f"Item: {canonical} | Category: {cat} | Stock: {stock_tag} | "
-            f"Total sold ({months_of_data}mo): {sold_txt}{revenue_tag}{supply_tag}{lt_tag}"
+            f"Total sold ({months_of_data}mo): {sold_txt}{revenue_tag}{supply_tag}{lt_tag}{sheet_tag}"
         )
 
     if link_ctx:
@@ -903,7 +909,8 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
         + UNTRUSTED_GUARD + "\n\n"
         "Each item line includes: item name, category, current stock, total units sold over N months, "
         "optional revenue, 'Months of supply' (stock ÷ avg monthly sales), and optionally "
-        "'Lead time' (days and months the supplier takes to deliver).\n\n"
+        "'Lead time' (days and months the supplier takes to deliver) and 'Sales-sheet lead time' "
+        "(the delivery time stated on the sales sheet).\n\n"
         "For each item, determine:\n"
         "1. Status: HEALTHY / LOW / CRITICAL / DEAD / REVIEW\n"
         "2. Spoilage risk: HIGH / MEDIUM / LOW / NONE\n"
@@ -920,6 +927,10 @@ def run_inventory_agent(session_id: int, model: str, confirmed_groups: list, con
         "  - CRITICAL: Months of supply < 1, OR total sold > 0 AND stock = 0.\n"
         "  - LOW: Months of supply between 1 and 3.\n"
         "  - HEALTHY: Months of supply > 3.\n"
+        "SALES-SHEET LEAD TIME is a separate field, not 'Lead time', and adds ONE rule:\n"
+        "  - CRITICAL also when Months of supply < the Sales-sheet lead time in months "
+        "(stock runs out before a new delivery could arrive).\n"
+        "  - Otherwise it changes nothing: LOW and HEALTHY still use the thresholds above.\n"
         "DEAD rules — require sales EVIDENCE, never absence of data:\n"
         "  - DEAD: the item HAS sales data and total sold = 0 (and nothing suggests it is "
         "new or seasonal). Once DEAD, set spoilage_risk = NONE.\n"
