@@ -520,7 +520,10 @@ def link_new_lines(org_name, session_id, rows, code_col, desc_col, uom_col, cat_
         raw_code, raw_desc = row.get(code_col), row.get(desc_col)
         code = str(raw_code).strip() if raw_code is not None else ""
         desc = str(raw_desc).strip() if raw_desc is not None else ""
-        if code not in names or code in on_two or not desc or len(desc) > 200:
+        # A name with no letters or digits has no item key: apply_links can
+        # never link it, so the AI is not offered it.
+        if (code not in names or code in on_two or not desc or len(desc) > 200
+                or not normalise_match_key(desc)):
             continue
         on_hand = _to_num(row.get(qty_col), None) if qty_col else None
         on_hand = f"{on_hand:g}" if on_hand is not None and math.isfinite(on_hand) else "unknown"
@@ -588,11 +591,26 @@ def link_new_lines(org_name, session_id, rows, code_col, desc_col, uom_col, cat_
     # Python checks (plan 018 section 5.1). Model text is untrusted: a code
     # counts only by exact membership in this upload's index, and nothing the
     # model writes reaches a quantity, a unit or a name shown to staff.
+    # apply_links treats an item as its name key and one item can carry two
+    # codes (one per warehouse), so "saved wins" and the contested rule below
+    # compare items, not code text: otherwise a second code takes the item off
+    # a saved line and the family stops counting that brand's stock.
+    def item(code):
+        return normalise_match_key(index[code])
+
+    # The items saved lines hold in THIS upload, read by apply_links itself so
+    # this check never drifts from how the run applies them (codes, keys of
+    # gone or shared codes, lines absent from this upload).
+    saved_items = set()
+    for family in apply_links(saved_lines, rows, code_col, desc_col, list(sales_by_item), {})["families"].values():
+        saved_items.update(family["member_keys"])
+    # apply_links also strips items off saved lines (one on two saved lines, a
+    # row named like another sales line). A saved code still claims its item,
+    # so a new line never takes it and later knocks it off a saved family.
     in_use = set()
     for raw in sales_by_item:
         line = str(raw).strip() if raw is not None else ""
         in_use.update((normalise_match_key(line), _noted_head_key(line)))
-    saved_codes = set()
     for key, entry in saved_lines.items():
         # A saved line absent from this upload must not strip a respelled line's codes.
         if key not in in_use:
@@ -600,8 +618,8 @@ def link_new_lines(org_name, session_id, rows, code_col, desc_col, uom_col, cat_
         members = entry.get("members") if isinstance(entry, dict) else None
         for member in members if isinstance(members, list) else ():
             code = member.get("code") if isinstance(member, dict) else None
-            if isinstance(code, str):
-                saved_codes.add(code.strip())
+            if isinstance(code, str) and code.strip() in index:
+                saved_items.add(item(code.strip()))
     picks, ignored, not_in_file, on_saved = {}, 0, 0, 0
     for batch, arr in answered:
         seen = set()
@@ -634,21 +652,21 @@ def link_new_lines(org_name, session_id, rows, code_col, desc_col, uom_col, cat_
                 picks[key].update(codes=[], why="over the item cap", over=True)
     unanswered = [line for batch, _arr in answered for key, (line, _raw) in batch if key not in picks]
     for pick in picks.values():
-        kept = [code for code in pick["codes"] if code not in saved_codes]
+        kept = [code for code in pick["codes"] if item(code) not in saved_items]
         on_saved += len(pick["codes"]) - len(kept)
         pick["codes"] = kept
     claims = {}
     for key, pick in picks.items():
         for code in pick["codes"]:
-            claims.setdefault(code, []).append(key)
-    contested = [code for code, keys in claims.items() if len(keys) > 1]
-    for code in contested:
-        keys = sorted(claims[code], key=lambda k: _CONF_RANK[picks[k]["conf"]], reverse=True)
+            claims.setdefault(item(code), {})[key] = None
+    contested = [ik for ik, keys in claims.items() if len(keys) > 1]
+    for ik in contested:
+        keys = sorted(claims[ik], key=lambda k: _CONF_RANK[picks[k]["conf"]], reverse=True)
         top = _CONF_RANK[picks[keys[0]]["conf"]]
         winner = keys[0] if _CONF_RANK[picks[keys[1]]["conf"]] < top else None
         for key in keys:
             if key != winner:
-                picks[key]["codes"].remove(code)
+                picks[key]["codes"] = [c for c in picks[key]["codes"] if item(c) != ik]
 
     entries, unsure, no_match, removed, over = {}, 0, [], [], []
     for key, pick in picks.items():
