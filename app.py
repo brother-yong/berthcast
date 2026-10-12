@@ -1583,10 +1583,23 @@ def admin_sales_links():
             entry = links.make_entry(line, members, "high", "admin")
             refusal = []
 
+            def item(code, saved_key=None):
+                # apply_links treats an item as its name key and one item can
+                # carry two codes, so ownership compares items, not code text:
+                # an item on two lines is dropped from both. Like apply_links,
+                # a code in the stock file names its item; otherwise the saved key.
+                # ponytail: a shared placeholder code falls back to its saved key
+                # too, which can only over-refuse (safe), never let a drop through.
+                own = normalise_match_key(found[code]) if code in found and code not in shared else ""
+                return own or (saved_key if isinstance(saved_key, str) else "")
+
             def set_line(lines):
                 # Check ownership while holding the write lock, so concurrent
-                # corrections cannot claim the same code on different lines.
-                wanted = set(codes)
+                # corrections cannot claim the same item on different lines.
+                wanted = {}
+                for code in codes:
+                    wanted.setdefault(item(code), code)
+                wanted.pop("", None)
                 for other_key, other in lines.items():
                     if other_key == key or not isinstance(other, dict):
                         continue
@@ -1594,11 +1607,18 @@ def admin_sales_links():
                     if not isinstance(other_members, list):
                         continue
                     for member in other_members:
-                        code = member.get("code") if isinstance(member, dict) else None
-                        if isinstance(code, str) and code in wanted:
+                        if not isinstance(member, dict):
+                            continue
+                        code = member.get("code")
+                        code = code.strip() if isinstance(code, str) else ""
+                        # The same code text is refused too, even when its stock
+                        # name has no item key (a "-----" row) and so no item yet.
+                        mine = wanted.get(item(code, member.get("key"))) or (code if code in codes else None)
+                        if mine:
                             label = other.get("line")
                             label = label[:links.MAX_LINE_CHARS] if isinstance(label, str) else "unreadable line"
-                            refusal.append(f"Already on another line: {code} ({label})")
+                            same = f", same item as {code[:links.MAX_CODE_CHARS]}" if code and code != mine else ""
+                            refusal.append(f"Already on another line: {mine} ({label}{same})")
                             return False
                 if key not in lines and len(lines) >= links.MAX_LINES:
                     refusal.append("Too many links saved for this company; nothing was changed.")
