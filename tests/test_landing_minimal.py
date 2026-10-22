@@ -83,7 +83,15 @@ page.feed(html)
 
 _check(page.headlines == 1 and "cash with an expiry date" in html, "one original hero headline")
 _check("Confirm suggested matches" in html, "item matching requires human confirmation")
-_check("suggests order quantities for you to review" in html, "order quantities presented as reviewable suggestions")
+_check("suggests order quantities for you to review, with nothing to install." in html,
+       "order quantities presented as reviewable suggestions with no-install reassurance in intro")
+_check("Excel or CSV. Nothing to install." not in html, "staccato helper line under hero CTA removed")
+_check("Sample order sheet, demo data" in html, "sample order sheet carries explicit demo-data label")
+_check("BROOKVALE" in html and "NORDVIK" in html, "sample order sheet uses invented demo brands")
+_check("#D4A537" in html and "#CE956E" not in html and "206,149,110" not in html and "#DFA882" not in html,
+       "brass-gold palette replaces copper and hardcoded copper values")
+_check("decimal-leading-zero" not in html and "counter(bc-e-step)" in html,
+       "workflow steps use plain 1 2 3 numbering instead of leading-zero counter")
 _check("Promised lead times measured against what was actually delivered" not in html,
        "unsupported supplier delivery claim removed")
 _check(html.count("Discuss a pilot") == 2, "consistent pilot action in hero and closing section")

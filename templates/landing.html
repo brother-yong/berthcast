@@ -54,10 +54,10 @@
 <style>
 html{scroll-behavior:auto}
 body{margin:0;background:#191A17}
-#landing{--bc-ground:#191A17;--bc-surface:#252621;--bc-gold:#CE956E;--bc-ivory:#EAE2D2;--bc-muted:#BAB5A8;--bc-rule:rgba(234,226,210,.18);background:var(--bc-ground);color:var(--bc-ivory);font:400 16px/1.65 Inter,Arial,sans-serif;container-type:inline-size;isolation:isolate;overflow-wrap:break-word;color-scheme:dark}
+#landing{--bc-ground:#191A17;--bc-surface:#252621;--bc-gold:#D4A537;--bc-ivory:#EAE2D2;--bc-muted:#BAB5A8;--bc-rule:rgba(234,226,210,.18);background:var(--bc-ground);color:var(--bc-ivory);font:400 16px/1.65 Inter,Arial,sans-serif;container-type:inline-size;isolation:isolate;overflow-wrap:break-word;color-scheme:dark}
 #landing *{box-sizing:border-box}
-#landing :is(h1,h2,h3,p,ol){margin:0}
-#landing :is(h1,h2,h3){color:var(--bc-ivory);font-family:Newsreader,Georgia,serif;font-style:normal;font-weight:400;letter-spacing:-.02em}
+#landing :is(h1,h2,h3,p,ol,figure,figcaption){margin:0}
+#landing :is(h1,h2){color:var(--bc-ivory);font-family:Newsreader,Georgia,serif;font-style:normal;font-weight:400;letter-spacing:-.02em}
 #landing a{color:inherit;text-decoration:none;text-underline-offset:5px}
 #landing a:focus-visible{outline:2px solid var(--bc-gold);outline-offset:5px}
 #landing ::selection{background:var(--bc-gold);color:var(--bc-ground)}
@@ -69,30 +69,41 @@ body{margin:0;background:#191A17}
 #landing .bc-e-navlinks{display:flex;align-items:center;gap:27px;font-size:12px;color:var(--bc-muted)}
 #landing .bc-e-navlinks a{padding:9px 0;white-space:nowrap}
 #landing .bc-e-navlinks a:hover{color:var(--bc-ivory)}
-#landing .bc-e-navlinks .bc-e-signin{color:var(--bc-ivory);padding:8px 14px;border:1px solid rgba(206,149,110,.37);border-radius:4px}
+#landing .bc-e-navlinks .bc-e-signin{color:var(--bc-ivory);padding:8px 14px;border:1px solid rgba(212,165,55,.42);border-radius:4px}
 #landing .bc-e-hero{padding:34px 5.5% 67px}
 #landing .bc-e-audience{font-size:14px;line-height:1.6;color:var(--bc-muted)}
 #landing h1{font-size:clamp(44px,6.35cqi,76px);font-weight:500;line-height:1.01;max-width:8.6em;letter-spacing:-.02em;margin-top:16px;text-wrap:pretty}
 #landing .bc-e-intro{font-size:17px;line-height:1.65;max-width:34em;color:var(--bc-muted);margin-top:28px}
 #landing .bc-e-primary{display:inline-flex;justify-content:center;align-items:center;min-height:46px;padding:12px 22px;border-radius:4px;background:var(--bc-gold);color:var(--bc-ground);font-size:13px;font-weight:600;transition:background .18s ease-out}
-#landing .bc-e-primary:hover{background:#DFA882}
+#landing .bc-e-primary:hover{background:#E0B84F}
 #landing .bc-e-hero .bc-e-primary{margin-top:29px}
-#landing .bc-e-helper{font-size:12px;line-height:1.6;color:var(--bc-muted);margin-top:14px}
 #landing .bc-e-body{padding:0 5.5%}
-#landing .bc-e-output{display:grid;grid-template-columns:minmax(0,.92fr) minmax(0,1.5fr);gap:70px;padding:48px 0;border-top:1px solid var(--bc-rule);align-items:start}
-#landing .bc-e-output h2{font-size:clamp(32px,3.8cqi,45px);line-height:1.09;max-width:12em}
-#landing .bc-e-output p{font-size:16px;line-height:1.8;color:var(--bc-muted);max-width:65ch;padding-top:3px}
-#landing .bc-e-workflow{border-top:1px solid var(--bc-rule);display:grid;grid-template-columns:minmax(0,.92fr) minmax(0,1.5fr);gap:70px;padding:60px 0 66px}
-#landing .bc-e-workflow h2{font-size:43px;line-height:1.07}
-#landing .bc-e-workflow-intro{font-size:16px;line-height:1.65;color:var(--bc-muted);margin-top:15px;max-width:20em}
-#landing .bc-e-steps{padding:0;list-style:none;counter-reset:bc-e-step}
-#landing .bc-e-step{display:grid;grid-template-columns:27px minmax(0,1fr);column-gap:20px;counter-increment:bc-e-step;padding:0 0 28px}
-#landing .bc-e-step + .bc-e-step{border-top:1px solid var(--bc-rule);padding-top:27px}
-#landing .bc-e-step:last-child{padding-bottom:0}
-#landing .bc-e-step::before{content:counter(bc-e-step,decimal-leading-zero);font-size:12px;color:var(--bc-gold);line-height:1.5;padding-top:5px}
-#landing .bc-e-step h3{font-size:27px;line-height:1.15;letter-spacing:-.015em}
-#landing .bc-e-step p{margin-top:10px;font-size:14px;line-height:1.8;color:var(--bc-muted);max-width:60ch}
-#landing .bc-e-close{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:65px;align-items:center;padding:55px 5.5% 58px;border-top:1px solid rgba(206,149,110,.3);background:var(--bc-surface)}
+#landing .bc-e-output{display:grid;grid-template-columns:minmax(0,.92fr) minmax(0,1.35fr);gap:56px;padding:56px 0;border-top:1px solid var(--bc-rule);align-items:start}
+#landing .bc-e-outblock + .bc-e-outblock{margin-top:34px;padding-top:30px;border-top:1px solid var(--bc-rule)}
+#landing .bc-e-output h2{font-size:clamp(30px,3.5cqi,42px);line-height:1.09;max-width:13em}
+#landing .bc-e-output p{font-size:16px;line-height:1.75;color:var(--bc-muted);max-width:52ch;margin-top:12px}
+#landing .bc-e-sheet-wrap{min-width:0}
+#landing .bc-e-sheet-cap{font-size:12px;line-height:1.5;color:var(--bc-muted);margin-bottom:10px}
+#landing .bc-e-sheet{background:#fff;color:#111;font:400 12px/1.45 Arial,sans-serif;padding:18px 20px;border-radius:3px;border:1px solid #d1d5db;box-shadow:0 12px 32px rgba(0,0,0,.35);color-scheme:light}
+#landing .bc-po-title{font-size:15px;font-weight:700;color:#111;margin-bottom:3px}
+#landing .bc-po-sub{color:#666;font-size:11px;margin-bottom:12px}
+#landing .bc-po-table{width:100%;border-collapse:collapse}
+#landing .bc-po-table th{background:#f3f4f6;color:#111;padding:7px 8px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.4px;border-bottom:2px solid #ddd}
+#landing .bc-po-table td{padding:8px;border-bottom:1px solid #e5e7eb;vertical-align:top;color:#111;font-size:12px}
+#landing .bc-po-group td{background:#eef2ff;color:#3730a3;font-weight:700;text-transform:uppercase;letter-spacing:.4px;font-size:10px;border-bottom:2px solid #c7d2fe;padding:10px 8px 7px}
+#landing .bc-po-note{color:#6b7280;margin-top:2px;font-size:11px}
+#landing .bc-po-tick{display:inline-block;width:13px;height:13px;border:1.5px solid #444;border-radius:2px;margin-top:2px}
+#landing .bc-po-asap{color:#b91c1c;font-weight:700}
+#landing .bc-e-workflow{border-top:1px solid var(--bc-rule);padding:56px 0 64px}
+#landing .bc-e-workflow-head{display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:10px 32px;margin-bottom:36px}
+#landing .bc-e-workflow h2{font-size:clamp(32px,3.8cqi,43px);line-height:1.07}
+#landing .bc-e-workflow-intro{font-size:16px;line-height:1.65;color:var(--bc-muted)}
+#landing .bc-e-steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:36px;padding:0;list-style:none;counter-reset:bc-e-step}
+#landing .bc-e-step{display:grid;grid-template-columns:20px minmax(0,1fr);column-gap:12px;counter-increment:bc-e-step;align-items:start}
+#landing .bc-e-step::before{content:counter(bc-e-step);font-size:14px;font-weight:600;color:var(--bc-gold);line-height:1.45}
+#landing .bc-e-step h3{color:var(--bc-ivory);font-family:Inter,Arial,sans-serif;font-size:18px;font-weight:600;line-height:1.3;letter-spacing:-.01em}
+#landing .bc-e-step p{margin-top:8px;font-size:14px;line-height:1.75;color:var(--bc-muted);max-width:42ch}
+#landing .bc-e-close{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:65px;align-items:center;padding:55px 5.5% 58px;border-top:1px solid rgba(212,165,55,.32);background:var(--bc-surface)}
 #landing .bc-e-close h2{font-size:clamp(38px,4.6cqi,56px);line-height:1.06;max-width:11em}
 #landing .bc-e-close p{font-size:16px;line-height:1.75;color:var(--bc-muted);max-width:35em}
 #landing .bc-e-close .bc-e-primary{margin-top:26px}
@@ -104,10 +115,12 @@ body{margin:0;background:#191A17}
  #landing .bc-e-navlinks .bc-e-secondarynav{display:none}
  #landing h1{font-size:clamp(44px,7.7cqi,63px);max-width:8.65em}
  #landing .bc-e-intro{font-size:16px;max-width:32em}
- #landing .bc-e-output,#landing .bc-e-workflow{column-gap:35px;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr)}
+ #landing .bc-e-output{grid-template-columns:1fr;gap:32px}
  #landing .bc-e-output h2{font-size:33px}
  #landing .bc-e-output p{font-size:15px}
  #landing .bc-e-workflow h2{font-size:36px}
+ #landing .bc-e-steps{grid-template-columns:1fr;gap:24px}
+ #landing .bc-e-step + .bc-e-step{border-top:1px solid var(--bc-rule);padding-top:22px}
  #landing .bc-e-close{gap:34px}
  #landing .bc-e-close p{font-size:15px}
 }
@@ -122,14 +135,15 @@ body{margin:0;background:#191A17}
  #landing .bc-e-photo{object-position:64% center}
  #landing .bc-e-veil{background:linear-gradient(90deg,rgba(25,26,23,.96),rgba(25,26,23,.69)),linear-gradient(0deg,#191A17,transparent 38%)}
  #landing .bc-e-intro{margin-top:25px;line-height:1.75}
- #landing .bc-e-output{grid-template-columns:1fr;gap:18px;padding:35px 0}
- #landing .bc-e-output h2{font-size:35px;max-width:11em}
- #landing .bc-e-output p{padding:0}
- #landing .bc-e-workflow{grid-template-columns:1fr;gap:31px;padding:39px 0 42px}
+ #landing .bc-e-output{gap:26px;padding:35px 0}
+ #landing .bc-e-outblock + .bc-e-outblock{margin-top:24px;padding-top:22px}
+ #landing .bc-e-output h2{font-size:32px;max-width:11em}
+ #landing .bc-e-sheet{padding:12px}
+ #landing .bc-po-col-opt{display:none}
+ #landing .bc-e-workflow{padding:39px 0 42px}
+ #landing .bc-e-workflow-head{margin-bottom:24px}
  #landing .bc-e-workflow h2{font-size:35px}
- #landing .bc-e-workflow-intro{margin-top:12px}
- #landing .bc-e-step{column-gap:13px}
- #landing .bc-e-step h3{font-size:26px}
+ #landing .bc-e-step{column-gap:10px}
  #landing .bc-e-step p{font-size:14px}
  #landing .bc-e-close{grid-template-columns:1fr;gap:22px;padding-top:39px;padding-bottom:42px}
  #landing .bc-e-close h2{font-size:39px;max-width:10em}
@@ -158,23 +172,109 @@ body{margin:0;background:#191A17}
   <section class="bc-e-hero" aria-labelledby="bc-e-title">
    <p class="bc-e-audience" id="who">For food and beverage distributors</p>
    <h1 id="bc-e-title">Every stockout is a lost sale. Every over-order is cash with an expiry date.</h1>
-   <p class="bc-e-intro">berthcast reads your inventory, sales and purchase-order exports, flags stockout risks and overstock, and suggests order quantities for you to review.</p>
+   <p class="bc-e-intro">berthcast reads your inventory, sales and purchase-order exports, flags stockout risks and overstock, and suggests order quantities for you to review, with nothing to install.</p>
    <a class="bc-e-primary" href="{{ url_for('contact') }}">Discuss a pilot</a>
-   <p class="bc-e-helper">Excel or CSV. Nothing to install.</p>
   </section>
  </div>
  <main>
   <div class="bc-e-body">
    <section class="bc-e-output" id="what" aria-labelledby="bc-e-stock">
-    <h2 id="bc-e-stock">See which stock needs attention.</h2>
-    <p>The report flags items at risk of running out and items with excess stock, with a reason for each assessment.</p>
-   </section>
-   <section class="bc-e-output" aria-labelledby="bc-e-orders">
-    <h2 id="bc-e-orders">Suggested orders, grouped by supplier.</h2>
-    <p>Suggested quantities account for sales, supplier lead times and stock already on order. Adjust the quantities, approve the order and print it by supplier.</p>
+    <div class="bc-e-outcopy">
+     <div class="bc-e-outblock">
+      <h2 id="bc-e-stock">See which stock needs attention.</h2>
+      <p>The report flags items at risk of running out and items with excess stock, with a reason for each assessment.</p>
+     </div>
+     <div class="bc-e-outblock">
+      <h2 id="bc-e-orders">Suggested orders, grouped by supplier.</h2>
+      <p>Suggested quantities account for sales, supplier lead times and stock already on order. Adjust the quantities, approve the order and print it by supplier.</p>
+     </div>
+    </div>
+    <figure class="bc-e-sheet-wrap" aria-label="Sample purchase order sheet">
+     <figcaption class="bc-e-sheet-cap">Sample order sheet, demo data</figcaption>
+     <div class="bc-e-sheet">
+      <div class="bc-po-title">berthcast: Purchase Order Sheet</div>
+      <div class="bc-po-sub">Brookvale Demo Co &nbsp;|&nbsp; Analysis run: 14/10/2026 &nbsp;|&nbsp; 4 item(s) &nbsp;|&nbsp; 2 supplier(s)</div>
+      <table class="bc-po-table">
+       <thead>
+        <tr>
+         <th class="bc-po-col-opt">#</th>
+         <th class="bc-po-col-opt">Ordered</th>
+         <th>Item</th>
+         <th class="bc-po-col-opt">On hand</th>
+         <th>Suggested qty</th>
+         <th class="bc-po-col-opt">Order by</th>
+        </tr>
+       </thead>
+       <tbody>
+        <tr class="bc-po-group">
+         <td colspan="6">BROOKVALE DAIRY &nbsp;·&nbsp; 2 items &nbsp;·&nbsp; 1 critical</td>
+        </tr>
+        <tr>
+         <td class="bc-po-col-opt">1</td>
+         <td class="bc-po-col-opt"><span class="bc-po-tick" aria-hidden="true"></span></td>
+         <td>
+          <strong>Brookvale Unsalted Butter 250g x 40</strong>
+          <div class="bc-po-note">Action: REORDER · Decision: Approved</div>
+         </td>
+         <td class="bc-po-col-opt">14 ctn</td>
+         <td>
+          <strong>80 ctn</strong>
+          <div class="bc-po-note">Lead time: 21d</div>
+         </td>
+         <td class="bc-po-col-opt"><span class="bc-po-asap">ASAP</span></td>
+        </tr>
+        <tr>
+         <td class="bc-po-col-opt">2</td>
+         <td class="bc-po-col-opt"><span class="bc-po-tick" aria-hidden="true"></span></td>
+         <td>
+          <strong>Brookvale UHT Full Cream Milk 1L x 12</strong>
+          <div class="bc-po-note">Action: REORDER · Decision: Approved</div>
+         </td>
+         <td class="bc-po-col-opt">45 ctn</td>
+         <td>
+          <strong>120 ctn</strong>
+          <div class="bc-po-note">Lead time: 21d</div>
+         </td>
+         <td class="bc-po-col-opt">21/10/2026</td>
+        </tr>
+        <tr class="bc-po-group">
+         <td colspan="6">NORDVIK SEAFOOD &nbsp;·&nbsp; 2 items</td>
+        </tr>
+        <tr>
+         <td class="bc-po-col-opt">3</td>
+         <td class="bc-po-col-opt"><span class="bc-po-tick" aria-hidden="true"></span></td>
+         <td>
+          <strong>Nordvik Smoked Salmon Slices 500g</strong>
+          <div class="bc-po-note">Action: REORDER · Decision: Approved</div>
+         </td>
+         <td class="bc-po-col-opt">22 ctn</td>
+         <td>
+          <strong>60 ctn</strong>
+          <div class="bc-po-note">Lead time: 45d</div>
+         </td>
+         <td class="bc-po-col-opt">24/10/2026</td>
+        </tr>
+        <tr>
+         <td class="bc-po-col-opt">4</td>
+         <td class="bc-po-col-opt"><span class="bc-po-tick" aria-hidden="true"></span></td>
+         <td>
+          <strong>Nordvik Breaded Cod Portions 3kg</strong>
+          <div class="bc-po-note">Action: REORDER · Decision: Pending</div>
+         </td>
+         <td class="bc-po-col-opt">30 ctn</td>
+         <td>
+          <strong>50 ctn</strong>
+          <div class="bc-po-note">Lead time: 45d</div>
+         </td>
+         <td class="bc-po-col-opt">28/10/2026</td>
+        </tr>
+       </tbody>
+      </table>
+     </div>
+    </figure>
    </section>
    <section class="bc-e-workflow" id="how" aria-labelledby="bc-e-how-title">
-    <div>
+    <div class="bc-e-workflow-head">
      <h2 id="bc-e-how-title">How it works</h2>
      <p class="bc-e-workflow-intro">Start with the files you already export.</p>
     </div>
